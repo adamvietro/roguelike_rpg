@@ -48,16 +48,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3441f0f7b02788e948e47f457ca01f1d7e6d92c693bc132c22b087d3141c03ff"
 
 [[package]]
-name = "better_combat"
-version = "0.1.0"
-dependencies = [
- "bracket-lib",
- "legion",
- "ron",
- "serde",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -652,6 +642,16 @@ version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6984864d65d092d9e9ada107007a846a09f75d2e24046bcce9a38d14aa52052"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ever_space_rrpg"
+version = "0.1.0"
+dependencies = [
+ "bracket-lib",
+ "legion",
+ "ron",
  "serde",
 ]
 

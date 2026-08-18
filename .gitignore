@@ -5,5 +5,8 @@ Cargo.lock.bak
 *.pdb
 /target/debug
 
+# OS
+.vscode/
+
 # Zipped Project
 project.zip
