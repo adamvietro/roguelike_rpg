@@ -1,0 +1,41 @@
+# ---- Rust / Cargo ----
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+*.pdb
+/target/debug
+
+# If this is a library/reusable crate, uncomment the next line
+# so consumers pin their own dependency versions:
+# Cargo.lock
+
+# ---- Editors / IDEs ----
+.vscode/
+.idea/
+*.iml
+.vim/
+*.swp
+*.swo
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Logs / debug output ----
+*.log
+debug_output/
+
+# ---- Game-specific ----
+saves/
+*.sav
+screenshots/
+*.wasm-bindgen-cache/
+
+# ---- WASM builds (bracket-lib can target wasm32) ----
+/pkg/
+/dist/
+
+# ---- Env / secrets (just in case) ----
+.env
+.env.local
