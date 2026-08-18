@@ -18,6 +18,11 @@ mod prelude {
     pub const SCREEN_HEIGHT: i32 = 50;
     pub const DISPLAY_WIDTH: i32 = SCREEN_WIDTH / 2;
     pub const DISPLAY_HEIGHT: i32 = SCREEN_HEIGHT / 2;
+    // Battle portrait console: same physical 1280x800 window, a much
+    // coarser grid, so a single glyph drawn in one cell renders far bigger
+    // than the dungeon view's 32px tiles (256x200px per cell here).
+    pub const BATTLE_PORTRAIT_COLS: i32 = 5;
+    pub const BATTLE_PORTRAIT_ROWS: i32 = 4;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -29,6 +34,16 @@ mod prelude {
 }
 
 use prelude::*;
+
+/// Draws `render`'s glyph in a single cell at (col, row) in the given
+/// DrawBatch's target console coordinate space. Used to render scaled-up
+/// battle portraits on the coarse BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS
+/// console (see main()): because that console's cells are much bigger than
+/// the dungeon view's 32px tiles, a single glyph drawn there renders as a
+/// large, stretched version of the same sprite - no repetition needed.
+fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) {
+    batch.set(Point::new(col, row), render.color, render.glyph);
+}
 
 struct State {
     ecs: World,
@@ -137,8 +152,6 @@ impl State {
     }
 
     fn battle_tick(&mut self, ctx: &mut BTerm) {
-        ctx.set_active_console(2);
-
         let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
         let mut battle = match battle_snapshot {
             Some(b) => b,
@@ -152,50 +165,99 @@ impl State {
         let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
         let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
 
-        ctx.print_color_centered(
-            2,
+        // --- Portraits: each creature's own glyph, drawn once on the coarse
+        // BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it renders
+        // far larger than its normal dungeon-map size. Enemy sits top-right,
+        // player sits bottom-left.
+        let mut portraits = DrawBatch::new();
+        portraits.target(3);
+        if let Some(render) = entity_render_component(&self.ecs, battle.enemy) {
+            draw_portrait(&mut portraits, 4, 0, render);
+        }
+        if let Some(render) = entity_render_component(&self.ecs, battle.player) {
+            draw_portrait(&mut portraits, 0, 3, render);
+        }
+        portraits.submit(0).expect("Batch error");
+
+        // --- Text: name + HP bar anchored next to each portrait, and a
+        // message/menu panel centered in the gap between them.
+        ctx.set_active_console(2);
+
+        ctx.print_color(128, 26, YELLOW, BLACK, &battle.enemy_name);
+        ctx.print_color(
+            128,
+            27,
             YELLOW,
             BLACK,
             &format!(
-                "{}  (HP: {}/{})",
-                battle.enemy_name,
+                "{} {}/{}",
+                hp_bar_string(enemy_hp, enemy_max, 16),
                 enemy_hp.max(0),
                 enemy_max
             ),
         );
-        ctx.print_color_centered(
-            4,
+
+        ctx.print_color(1, 73, WHITE, BLACK, "You");
+        ctx.print_color(
+            1,
+            74,
             WHITE,
             BLACK,
-            &format!("You  (HP: {}/{})", player_hp.max(0), player_max),
+            &format!(
+                "{} {}/{}",
+                hp_bar_string(player_hp, player_max, 16),
+                player_hp.max(0),
+                player_max
+            ),
         );
 
         match battle.turn {
             BattleTurn::PlayerMenu => {
-                ctx.print_color_centered(8, GREEN, BLACK, "1) Attack   2) Defend");
+                let actions = available_actions(&self.ecs, battle.player);
+                let menu_text: String = actions
+                    .iter()
+                    .enumerate()
+                    .map(|(i, action)| format!("{}) {}", i + 1, action.label()))
+                    .collect::<Vec<_>>()
+                    .join("   ");
+                ctx.print_color_centered(48, GREEN, BLACK, &menu_text);
+
                 if let Some(key) = ctx.key {
-                    match key {
-                        VirtualKeyCode::Key1 => {
-                            let dmg = entity_damage(&self.ecs, battle.player)
-                                + carried_weapon_damage(&self.ecs, battle.player);
-                            apply_damage(&mut self.ecs, battle.enemy, dmg);
-                            battle.message =
-                                format!("You hit the {} for {} damage!", battle.enemy_name, dmg);
-                            battle.turn = BattleTurn::PlayerActionResult;
+                    if let Some(chosen) = number_key_index(key).and_then(|i| actions.get(i)) {
+                        match chosen {
+                            BattleAction::Attack => {
+                                let dmg = entity_damage(&self.ecs, battle.player)
+                                    + carried_weapon_damage(&self.ecs, battle.player);
+                                apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                battle.message = format!(
+                                    "You hit the {} for {} damage!",
+                                    battle.enemy_name, dmg
+                                );
+                            }
+                            BattleAction::Defend => {
+                                battle.player_defending = true;
+                                battle.message = "You brace yourself to defend.".to_string();
+                            }
+                            BattleAction::Flee => {
+                                battle.fled = true;
+                                battle.message =
+                                    format!("You flee from the {}!", battle.enemy_name);
+                            }
                         }
-                        VirtualKeyCode::Key2 => {
-                            battle.player_defending = true;
-                            battle.message = "You brace yourself to defend.".to_string();
-                            battle.turn = BattleTurn::PlayerActionResult;
-                        }
-                        _ => {}
+                        battle.turn = BattleTurn::PlayerActionResult;
                     }
                 }
             }
             BattleTurn::PlayerActionResult => {
-                ctx.print_color_centered(8, WHITE, BLACK, &battle.message);
-                ctx.print_color_centered(10, YELLOW, BLACK, "Press any key to continue.");
+                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
+                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
                 if ctx.key.is_some() {
+                    if battle.fled {
+                        self.resources.insert(None::<Battle>);
+                        self.resources.insert(TurnState::AwaitingInput);
+                        return;
+                    }
+
                     let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
                     if enemy_hp_now < 1 {
                         let mut cb = CommandBuffer::new(&mut self.ecs);
@@ -206,8 +268,9 @@ impl State {
                         return;
                     }
 
-                    // Enemy's turn. Enemies don't currently carry weapons,
-                    // so their attack is just their base Damage.
+                    // Enemy's turn. Enemies only know Attack for now (see
+                    // available_actions / CanAttack), so this always picks
+                    // that - future enemy AI variety hooks in here.
                     let mut dmg = entity_damage(&self.ecs, battle.enemy);
                     if battle.player_defending && dmg > 0 {
                         dmg = (dmg / 2).max(1);
@@ -226,8 +289,8 @@ impl State {
                 }
             }
             BattleTurn::EnemyActionResult => {
-                ctx.print_color_centered(8, WHITE, BLACK, &battle.message);
-                ctx.print_color_centered(10, YELLOW, BLACK, "Press any key to continue.");
+                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
+                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
                 if ctx.key.is_some() {
                     let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
                     if player_hp_now < 1 {
@@ -303,6 +366,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(2);
         ctx.cls();
+        ctx.set_active_console(3);
+        ctx.cls();
         self.resources.insert(ctx.key);
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
@@ -347,6 +412,11 @@ fn main() -> BError {
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2, "terminal8x8.png")
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "dungeonfont.png",
+        )
         .with_vsync(false)
         .build()?;
 

@@ -12,17 +12,3 @@ ron = "=0.6.1"
 
 [profile.release]
 lto = "thin"
-
-# Forces winit (via bracket-terminal) to use X11 instead of Wayland.
-#
-# Why: on Wayland, bracket-terminal's window creation goes through
-# sctk-adwaita's title-bar text renderer (crossfont/freetype), which hits
-# an "unsafe precondition violated" panic on some toolchains/setups
-# (e.g. WSLg defaulting to Wayland). Forcing X11 skips that renderer
-# entirely and avoids the crash. Also fixed a fullscreen issue.
-#
-# This only affects local `cargo run`/`cargo build` invocations from
-# this project directory tree — it is not baked into the compiled binary,
-# so it has no effect on distributed release builds unless set there too.
-[env]
-WINIT_UNIX_BACKEND = "x11"

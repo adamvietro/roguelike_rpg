@@ -1,8 +1,99 @@
 use crate::prelude::*;
 
+// --- Battle action capability components -----------------------------------
+//
+// Each of these is a marker component an entity can carry to say "I can do
+// this in battle." The battle menu is built at runtime from whichever of
+// these the acting entity actually has, rather than a hardcoded list - so a
+// future class can mix and match (e.g. a Mage might get CanAttack + CanFlee
+// but not CanDefend, or later a CanCastSpell component of its own) without
+// touching the menu code at all.
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanAttack;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanDefend;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CanFlee;
+
+/// One battle menu option. Add new variants here (and a matching CanXxx
+/// component above) as new actions come online.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BattleAction {
+    Attack,
+    Defend,
+    Flee,
+}
+
+impl BattleAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            BattleAction::Attack => "Attack",
+            BattleAction::Defend => "Defend",
+            BattleAction::Flee => "Flee",
+        }
+    }
+}
+
+fn has_can_attack(ecs: &World, entity: Entity) -> bool {
+    <(Entity, &CanAttack)>::query()
+        .iter(ecs)
+        .any(|(e, _)| *e == entity)
+}
+
+fn has_can_defend(ecs: &World, entity: Entity) -> bool {
+    <(Entity, &CanDefend)>::query()
+        .iter(ecs)
+        .any(|(e, _)| *e == entity)
+}
+
+fn has_can_flee(ecs: &World, entity: Entity) -> bool {
+    <(Entity, &CanFlee)>::query()
+        .iter(ecs)
+        .any(|(e, _)| *e == entity)
+}
+
+/// The ordered list of battle actions this entity currently has available,
+/// built from whichever CanXxx components it carries. This is what both the
+/// player's menu and (eventually) enemy AI should consult.
+pub fn available_actions(ecs: &World, entity: Entity) -> Vec<BattleAction> {
+    let mut actions = Vec::new();
+    if has_can_attack(ecs, entity) {
+        actions.push(BattleAction::Attack);
+    }
+    if has_can_defend(ecs, entity) {
+        actions.push(BattleAction::Defend);
+    }
+    if has_can_flee(ecs, entity) {
+        actions.push(BattleAction::Flee);
+    }
+    actions
+}
+
+/// Maps the number-row keys to a 0-based menu index, matching the existing
+/// item-use UX (Key1..Key9) elsewhere in the game.
+pub fn number_key_index(key: VirtualKeyCode) -> Option<usize> {
+    match key {
+        VirtualKeyCode::Key1 => Some(0),
+        VirtualKeyCode::Key2 => Some(1),
+        VirtualKeyCode::Key3 => Some(2),
+        VirtualKeyCode::Key4 => Some(3),
+        VirtualKeyCode::Key5 => Some(4),
+        VirtualKeyCode::Key6 => Some(5),
+        VirtualKeyCode::Key7 => Some(6),
+        VirtualKeyCode::Key8 => Some(7),
+        VirtualKeyCode::Key9 => Some(8),
+        _ => None,
+    }
+}
+
+// --- Battle state ------------------------------------------------------
+
 /// Which part of the battle round we're in. A round goes:
 /// PlayerMenu -> PlayerActionResult -> EnemyActionResult -> PlayerMenu ...
-/// until one side's Health hits zero.
+/// until one side's Health hits zero, or the player flees.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BattleTurn {
     PlayerMenu,
@@ -20,6 +111,7 @@ pub struct Battle {
     pub enemy_name: String,
     pub turn: BattleTurn,
     pub player_defending: bool,
+    pub fled: bool,
     pub message: String,
 }
 
@@ -31,10 +123,13 @@ impl Battle {
             enemy_name,
             turn: BattleTurn::PlayerMenu,
             player_defending: false,
+            fled: false,
             message: String::new(),
         }
     }
 }
+
+// --- Shared lookups/helpers used by the battle screen -----------------------
 
 /// An entity's own base Damage component value, or 0 if it doesn't have one.
 pub fn entity_damage(ecs: &World, entity: Entity) -> i32 {
@@ -71,4 +166,25 @@ pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) {
         .iter_mut(ecs)
         .filter(|(e, _)| **e == entity)
         .for_each(|(_, hp)| hp.current -= amount);
+}
+
+/// An entity's Render component (color + glyph), if it has one. Used to draw
+/// the scaled-up battle portraits using the same glyph the entity uses on
+/// the dungeon map.
+pub fn entity_render_component(ecs: &World, entity: Entity) -> Option<Render> {
+    <(Entity, &Render)>::query()
+        .iter(ecs)
+        .find(|(e, _)| **e == entity)
+        .map(|(_, r)| *r)
+}
+
+/// A simple bracket-style text health bar, e.g. "[######----]".
+pub fn hp_bar_string(current: i32, max: i32, width: usize) -> String {
+    if max <= 0 {
+        return format!("[{}]", "-".repeat(width));
+    }
+    let ratio = (current.max(0) as f32 / max as f32).min(1.0);
+    let filled = ((ratio * width as f32).round() as usize).min(width);
+    let empty = width - filled;
+    format!("[{}{}]", "#".repeat(filled), "-".repeat(empty))
 }
