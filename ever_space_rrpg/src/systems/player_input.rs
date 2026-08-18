@@ -4,6 +4,7 @@ use crate::prelude::*;
 #[read_component(Point)]
 #[read_component(Player)]
 #[read_component(Enemy)]
+#[read_component(Name)]
 #[write_component(Health)]
 #[read_component(Item)]
 #[read_component(Carried)]
@@ -13,6 +14,7 @@ pub fn player_input(
     commands: &mut CommandBuffer,
     #[resource] key: &Option<VirtualKeyCode>,
     #[resource] turn_state: &mut TurnState,
+    #[resource] battle: &mut Option<Battle>,
 ) {
     let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
@@ -70,33 +72,32 @@ pub fn player_input(
 
         // let mut did_something = false;
         if delta.x != 0 || delta.y != 0 {
-            let mut hit_something = false;
-            enemies
+            let attacked_enemy = enemies
                 .iter(ecs)
-                .filter(|(_, pos)| **pos == destination)
-                .for_each(|(entity, _)| {
-                    hit_something = true;
-                    // did_something = true;
+                .find(|(_, pos)| **pos == destination)
+                .map(|(entity, _)| *entity);
 
-                    commands.push((
-                        (),
-                        WantsToAttack {
-                            attacker: player_entity,
-                            victim: *entity,
-                        },
-                    ));
-                });
+            if let Some(enemy_entity) = attacked_enemy {
+                let enemy_name = ecs
+                    .entry_ref(enemy_entity)
+                    .ok()
+                    .and_then(|e| e.get_component::<Name>().ok().cloned())
+                    .map(|n| n.0)
+                    .unwrap_or_else(|| "the enemy".to_string());
 
-            if !hit_something {
-                // did_something = true;
-                commands.push((
-                    (),
-                    WantsToMove {
-                        entity: player_entity,
-                        destination,
-                    },
-                ));
+                *battle = Some(Battle::new(player_entity, enemy_entity, enemy_name));
+                *turn_state = TurnState::InBattle;
+                return;
             }
+
+            // did_something = true;
+            commands.push((
+                (),
+                WantsToMove {
+                    entity: player_entity,
+                    destination,
+                },
+            ));
         };
         *turn_state = TurnState::PlayerTurn;
     }

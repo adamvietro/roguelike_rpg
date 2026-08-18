@@ -6,10 +6,13 @@ use crate::prelude::*;
 #[read_component(FieldOfView)]
 #[read_component(Health)]
 #[read_component(Player)]
+#[read_component(Name)]
 pub fn chasing(
     #[resource] map: &Map,
+    #[resource] turn_state: &mut TurnState,
+    #[resource] battle: &mut Option<Battle>,
     ecs: &SubWorld,
-    commands: &mut CommandBuffer
+    commands: &mut CommandBuffer,
 ) {
     let mut movers = <(Entity, &Point, &ChasingPlayer, &FieldOfView)>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
@@ -18,22 +21,19 @@ pub fn chasing(
     let player_idx = map_idx(player_pos.x, player_pos.y);
 
     let search_targets = vec![player_idx];
-    let dijkstra_map = DijkstraMap::new(
-        SCREEN_WIDTH,
-        SCREEN_HEIGHT,
-        &search_targets,
-        map,
-        1024.0
-    );
+    let dijkstra_map = DijkstraMap::new(SCREEN_WIDTH, SCREEN_HEIGHT, &search_targets, map, 1024.0);
 
-    movers.iter(ecs).for_each(| (entity, pos, _, fov) | {
+    movers.iter(ecs).for_each(|(entity, pos, _, fov)| {
         if !fov.visible_tiles.contains(&player_pos) {
             return;
         }
+        // Once a battle has been queued this turn, let the rest of this
+        // turn's movers wait - they'll get another chance next monster turn.
+        if battle.is_some() {
+            return;
+        }
         let idx = map_idx(pos.x, pos.y);
-        if let Some(destination) = DijkstraMap::find_lowest_exit(&dijkstra_map, 
-            idx, map)
-        {
+        if let Some(destination) = DijkstraMap::find_lowest_exit(&dijkstra_map, idx, map) {
             let distance = DistanceAlg::Pythagoras.distance2d(*pos, *player_pos);
             let destination = if distance > 1.2 {
                 map.index_to_point2d(destination)
@@ -46,19 +46,33 @@ pub fn chasing(
                 .iter(ecs)
                 .filter(|(_, target_pos, _)| **target_pos == destination)
                 .for_each(|(victim, _, _)| {
-                    if ecs.entry_ref(*victim).unwrap().get_component::<Player>().is_ok() {
-                        commands
-                            .push(((), WantsToAttack{ 
-                                attacker: *entity,
-                                victim: *victim
-                            }));
+                    if ecs
+                        .entry_ref(*victim)
+                        .unwrap()
+                        .get_component::<Player>()
+                        .is_ok()
+                    {
+                        let enemy_name = ecs
+                            .entry_ref(*entity)
+                            .ok()
+                            .and_then(|e| e.get_component::<Name>().ok().cloned())
+                            .map(|n| n.0)
+                            .unwrap_or_else(|| "the enemy".to_string());
+
+                        *battle = Some(Battle::new(*victim, *entity, enemy_name));
+                        *turn_state = TurnState::InBattle;
                     }
                     attacked = true;
                 });
 
             if !attacked {
-                commands
-                    .push(((), WantsToMove{ entity: *entity, destination }));
+                commands.push((
+                    (),
+                    WantsToMove {
+                        entity: *entity,
+                        destination,
+                    },
+                ));
             }
         }
     });

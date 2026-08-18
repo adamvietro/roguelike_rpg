@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 
+mod battle;
 mod camera;
 mod components;
 mod map;
@@ -17,6 +18,7 @@ mod prelude {
     pub const SCREEN_HEIGHT: i32 = 50;
     pub const DISPLAY_WIDTH: i32 = SCREEN_WIDTH / 2;
     pub const DISPLAY_HEIGHT: i32 = SCREEN_HEIGHT / 2;
+    pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
     pub use crate::map::*;
@@ -50,6 +52,7 @@ impl State {
         resources.insert(Camera::new(map_builder.player_start));
         resources.insert(TurnState::AwaitingInput);
         resources.insert(map_builder.theme);
+        resources.insert(None::<Battle>);
         Self {
             ecs,
             resources,
@@ -72,6 +75,7 @@ impl State {
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(map_builder.theme);
+        self.resources.insert(None::<Battle>);
     }
 
     fn advance_level(&mut self) {
@@ -130,6 +134,115 @@ impl State {
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(map_builder.theme);
+    }
+
+    fn battle_tick(&mut self, ctx: &mut BTerm) {
+        ctx.set_active_console(2);
+
+        let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
+        let mut battle = match battle_snapshot {
+            Some(b) => b,
+            None => {
+                // Shouldn't happen, but don't get stuck if it does.
+                self.resources.insert(TurnState::AwaitingInput);
+                return;
+            }
+        };
+
+        let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
+        let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
+
+        ctx.print_color_centered(
+            2,
+            YELLOW,
+            BLACK,
+            &format!(
+                "{}  (HP: {}/{})",
+                battle.enemy_name,
+                enemy_hp.max(0),
+                enemy_max
+            ),
+        );
+        ctx.print_color_centered(
+            4,
+            WHITE,
+            BLACK,
+            &format!("You  (HP: {}/{})", player_hp.max(0), player_max),
+        );
+
+        match battle.turn {
+            BattleTurn::PlayerMenu => {
+                ctx.print_color_centered(8, GREEN, BLACK, "1) Attack   2) Defend");
+                if let Some(key) = ctx.key {
+                    match key {
+                        VirtualKeyCode::Key1 => {
+                            let dmg = entity_damage(&self.ecs, battle.player)
+                                + carried_weapon_damage(&self.ecs, battle.player);
+                            apply_damage(&mut self.ecs, battle.enemy, dmg);
+                            battle.message =
+                                format!("You hit the {} for {} damage!", battle.enemy_name, dmg);
+                            battle.turn = BattleTurn::PlayerActionResult;
+                        }
+                        VirtualKeyCode::Key2 => {
+                            battle.player_defending = true;
+                            battle.message = "You brace yourself to defend.".to_string();
+                            battle.turn = BattleTurn::PlayerActionResult;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            BattleTurn::PlayerActionResult => {
+                ctx.print_color_centered(8, WHITE, BLACK, &battle.message);
+                ctx.print_color_centered(10, YELLOW, BLACK, "Press any key to continue.");
+                if ctx.key.is_some() {
+                    let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+                    if enemy_hp_now < 1 {
+                        let mut cb = CommandBuffer::new(&mut self.ecs);
+                        cb.remove(battle.enemy);
+                        cb.flush(&mut self.ecs);
+                        self.resources.insert(None::<Battle>);
+                        self.resources.insert(TurnState::AwaitingInput);
+                        return;
+                    }
+
+                    // Enemy's turn. Enemies don't currently carry weapons,
+                    // so their attack is just their base Damage.
+                    let mut dmg = entity_damage(&self.ecs, battle.enemy);
+                    if battle.player_defending && dmg > 0 {
+                        dmg = (dmg / 2).max(1);
+                    }
+                    apply_damage(&mut self.ecs, battle.player, dmg);
+                    battle.message = if battle.player_defending {
+                        format!(
+                            "The {} attacks - you block some of it! ({} damage)",
+                            battle.enemy_name, dmg
+                        )
+                    } else {
+                        format!("The {} attacks you for {} damage!", battle.enemy_name, dmg)
+                    };
+                    battle.player_defending = false;
+                    battle.turn = BattleTurn::EnemyActionResult;
+                }
+            }
+            BattleTurn::EnemyActionResult => {
+                ctx.print_color_centered(8, WHITE, BLACK, &battle.message);
+                ctx.print_color_centered(10, YELLOW, BLACK, "Press any key to continue.");
+                if ctx.key.is_some() {
+                    let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
+                    if player_hp_now < 1 {
+                        self.resources.insert(None::<Battle>);
+                        self.resources.insert(TurnState::GameOver);
+                        return;
+                    }
+
+                    battle.turn = BattleTurn::PlayerMenu;
+                    battle.message.clear();
+                }
+            }
+        }
+
+        self.resources.insert(Some(battle));
     }
 
     fn game_over(&mut self, ctx: &mut BTerm) {
@@ -205,6 +318,9 @@ impl GameState for State {
             TurnState::MonsterTurn => self
                 .monster_systems
                 .execute(&mut self.ecs, &mut self.resources),
+            TurnState::InBattle => {
+                self.battle_tick(ctx);
+            }
             TurnState::GameOver => {
                 self.game_over(ctx);
             }
