@@ -20,9 +20,9 @@ mod prelude {
     pub const DISPLAY_HEIGHT: i32 = SCREEN_HEIGHT / 2;
     // Battle portrait console: same physical 1280x800 window, a much
     // coarser grid, so a single glyph drawn in one cell renders far bigger
-    // than the dungeon view's 32px tiles (256x200px per cell here).
+    // than the dungeon view's 32px tiles (256x160px per cell here).
     pub const BATTLE_PORTRAIT_COLS: i32 = 5;
-    pub const BATTLE_PORTRAIT_ROWS: i32 = 4;
+    pub const BATTLE_PORTRAIT_ROWS: i32 = 5;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -43,6 +43,68 @@ use prelude::*;
 /// large, stretched version of the same sprite - no repetition needed.
 fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) {
     batch.set(Point::new(col, row), render.color, render.glyph);
+}
+
+/// Draws a stylized tree/feature silhouette - a stepped triangular canopy
+/// over a short trunk - centered at (cx, cy) on whatever console the given
+/// DrawBatch targets. Fills both background and foreground (a brighter
+/// shade of the same color) so it reads as a solid shape rather than the
+/// thin scattered marks a foreground-only glyph gives.
+fn draw_tree(
+    batch: &mut DrawBatch,
+    glyph: FontCharType,
+    canopy_color: RGB,
+    trunk_color: RGB,
+    cx: i32,
+    cy: i32,
+) {
+    let canopy_fg = RGB::from_f32(
+        (canopy_color.r * 1.3).min(1.0),
+        (canopy_color.g * 1.3).min(1.0),
+        (canopy_color.b * 1.3).min(1.0),
+    );
+    let widths = [1, 3, 5, 7, 5, 3, 1];
+    for (i, &w) in widths.iter().enumerate() {
+        let row = cy - 3 + i as i32;
+        let half = w / 2;
+        for dx in -half..=half {
+            batch.set(
+                Point::new(cx + dx, row),
+                ColorPair::new(canopy_fg, canopy_color),
+                glyph,
+            );
+        }
+    }
+
+    let trunk_fg = RGB::from_f32(
+        (trunk_color.r * 1.3).min(1.0),
+        (trunk_color.g * 1.3).min(1.0),
+        (trunk_color.b * 1.3).min(1.0),
+    );
+    for row in (cy + 4)..=(cy + 5) {
+        batch.set(
+            Point::new(cx, row),
+            ColorPair::new(trunk_fg, trunk_color),
+            glyph,
+        );
+    }
+}
+
+/// Blends `base` brighter near the center of a w x h grid (a "clearing")
+/// and darker toward the edges (deeper shadow), rather than only ever
+/// darkening outward from a neutral center.
+fn vignette(base: RGB, x: i32, y: i32, w: i32, h: i32) -> RGB {
+    let cx = w as f32 / 2.0;
+    let cy = h as f32 / 2.0;
+    let dx = (x as f32 - cx) / cx;
+    let dy = (y as f32 - cy) / cy;
+    let dist = (dx * dx + dy * dy).sqrt().min(1.0);
+    let factor = 1.35 - dist * 0.8;
+    RGB::from_f32(
+        (base.r * factor).min(1.0),
+        (base.g * factor).min(1.0),
+        (base.b * factor).min(1.0),
+    )
 }
 
 struct State {
@@ -165,17 +227,103 @@ impl State {
         let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
         let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
 
+        // --- Arena background: the current dungeon theme's floor/wall
+        // tiles, tinted with that theme's palette and framed with a border,
+        // plus a soft vignette that brightens toward the center (a
+        // "clearing") and darkens toward the edges. Console 0 is otherwise
+        // blank during battle, so this is free real estate.
+        //
+        // Cell backgrounds (not just the thin foreground glyph) carry the
+        // tint, since a small character like '.' or ';' only covers a
+        // fraction of a cell's pixels - foreground-only color reads as
+        // scattered specks on black rather than an actual colored floor.
+        {
+            let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap();
+            let floor_glyph = theme.tile_to_render(TileType::Floor);
+            let wall_glyph = theme.tile_to_render(TileType::Wall);
+            let floor_base = theme.floor_color();
+            let wall_base = theme.wall_color();
+            let scenery = theme.battle_scenery();
+            drop(theme);
+
+            let mut arena = DrawBatch::new();
+            arena.target(0);
+            for y in 0..DISPLAY_HEIGHT {
+                for x in 0..DISPLAY_WIDTH {
+                    let is_border =
+                        x == 0 || y == 0 || x == DISPLAY_WIDTH - 1 || y == DISPLAY_HEIGHT - 1;
+                    let (glyph, base) = if is_border {
+                        (wall_glyph, wall_base)
+                    } else {
+                        (floor_glyph, floor_base)
+                    };
+                    let bg = vignette(base, x, y, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+                    let fg = RGB::from_f32(
+                        (bg.r * 1.4).min(1.0),
+                        (bg.g * 1.4).min(1.0),
+                        (bg.b * 1.4).min(1.0),
+                    );
+                    arena.set(Point::new(x, y), ColorPair::new(fg, bg), glyph);
+                }
+            }
+
+            match scenery {
+                BattleScenery::ScatteredTrees => {
+                    // A handful of large tree/foliage silhouettes,
+                    // hand-placed clear of the portraits, their labels,
+                    // and the message/menu panel. Drawn at full-strength
+                    // color (not vignetted) so they read as distinct
+                    // features wherever they land on the light/dark
+                    // gradient above.
+                    let canopy_color = RGB::from_f32(
+                        (floor_base.r * 1.5).min(1.0),
+                        (floor_base.g * 1.5).min(1.0),
+                        (floor_base.b * 1.5).min(1.0),
+                    );
+                    let trunk_color =
+                        RGB::from_f32(wall_base.r * 0.85, wall_base.g * 0.85, wall_base.b * 0.85);
+                    for &(tx, ty) in &[(6, 3), (18, 3), (35, 15), (22, 19)] {
+                        draw_tree(&mut arena, wall_glyph, canopy_color, trunk_color, tx, ty);
+                    }
+                }
+                BattleScenery::RoomWalls => {
+                    // Thick stone walls down the left/right sides, so the
+                    // arena reads as an enclosed room rather than open
+                    // ground. Full-strength color (not vignetted) - these
+                    // are structural, not lighting, so they stay solid
+                    // regardless of the floor's center-lit gradient.
+                    const SIDE_WALL_THICKNESS: i32 = 4;
+                    let fg = RGB::from_f32(
+                        (wall_base.r * 1.4).min(1.0),
+                        (wall_base.g * 1.4).min(1.0),
+                        (wall_base.b * 1.4).min(1.0),
+                    );
+                    let wall_color_pair = ColorPair::new(fg, wall_base);
+                    for y in 0..DISPLAY_HEIGHT {
+                        for x in 0..SIDE_WALL_THICKNESS {
+                            arena.set(Point::new(x, y), wall_color_pair, wall_glyph);
+                            let rx = DISPLAY_WIDTH - 1 - x;
+                            arena.set(Point::new(rx, y), wall_color_pair, wall_glyph);
+                        }
+                    }
+                }
+            }
+
+            arena.submit(0).expect("Batch error");
+        }
+
         // --- Portraits: each creature's own glyph, drawn once on the coarse
         // BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it renders
         // far larger than its normal dungeon-map size. Enemy sits top-right,
-        // player sits bottom-left.
+        // player sits bottom-left - both inset a step from the console
+        // edges so they don't touch the window border.
         let mut portraits = DrawBatch::new();
         portraits.target(3);
         if let Some(render) = entity_render_component(&self.ecs, battle.enemy) {
-            draw_portrait(&mut portraits, 4, 0, render);
+            draw_portrait(&mut portraits, 3, 1, render);
         }
         if let Some(render) = entity_render_component(&self.ecs, battle.player) {
-            draw_portrait(&mut portraits, 0, 3, render);
+            draw_portrait(&mut portraits, 1, 3, render);
         }
         portraits.submit(0).expect("Batch error");
 
@@ -183,10 +331,10 @@ impl State {
         // message/menu panel centered in the gap between them.
         ctx.set_active_console(2);
 
-        ctx.print_color(128, 26, YELLOW, BLACK, &battle.enemy_name);
+        ctx.print_color(96, 41, YELLOW, BLACK, &battle.enemy_name);
         ctx.print_color(
-            128,
-            27,
+            96,
+            42,
             YELLOW,
             BLACK,
             &format!(
@@ -197,10 +345,10 @@ impl State {
             ),
         );
 
-        ctx.print_color(1, 73, WHITE, BLACK, "You");
+        ctx.print_color(32, 58, WHITE, BLACK, "You");
         ctx.print_color(
-            1,
-            74,
+            32,
+            59,
             WHITE,
             BLACK,
             &format!(
