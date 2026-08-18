@@ -91,14 +91,27 @@ pub fn number_key_index(key: VirtualKeyCode) -> Option<usize> {
 
 // --- Battle state ------------------------------------------------------
 
+/// Which combatant is acting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Combatant {
+    Player,
+    Enemy,
+}
+
 /// Which part of the battle round we're in. A round goes:
-/// PlayerMenu -> PlayerActionResult -> EnemyActionResult -> PlayerMenu ...
-/// until one side's Health hits zero, or the player flees.
+/// (whoever's faster acts first - automatically, with no menu, if it's the
+/// enemy) -> FirstResult -> (the other combatant acts - PlayerMenu if it's
+/// the player, automatic if it's the enemy) -> SecondResult -> next round.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BattleTurn {
+    /// Waiting for the player to pick a menu action - shown either at the
+    /// start of a round (player is faster) or after the enemy's opening
+    /// move resolves (enemy is faster).
     PlayerMenu,
-    PlayerActionResult,
-    EnemyActionResult,
+    /// Result of whichever combatant acted first this round.
+    FirstResult,
+    /// Result of whichever combatant acted second this round.
+    SecondResult,
 }
 
 /// Resource describing an in-progress battle. Lives in `Resources` as
@@ -110,6 +123,12 @@ pub struct Battle {
     pub enemy: Entity,
     pub enemy_name: String,
     pub turn: BattleTurn,
+    /// Who acts first this round, decided by Speed at the start of each
+    /// round (see battle_tick). Placeholder value until then.
+    pub first_actor: Combatant,
+    /// True right after a new round begins and initiative hasn't been
+    /// decided yet - battle_tick resolves this before rendering anything.
+    pub awaiting_order_decision: bool,
     pub player_defending: bool,
     pub fled: bool,
     pub message: String,
@@ -122,6 +141,8 @@ impl Battle {
             enemy,
             enemy_name,
             turn: BattleTurn::PlayerMenu,
+            first_actor: Combatant::Player,
+            awaiting_order_decision: true,
             player_defending: false,
             fled: false,
             message: String::new(),
@@ -138,6 +159,16 @@ pub fn entity_damage(ecs: &World, entity: Entity) -> i32 {
         .find(|(e, _)| **e == entity)
         .map(|(_, d)| d.0)
         .unwrap_or(0)
+}
+
+/// An entity's own Speed component value, or a neutral default (5) if it
+/// doesn't have one. Higher acts first in battle - see battle_tick.
+pub fn entity_speed(ecs: &World, entity: Entity) -> i32 {
+    <(Entity, &Speed)>::query()
+        .iter(ecs)
+        .find(|(e, _)| **e == entity)
+        .map(|(_, s)| s.0)
+        .unwrap_or(5)
 }
 
 /// Sum of Damage on anything Carried by `wielder` (i.e. equipped weapons).
@@ -166,6 +197,30 @@ pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) {
         .iter_mut(ecs)
         .filter(|(e, _)| **e == entity)
         .for_each(|(_, hp)| hp.current -= amount);
+}
+
+/// The enemy automatically attacks the player. Enemies currently only ever
+/// know Attack (see CanAttack / available_actions), so this is a simple
+/// hardcoded action - a natural place for smarter enemy AI to hook in
+/// later. Applies the player's Defend reduction if active, then clears it
+/// (Defend only blocks the next hit taken, from whichever side lands it).
+/// Returns the message to show for this action.
+pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
+    let mut dmg = entity_damage(ecs, battle.enemy);
+    if battle.player_defending && dmg > 0 {
+        dmg = (dmg / 2).max(1);
+    }
+    apply_damage(ecs, battle.player, dmg);
+    let message = if battle.player_defending {
+        format!(
+            "The {} attacks - you block some of it! ({} damage)",
+            battle.enemy_name, dmg
+        )
+    } else {
+        format!("The {} attacks you for {} damage!", battle.enemy_name, dmg)
+    };
+    battle.player_defending = false;
+    message
 }
 
 /// An entity's Render component (color + glyph), if it has one. Used to draw

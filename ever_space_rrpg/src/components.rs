@@ -65,6 +65,11 @@ pub struct ActivateItem {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Damage(pub i32);
 
+/// How quickly this entity acts in battle - higher goes first. Used to
+/// decide battle initiative order (see Battle::new / battle_tick).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Speed(pub i32);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldOfView {
     pub visible_tiles: HashSet<Point>,

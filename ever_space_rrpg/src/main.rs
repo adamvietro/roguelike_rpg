@@ -224,6 +224,26 @@ impl State {
             }
         };
 
+        // --- Initiative: decided once at the start of each round, from
+        // Speed. If the enemy is faster, they attack immediately here -
+        // no menu shown - before the player ever gets a choice this round.
+        if battle.awaiting_order_decision {
+            let player_speed = entity_speed(&self.ecs, battle.player);
+            let enemy_speed = entity_speed(&self.ecs, battle.enemy);
+            battle.first_actor = if player_speed >= enemy_speed {
+                Combatant::Player
+            } else {
+                Combatant::Enemy
+            };
+            battle.awaiting_order_decision = false;
+
+            if battle.first_actor == Combatant::Enemy {
+                let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
+                battle.message = format!("Too fast to react! {}", attack_message);
+                battle.turn = BattleTurn::FirstResult;
+            }
+        }
+
         let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
         let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
 
@@ -392,11 +412,19 @@ impl State {
                                     format!("You flee from the {}!", battle.enemy_name);
                             }
                         }
-                        battle.turn = BattleTurn::PlayerActionResult;
+                        // The player is first_actor at the start of a round
+                        // they act in unprompted; if the enemy already
+                        // opened the round (first_actor == Enemy), this
+                        // menu is the player's second action instead.
+                        battle.turn = if battle.first_actor == Combatant::Player {
+                            BattleTurn::FirstResult
+                        } else {
+                            BattleTurn::SecondResult
+                        };
                     }
                 }
             }
-            BattleTurn::PlayerActionResult => {
+            BattleTurn::FirstResult => {
                 ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
                 ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
                 if ctx.key.is_some() {
@@ -406,48 +434,82 @@ impl State {
                         return;
                     }
 
-                    let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-                    if enemy_hp_now < 1 {
-                        let mut cb = CommandBuffer::new(&mut self.ecs);
-                        cb.remove(battle.enemy);
-                        cb.flush(&mut self.ecs);
+                    match battle.first_actor {
+                        Combatant::Player => {
+                            // Player went first and attacked the enemy -
+                            // check whether that finished the fight before
+                            // letting the enemy retaliate.
+                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+                            if enemy_hp_now < 1 {
+                                let mut cb = CommandBuffer::new(&mut self.ecs);
+                                cb.remove(battle.enemy);
+                                cb.flush(&mut self.ecs);
+                                self.resources.insert(None::<Battle>);
+                                self.resources.insert(TurnState::AwaitingInput);
+                                return;
+                            }
+                            battle.message = resolve_enemy_attack(&mut self.ecs, &mut battle);
+                            battle.turn = BattleTurn::SecondResult;
+                        }
+                        Combatant::Enemy => {
+                            // Enemy went first (they're faster) and already
+                            // attacked the player - check whether that
+                            // ended things before the player gets a turn.
+                            let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
+                            if player_hp_now < 1 {
+                                self.resources.insert(None::<Battle>);
+                                self.resources.insert(TurnState::GameOver);
+                                return;
+                            }
+                            battle.turn = BattleTurn::PlayerMenu;
+                            battle.message.clear();
+                        }
+                    }
+                }
+            }
+            BattleTurn::SecondResult => {
+                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
+                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
+                if ctx.key.is_some() {
+                    if battle.fled {
                         self.resources.insert(None::<Battle>);
                         self.resources.insert(TurnState::AwaitingInput);
                         return;
                     }
 
-                    // Enemy's turn. Enemies only know Attack for now (see
-                    // available_actions / CanAttack), so this always picks
-                    // that - future enemy AI variety hooks in here.
-                    let mut dmg = entity_damage(&self.ecs, battle.enemy);
-                    if battle.player_defending && dmg > 0 {
-                        dmg = (dmg / 2).max(1);
-                    }
-                    apply_damage(&mut self.ecs, battle.player, dmg);
-                    battle.message = if battle.player_defending {
-                        format!(
-                            "The {} attacks - you block some of it! ({} damage)",
-                            battle.enemy_name, dmg
-                        )
-                    } else {
-                        format!("The {} attacks you for {} damage!", battle.enemy_name, dmg)
+                    // Whoever acted second this round attacked whoever
+                    // acted first - check that side's death, then start a
+                    // fresh round (initiative gets recomputed next tick).
+                    let target_died = match battle.first_actor {
+                        Combatant::Player => {
+                            let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
+                            player_hp_now < 1
+                        }
+                        Combatant::Enemy => {
+                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+                            enemy_hp_now < 1
+                        }
                     };
-                    battle.player_defending = false;
-                    battle.turn = BattleTurn::EnemyActionResult;
-                }
-            }
-            BattleTurn::EnemyActionResult => {
-                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
-                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
-                if ctx.key.is_some() {
-                    let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
-                    if player_hp_now < 1 {
-                        self.resources.insert(None::<Battle>);
-                        self.resources.insert(TurnState::GameOver);
+
+                    if target_died {
+                        match battle.first_actor {
+                            Combatant::Player => {
+                                self.resources.insert(None::<Battle>);
+                                self.resources.insert(TurnState::GameOver);
+                            }
+                            Combatant::Enemy => {
+                                let mut cb = CommandBuffer::new(&mut self.ecs);
+                                cb.remove(battle.enemy);
+                                cb.flush(&mut self.ecs);
+                                self.resources.insert(None::<Battle>);
+                                self.resources.insert(TurnState::AwaitingInput);
+                            }
+                        }
                         return;
                     }
 
                     battle.turn = BattleTurn::PlayerMenu;
+                    battle.awaiting_order_decision = true;
                     battle.message.clear();
                 }
             }

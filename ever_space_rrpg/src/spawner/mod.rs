@@ -21,6 +21,7 @@ pub fn spawn_player(ecs: &mut World, pos: Point) {
     commands.add_component(player, CanAttack);
     commands.add_component(player, CanDefend);
     commands.add_component(player, CanFlee);
+    commands.add_component(player, Speed(6));
     commands.flush(ecs);
 }
 

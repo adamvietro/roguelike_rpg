@@ -20,6 +20,7 @@ pub struct Template {
     pub provides: Option<Vec<(String, i32)>>,
     pub hp: Option<i32>,
     pub base_damage: Option<i32>,
+    pub speed: Option<i32>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -80,6 +81,7 @@ impl Templates {
                 commands.add_component(entity, FieldOfView::new(6));
                 commands.add_component(entity, ChasingPlayer {});
                 commands.add_component(entity, CanAttack);
+                commands.add_component(entity, Speed(template.speed.unwrap_or(5)));
                 commands.add_component(
                     entity,
                     Health {
