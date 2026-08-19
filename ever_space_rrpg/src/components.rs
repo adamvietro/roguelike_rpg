@@ -88,6 +88,27 @@ pub struct BattleItem;
 #[derive(Clone, PartialEq)]
 pub struct Carried(pub Entity);
 
+/// Every Carried+Item entity belonging to `wielder` that's actually
+/// usable via a number-key press - i.e. NOT a Weapon (equipped/applied
+/// automatically, see carried_weapon_damage in battle.rs) and NOT a
+/// BattleItem (used from the battle menu instead, not the dungeon-view
+/// item keys). This is the single source of truth for both what the HUD
+/// lists on the left AND which entity a given number key activates
+/// (see systems/hud.rs and systems/player_input.rs::use_item) - using the
+/// same list in both places keeps the displayed numbering and the actual
+/// key-to-item mapping from ever drifting apart.
+pub fn usable_carried_items(ecs: &SubWorld, wielder: Entity) -> Vec<Entity> {
+    <(Entity, &Item, &Carried)>::query()
+        .iter(ecs)
+        .filter(|(_, _, carried)| carried.0 == wielder)
+        .map(|(e, _, _)| *e)
+        .filter(|e| {
+            let entry = ecs.entry_ref(*e).unwrap();
+            entry.get_component::<Weapon>().is_err() && entry.get_component::<BattleItem>().is_err()
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActivateItem {
     pub used_by: Entity,

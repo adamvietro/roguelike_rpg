@@ -23,6 +23,12 @@ mod prelude {
     // than the dungeon view's 32px tiles (256x160px per cell here).
     pub const BATTLE_PORTRAIT_COLS: i32 = 5;
     pub const BATTLE_PORTRAIT_ROWS: i32 = 5;
+    // Dungeon HUD console (health bar, item lists, tooltips): same
+    // physical 1280x800 window as everything else, but ~1.5x bigger cells
+    // than the old 8px text (console 2, still used by battle screens),
+    // so exploration-view text reads bigger without touching battle UI.
+    pub const HUD_COLS: i32 = 107;
+    pub const HUD_ROWS: i32 = 67;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -215,72 +221,17 @@ impl State {
         self.resources.insert(map_builder.theme);
     }
 
-    fn battle_tick(&mut self, ctx: &mut BTerm) {
-        let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
-        let mut battle = match battle_snapshot {
-            Some(b) => b,
-            None => {
-                // Shouldn't happen, but don't get stuck if it does.
-                self.resources.insert(TurnState::AwaitingInput);
-                return;
-            }
-        };
-
-        // --- Initiative: decided once at the start of each round, from
-        // Speed. Garrote (if active) ticks first, before initiative is
-        // even decided - it's a lingering wound, not an action. If the
-        // enemy is faster, they attack immediately here - no menu shown -
-        // before the player ever gets a choice this round.
-        if battle.awaiting_order_decision {
-            let garrote_message = tick_garrote(&mut self.ecs, &mut battle);
-
-            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-            if enemy_hp_now < 1 {
-                let mut rng = RandomNumberGenerator::new();
-                let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
-                let mut cb = CommandBuffer::new(&mut self.ecs);
-                cb.remove(battle.enemy);
-                cb.flush(&mut self.ecs);
-                self.resources.insert(Some(BattleVictory {
-                    enemy_name: battle.enemy_name.clone(),
-                    loot,
-                }));
-                self.resources.insert(None::<Battle>);
-                self.resources.insert(TurnState::BattleVictory);
-                return;
-            }
-
-            let player_speed = entity_speed(&self.ecs, battle.player);
-            let enemy_speed = entity_speed(&self.ecs, battle.enemy);
-            battle.first_actor = if player_speed >= enemy_speed {
-                Combatant::Player
-            } else {
-                Combatant::Enemy
-            };
-            battle.awaiting_order_decision = false;
-
-            if battle.first_actor == Combatant::Enemy {
-                let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.message = match garrote_message {
-                    Some(g) => format!("{} Too fast to react! {}", g, attack_message),
-                    None => format!("Too fast to react! {}", attack_message),
-                };
-                battle.turn = BattleTurn::FirstResult;
-            } else {
-                // Player is first_actor - PlayerMenu renders this same
-                // tick, so surface the Garrote tick there instead.
-                battle.message = garrote_message.unwrap_or_default();
-            }
-        }
-
-        let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
-        let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
-
+    /// Draws the battle arena background (console 0: the current theme's
+    /// floor/walls/scenery) and both combatant portraits (console 3).
+    /// Callers look up Render live during an active battle, or pass a
+    /// value captured before an entity was removed (see
+    /// battle_victory_tick, where the enemy no longer exists in the ECS).
+    fn draw_battle_arena(&mut self, enemy_render: Option<Render>, player_render: Option<Render>) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
         // plus a soft vignette that brightens toward the center (a
         // "clearing") and darkens toward the edges. Console 0 is otherwise
-        // blank during battle, so this is free real estate.
+        // blank outside battle-related states, so this is free real estate.
         //
         // Cell backgrounds (not just the thin foreground glyph) carry the
         // tint, since a small character like '.' or ';' only covers a
@@ -368,13 +319,80 @@ impl State {
         // edges so they don't touch the window border.
         let mut portraits = DrawBatch::new();
         portraits.target(3);
-        if let Some(render) = entity_render_component(&self.ecs, battle.enemy) {
+        if let Some(render) = enemy_render {
             draw_portrait(&mut portraits, 3, 1, render);
         }
-        if let Some(render) = entity_render_component(&self.ecs, battle.player) {
+        if let Some(render) = player_render {
             draw_portrait(&mut portraits, 1, 3, render);
         }
         portraits.submit(0).expect("Batch error");
+    }
+
+    fn battle_tick(&mut self, ctx: &mut BTerm) {
+        let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
+        let mut battle = match battle_snapshot {
+            Some(b) => b,
+            None => {
+                // Shouldn't happen, but don't get stuck if it does.
+                self.resources.insert(TurnState::AwaitingInput);
+                return;
+            }
+        };
+
+        // --- Initiative: decided once at the start of each round, from
+        // Speed. Garrote (if active) ticks first, before initiative is
+        // even decided - it's a lingering wound, not an action. If the
+        // enemy is faster, they attack immediately here - no menu shown -
+        // before the player ever gets a choice this round.
+        if battle.awaiting_order_decision {
+            let garrote_message = tick_garrote(&mut self.ecs, &mut battle);
+
+            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+            if enemy_hp_now < 1 {
+                let mut rng = RandomNumberGenerator::new();
+                let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
+                let mut cb = CommandBuffer::new(&mut self.ecs);
+                cb.remove(battle.enemy);
+                cb.flush(&mut self.ecs);
+                self.resources.insert(Some(BattleVictory {
+                    player: battle.player,
+                    enemy_name: battle.enemy_name.clone(),
+                    loot,
+                }));
+                self.resources.insert(None::<Battle>);
+                self.resources.insert(TurnState::BattleVictory);
+                return;
+            }
+
+            let player_speed = entity_speed(&self.ecs, battle.player);
+            let enemy_speed = entity_speed(&self.ecs, battle.enemy);
+            battle.first_actor = if player_speed >= enemy_speed {
+                Combatant::Player
+            } else {
+                Combatant::Enemy
+            };
+            battle.awaiting_order_decision = false;
+
+            if battle.first_actor == Combatant::Enemy {
+                let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
+                battle.message = match garrote_message {
+                    Some(g) => format!("{} Too fast to react! {}", g, attack_message),
+                    None => format!("Too fast to react! {}", attack_message),
+                };
+                battle.turn = BattleTurn::FirstResult;
+            } else {
+                // Player is first_actor - PlayerMenu renders this same
+                // tick, so surface the Garrote tick there instead.
+                battle.message = garrote_message.unwrap_or_default();
+            }
+        }
+
+        let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
+        let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
+
+        let enemy_render = entity_render_component(&self.ecs, battle.enemy);
+        let player_render = entity_render_component(&self.ecs, battle.player);
+        self.draw_battle_arena(enemy_render, player_render);
 
         // --- Text: name + HP bar anchored next to each portrait, and a
         // message/menu panel centered in the gap between them.
@@ -554,6 +572,7 @@ impl State {
                                 cb.remove(battle.enemy);
                                 cb.flush(&mut self.ecs);
                                 self.resources.insert(Some(BattleVictory {
+                                    player: battle.player,
                                     enemy_name: battle.enemy_name.clone(),
                                     loot,
                                 }));
@@ -621,6 +640,7 @@ impl State {
                                 cb.remove(battle.enemy);
                                 cb.flush(&mut self.ecs);
                                 self.resources.insert(Some(BattleVictory {
+                                    player: battle.player,
                                     enemy_name: battle.enemy_name.clone(),
                                     loot,
                                 }));
@@ -642,8 +662,6 @@ impl State {
     }
 
     fn battle_victory_tick(&mut self, ctx: &mut BTerm) {
-        ctx.set_active_console(2);
-
         let victory_snapshot = self
             .resources
             .get::<Option<BattleVictory>>()
@@ -658,21 +676,25 @@ impl State {
             }
         };
 
+        let player_render = entity_render_component(&self.ecs, victory.player);
+        self.draw_battle_arena(None, player_render);
+
+        ctx.set_active_console(2);
         ctx.print_color_centered(
-            30,
+            45,
             GREEN,
             BLACK,
             &format!("You defeated the {}!", victory.enemy_name),
         );
         match &victory.loot {
             Some(item) => {
-                ctx.print_color_centered(32, YELLOW, BLACK, &format!("You found: {}!", item));
+                ctx.print_color_centered(48, YELLOW, BLACK, &format!("You found: {}!", item));
             }
             None => {
-                ctx.print_color_centered(32, WHITE, BLACK, "No loot this time.");
+                ctx.print_color_centered(48, WHITE, BLACK, "No loot this time.");
             }
         }
-        ctx.print_color_centered(35, YELLOW, BLACK, "Press any key to continue.");
+        ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
 
         if ctx.key.is_some() {
             self.resources.insert(None::<BattleVictory>);
@@ -740,6 +762,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(3);
         ctx.cls();
+        ctx.set_active_console(4);
+        ctx.cls();
         self.resources.insert(ctx.key);
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
@@ -792,6 +816,7 @@ fn main() -> BError {
             BATTLE_PORTRAIT_ROWS,
             "dungeonfont.png",
         )
+        .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 

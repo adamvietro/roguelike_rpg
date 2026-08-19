@@ -9,6 +9,7 @@ use crate::prelude::*;
 #[read_component(Item)]
 #[read_component(Carried)]
 #[read_component(Weapon)]
+#[read_component(BattleItem)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -109,12 +110,7 @@ fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point
         .find_map(|(entity, _player)| Some(*entity))
         .unwrap();
 
-    let item_entity = <(Entity, &Item, &Carried)>::query()
-        .iter(ecs)
-        .filter(|(_, _, carried)| carried.0 == player_entity)
-        .enumerate()
-        .filter(|(item_count, (_, _, _))| *item_count == n)
-        .find_map(|(_, (item_entity, _, _))| Some(*item_entity));
+    let item_entity = usable_carried_items(ecs, player_entity).get(n).copied();
 
     if let Some(item_entity) = item_entity {
         commands.push((

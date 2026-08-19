@@ -5,10 +5,7 @@ Magic only for Mages.
 
 Make the player or the Enemy stunned after a flee
 
-
-
-
-
+Player Animations
 
 
 

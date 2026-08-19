@@ -256,8 +256,12 @@ pub const COUNTER_CHANCE_PERCENT: i32 = 65;
 /// What to show on the post-battle victory screen (TurnState::BattleVictory)
 /// - set right when an enemy dies in battle_tick, read once by
 /// battle_victory_tick, then cleared when the player dismisses it.
+/// `player` stays valid since the player entity is never removed, so its
+/// Render is looked up live - the enemy is gone by this point and isn't
+/// shown.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BattleVictory {
+    pub player: Entity,
     pub enemy_name: String,
     pub loot: Option<String>,
 }
