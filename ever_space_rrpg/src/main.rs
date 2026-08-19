@@ -130,6 +130,7 @@ impl State {
         resources.insert(TurnState::AwaitingInput);
         resources.insert(map_builder.theme);
         resources.insert(None::<Battle>);
+        resources.insert(None::<BattleVictory>);
         Self {
             ecs,
             resources,
@@ -153,6 +154,7 @@ impl State {
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
+        self.resources.insert(None::<BattleVictory>);
     }
 
     fn advance_level(&mut self) {
@@ -225,9 +227,29 @@ impl State {
         };
 
         // --- Initiative: decided once at the start of each round, from
-        // Speed. If the enemy is faster, they attack immediately here -
-        // no menu shown - before the player ever gets a choice this round.
+        // Speed. Garrote (if active) ticks first, before initiative is
+        // even decided - it's a lingering wound, not an action. If the
+        // enemy is faster, they attack immediately here - no menu shown -
+        // before the player ever gets a choice this round.
         if battle.awaiting_order_decision {
+            let garrote_message = tick_garrote(&mut self.ecs, &mut battle);
+
+            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+            if enemy_hp_now < 1 {
+                let mut rng = RandomNumberGenerator::new();
+                let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
+                let mut cb = CommandBuffer::new(&mut self.ecs);
+                cb.remove(battle.enemy);
+                cb.flush(&mut self.ecs);
+                self.resources.insert(Some(BattleVictory {
+                    enemy_name: battle.enemy_name.clone(),
+                    loot,
+                }));
+                self.resources.insert(None::<Battle>);
+                self.resources.insert(TurnState::BattleVictory);
+                return;
+            }
+
             let player_speed = entity_speed(&self.ecs, battle.player);
             let enemy_speed = entity_speed(&self.ecs, battle.enemy);
             battle.first_actor = if player_speed >= enemy_speed {
@@ -239,8 +261,15 @@ impl State {
 
             if battle.first_actor == Combatant::Enemy {
                 let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.message = format!("Too fast to react! {}", attack_message);
+                battle.message = match garrote_message {
+                    Some(g) => format!("{} Too fast to react! {}", g, attack_message),
+                    None => format!("Too fast to react! {}", attack_message),
+                };
                 battle.turn = BattleTurn::FirstResult;
+            } else {
+                // Player is first_actor - PlayerMenu renders this same
+                // tick, so surface the Garrote tick there instead.
+                battle.message = garrote_message.unwrap_or_default();
             }
         }
 
@@ -381,21 +410,31 @@ impl State {
 
         match battle.turn {
             BattleTurn::PlayerMenu => {
+                if !battle.message.is_empty() {
+                    ctx.print_color_centered(45, YELLOW, BLACK, &battle.message);
+                }
+
+                let player_class = entity_class(&self.ecs, battle.player).unwrap_or_default();
                 let actions = available_actions(&self.ecs, battle.player);
                 let menu_text: String = actions
                     .iter()
                     .enumerate()
-                    .map(|(i, action)| format!("{}) {}", i + 1, action.label()))
+                    .map(|(i, (action, count))| match count {
+                        Some(n) => format!("{}) {} x{}", i + 1, action.label(), n),
+                        None => format!("{}) {}", i + 1, action.label()),
+                    })
                     .collect::<Vec<_>>()
                     .join("   ");
                 ctx.print_color_centered(48, GREEN, BLACK, &menu_text);
 
                 if let Some(key) = ctx.key {
-                    if let Some(chosen) = number_key_index(key).and_then(|i| actions.get(i)) {
+                    let chosen = number_key_index(key)
+                        .and_then(|i| actions.get(i))
+                        .map(|(action, _)| *action);
+                    if let Some(chosen) = chosen {
                         match chosen {
                             BattleAction::Attack => {
-                                let dmg = entity_damage(&self.ecs, battle.player)
-                                    + carried_weapon_damage(&self.ecs, battle.player);
+                                let dmg = player_attack_damage(&self.ecs, battle.player);
                                 apply_damage(&mut self.ecs, battle.enemy, dmg);
                                 battle.message = format!(
                                     "You hit the {} for {} damage!",
@@ -410,6 +449,70 @@ impl State {
                                 battle.fled = true;
                                 battle.message =
                                     format!("You flee from the {}!", battle.enemy_name);
+                            }
+                            BattleAction::Deathblow => {
+                                if let Some(item) =
+                                    carried_deathblows(&self.ecs, battle.player, &player_class)
+                                        .first()
+                                        .copied()
+                                {
+                                    let mut cb = CommandBuffer::new(&mut self.ecs);
+                                    cb.remove(item);
+                                    cb.flush(&mut self.ecs);
+                                    let dmg = player_attack_damage(&self.ecs, battle.player) * 2;
+                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                    battle.message = format!(
+                                        "Deathblow! You strike the {} for {} damage!",
+                                        battle.enemy_name, dmg
+                                    );
+                                }
+                            }
+                            BattleAction::QuickAttack => {
+                                if let Some(item) =
+                                    carried_quick_attacks(&self.ecs, battle.player, &player_class)
+                                        .first()
+                                        .copied()
+                                {
+                                    let mut cb = CommandBuffer::new(&mut self.ecs);
+                                    cb.remove(item);
+                                    cb.flush(&mut self.ecs);
+                                    let dmg = player_attack_damage(&self.ecs, battle.player);
+                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                    battle.message = format!(
+                                        "Quick Attack! You strike the {} twice for {} damage each!",
+                                        battle.enemy_name, dmg
+                                    );
+                                }
+                            }
+                            BattleAction::CounterAttack => {
+                                if let Some(item) =
+                                    carried_counter_attacks(&self.ecs, battle.player, &player_class)
+                                        .first()
+                                        .copied()
+                                {
+                                    let mut cb = CommandBuffer::new(&mut self.ecs);
+                                    cb.remove(item);
+                                    cb.flush(&mut self.ecs);
+                                    battle.countering = true;
+                                    battle.message = "You ready a counter-attack...".to_string();
+                                }
+                            }
+                            BattleAction::Garrote => {
+                                if let Some(item) =
+                                    carried_garrotes(&self.ecs, battle.player, &player_class)
+                                        .first()
+                                        .copied()
+                                {
+                                    let mut cb = CommandBuffer::new(&mut self.ecs);
+                                    cb.remove(item);
+                                    cb.flush(&mut self.ecs);
+                                    battle.garrote_turns_remaining = 3;
+                                    battle.message = format!(
+                                        "You garrote the {} - it will bleed!",
+                                        battle.enemy_name
+                                    );
+                                }
                             }
                         }
                         // The player is first_actor at the start of a round
@@ -441,11 +544,21 @@ impl State {
                             // letting the enemy retaliate.
                             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
                             if enemy_hp_now < 1 {
+                                let mut rng = RandomNumberGenerator::new();
+                                let loot = grant_random_battle_loot(
+                                    &mut self.ecs,
+                                    &mut rng,
+                                    battle.player,
+                                );
                                 let mut cb = CommandBuffer::new(&mut self.ecs);
                                 cb.remove(battle.enemy);
                                 cb.flush(&mut self.ecs);
+                                self.resources.insert(Some(BattleVictory {
+                                    enemy_name: battle.enemy_name.clone(),
+                                    loot,
+                                }));
                                 self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::AwaitingInput);
+                                self.resources.insert(TurnState::BattleVictory);
                                 return;
                             }
                             battle.message = resolve_enemy_attack(&mut self.ecs, &mut battle);
@@ -498,11 +611,21 @@ impl State {
                                 self.resources.insert(TurnState::GameOver);
                             }
                             Combatant::Enemy => {
+                                let mut rng = RandomNumberGenerator::new();
+                                let loot = grant_random_battle_loot(
+                                    &mut self.ecs,
+                                    &mut rng,
+                                    battle.player,
+                                );
                                 let mut cb = CommandBuffer::new(&mut self.ecs);
                                 cb.remove(battle.enemy);
                                 cb.flush(&mut self.ecs);
+                                self.resources.insert(Some(BattleVictory {
+                                    enemy_name: battle.enemy_name.clone(),
+                                    loot,
+                                }));
                                 self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::AwaitingInput);
+                                self.resources.insert(TurnState::BattleVictory);
                             }
                         }
                         return;
@@ -516,6 +639,45 @@ impl State {
         }
 
         self.resources.insert(Some(battle));
+    }
+
+    fn battle_victory_tick(&mut self, ctx: &mut BTerm) {
+        ctx.set_active_console(2);
+
+        let victory_snapshot = self
+            .resources
+            .get::<Option<BattleVictory>>()
+            .unwrap()
+            .clone();
+        let victory = match victory_snapshot {
+            Some(v) => v,
+            None => {
+                // Shouldn't happen, but don't get stuck if it does.
+                self.resources.insert(TurnState::AwaitingInput);
+                return;
+            }
+        };
+
+        ctx.print_color_centered(
+            30,
+            GREEN,
+            BLACK,
+            &format!("You defeated the {}!", victory.enemy_name),
+        );
+        match &victory.loot {
+            Some(item) => {
+                ctx.print_color_centered(32, YELLOW, BLACK, &format!("You found: {}!", item));
+            }
+            None => {
+                ctx.print_color_centered(32, WHITE, BLACK, "No loot this time.");
+            }
+        }
+        ctx.print_color_centered(35, YELLOW, BLACK, "Press any key to continue.");
+
+        if ctx.key.is_some() {
+            self.resources.insert(None::<BattleVictory>);
+            self.resources.insert(TurnState::AwaitingInput);
+        }
     }
 
     fn game_over(&mut self, ctx: &mut BTerm) {
@@ -595,6 +757,9 @@ impl GameState for State {
                 .execute(&mut self.ecs, &mut self.resources),
             TurnState::InBattle => {
                 self.battle_tick(ctx);
+            }
+            TurnState::BattleVictory => {
+                self.battle_victory_tick(ctx);
             }
             TurnState::GameOver => {
                 self.game_over(ctx);

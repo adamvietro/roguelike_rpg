@@ -4,6 +4,7 @@ pub enum TurnState {
     PlayerTurn,
     MonsterTurn,
     InBattle,
+    BattleVictory,
     GameOver,
     Victory,
     NextLevel,

@@ -22,6 +22,7 @@ pub fn spawn_player(ecs: &mut World, pos: Point) {
     commands.add_component(player, CanDefend);
     commands.add_component(player, CanFlee);
     commands.add_component(player, Speed(6));
+    commands.add_component(player, Class("Barbarian".to_string()));
     commands.flush(ecs);
 }
 
@@ -33,6 +34,19 @@ pub fn spawn_level(
 ) {
     let template = Templates::load();
     template.spawn_entities(ecs, rng, level, spawn_points);
+}
+
+/// Rolls a chance to grant the player a random one-time battle item after
+/// a battle victory, filtered to items matching the player's own Class.
+/// Returns the granted item's display name, if any.
+pub fn grant_random_battle_loot(
+    ecs: &mut World,
+    rng: &mut RandomNumberGenerator,
+    player: Entity,
+) -> Option<String> {
+    let player_class = entity_class(ecs, player)?;
+    let template = Templates::load();
+    template.grant_random_battle_loot(ecs, rng, player, &player_class)
 }
 
 pub fn spawn_amulet_of_yala(ecs: &mut World, pos: Point) {

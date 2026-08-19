@@ -31,6 +31,36 @@ Templates(
             base_damage: Some(3)
         ),
         Template(
+            // Battle loot only - levels:[] means this never appears as a
+            // normal floor spawn, only via grant_random_battle_loot.
+            entity_type: Item,
+            name : "Deathblow", glyph: '*', levels: [ ],
+            provides: Some([ ("Deathblow", 0) ]),
+            frequency: 0,
+            class: Some("Barbarian")
+        ),
+        Template(
+            entity_type: Item,
+            name : "Quick Attack", glyph: '=', levels: [ ],
+            provides: Some([ ("QuickAttack", 0) ]),
+            frequency: 0,
+            class: Some("Barbarian")
+        ),
+        Template(
+            entity_type: Item,
+            name : "Counter Attack", glyph: '%', levels: [ ],
+            provides: Some([ ("CounterAttack", 0) ]),
+            frequency: 0,
+            class: Some("Barbarian")
+        ),
+        Template(
+            entity_type: Item,
+            name : "Garrote", glyph: '&', levels: [ ],
+            provides: Some([ ("Garrote", 0) ]),
+            frequency: 0,
+            class: Some("Barbarian")
+        ),
+        Template(
             entity_type: Enemy,
             name : "Goblin", glyph : 'g', levels : [ 0 ],
             hp : Some(1),

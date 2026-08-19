@@ -21,12 +21,19 @@ pub struct Template {
     pub hp: Option<i32>,
     pub base_damage: Option<i32>,
     pub speed: Option<i32>,
+    /// Which class can use/be granted this item, e.g. "Barbarian". None
+    /// means unrestricted - usable by anyone (weapons, potions, etc. stay
+    /// unrestricted unless you want to gate those too later).
+    pub class: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct Templates {
     pub entities: Vec<Template>,
 }
+
+/// Percent chance a battle victory grants a random loot item at all.
+const BATTLE_LOOT_DROP_CHANCE_PERCENT: i32 = 40;
 
 impl Templates {
     pub fn load() -> Self {
@@ -60,6 +67,46 @@ impl Templates {
         commands.flush(ecs);
     }
 
+    /// Rolls a chance to grant the player a random one-time battle item
+    /// after a battle victory, picked only from templates whose `class`
+    /// matches `player_class` - a Barbarian only ever gets Barbarian
+    /// techniques, etc. Call this from battle_tick when an enemy dies.
+    /// Returns the granted item's display name, if any.
+    pub fn grant_random_battle_loot(
+        &self,
+        ecs: &mut World,
+        rng: &mut RandomNumberGenerator,
+        player: Entity,
+        player_class: &str,
+    ) -> Option<String> {
+        if rng.range(0, 100) >= BATTLE_LOOT_DROP_CHANCE_PERCENT {
+            return None;
+        }
+
+        let candidates: Vec<&Template> = self
+            .entities
+            .iter()
+            .filter(|t| t.class.as_deref() == Some(player_class))
+            .collect();
+        let template = rng.random_slice_entry(&candidates)?;
+
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        let entity = commands.push((
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437(template.glyph),
+            },
+            Name(template.name.clone()),
+            Item {},
+            Carried(player),
+        ));
+        Self::apply_provides(template, entity, &mut commands);
+        Self::apply_class(template, entity, &mut commands);
+        commands.flush(ecs);
+
+        Some(template.name.clone())
+    }
+
     fn spawn_entity(
         &self,
         pt: &Point,
@@ -91,22 +138,63 @@ impl Templates {
                 );
             }
         }
+        Self::apply_provides(template, entity, commands);
+        Self::apply_class(template, entity, commands);
+        if let Some(damage) = &template.base_damage {
+            commands.add_component(entity, Damage(*damage));
+            if template.entity_type == EntityType::Item {
+                commands.add_component(entity, Weapon {});
+            }
+        }
+    }
+
+    /// Adds whichever ProvidesXxx component(s) a template's `provides` list
+    /// calls for. Shared by spawn_entity (floor spawns) and
+    /// grant_random_battle_loot (post-battle loot) so both stay in sync.
+    fn apply_provides(
+        template: &Template,
+        entity: Entity,
+        commands: &mut legion::systems::CommandBuffer,
+    ) {
         if let Some(effects) = &template.provides {
             effects
                 .iter()
                 .for_each(|(provides, n)| match provides.as_str() {
                     "Healing" => commands.add_component(entity, ProvidesHealing { amount: *n }),
                     "MagicMap" => commands.add_component(entity, ProvidesDungeonMap {}),
+                    "Deathblow" => {
+                        commands.add_component(entity, ProvidesDeathblow {});
+                        commands.add_component(entity, BattleItem);
+                    }
+                    "QuickAttack" => {
+                        commands.add_component(entity, ProvidesQuickAttack {});
+                        commands.add_component(entity, BattleItem);
+                    }
+                    "CounterAttack" => {
+                        commands.add_component(entity, ProvidesCounterAttack {});
+                        commands.add_component(entity, BattleItem);
+                    }
+                    "Garrote" => {
+                        commands.add_component(entity, ProvidesGarrote {});
+                        commands.add_component(entity, BattleItem);
+                    }
                     _ => {
                         println!("Warning: we don't know how to provide {}", provides);
                     }
                 });
         }
-        if let Some(damage) = &template.base_damage {
-            commands.add_component(entity, Damage(*damage));
-            if template.entity_type == EntityType::Item {
-                commands.add_component(entity, Weapon {});
-            }
+    }
+
+    /// Tags an entity with its template's Class, if it has one. Shared by
+    /// spawn_entity and grant_random_battle_loot so a class-gated item
+    /// carries its restriction wherever it's created.
+    fn apply_class(
+        template: &Template,
+        entity: Entity,
+        commands: &mut legion::systems::CommandBuffer,
+    ) {
+        if let Some(class) = &template.class {
+            commands.add_component(entity, Class(class.clone()));
         }
     }
 }

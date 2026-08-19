@@ -32,6 +32,23 @@ pub struct ProvidesHealing {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ProvidesDungeonMap;
 
+// --- One-time battle items -------------------------------------------------
+// Each is a marker on an Item entity, granted after battle (see
+// spawner::Templates::grant_random_battle_loot) and consumed on use in
+// battle_tick. See battle.rs for the actual effects.
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProvidesDeathblow;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProvidesQuickAttack;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProvidesCounterAttack;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProvidesGarrote;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovingRandomly;
 
@@ -52,6 +69,21 @@ pub struct Health {
 
 #[derive(Clone, PartialEq)]
 pub struct Name(pub String);
+
+/// A character's class, e.g. "Barbarian". Gates which class-restricted
+/// battle items (see Template.class in spawner/template.rs) an entity can
+/// use or be granted as loot. Represented as a plain string, matching how
+/// `provides` tags already work in template.ron, so new classes are a
+/// content change, not a code change.
+#[derive(Clone, PartialEq)]
+pub struct Class(pub String);
+
+/// Marks an Item entity as a one-time battle attack (Deathblow, Quick
+/// Attack, etc.) rather than a regular carried item (potion, weapon, map).
+/// Lets the HUD split the ordinary "Items carried" list (left) from a
+/// separate "Battle Attacks" panel (right) - see systems/hud.rs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BattleItem;
 
 #[derive(Clone, PartialEq)]
 pub struct Carried(pub Entity);
