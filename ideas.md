@@ -7,7 +7,7 @@ Make the player or the Enemy stunned after a flee
 
 Player Animations
 
-
+Start Screen for the game where you can pick a class.
 
 <br />
 
@@ -18,6 +18,7 @@ Player Animations
 
 ## HUD
 Better UI for attacks
+HUD Battle Item Tool Tip.
 
 ## Battle Arena
 Have a Battle Victory Screen to show the items that you won.

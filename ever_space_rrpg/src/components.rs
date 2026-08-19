@@ -85,6 +85,34 @@ pub struct Class(pub String);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BattleItem;
 
+/// The mouse position captured directly in the HUD console's own
+/// coordinate space (console 4 was active at capture time), rather than
+/// converted from console 0's much coarser 32px-cell grid. Needed because
+/// converting a value that's already quantized to ~40x25 possible
+/// positions up into a 107x67 grid doesn't recover precision - most rows
+/// in between become unreachable. Used for HUD row hover-detection; see
+/// mouse_to_hud for the (coarser, display-only) conversion used to
+/// position dungeon-tile tooltips instead.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HudMousePos(pub Point);
+
+/// Flavor/mechanical text shown when hovering an item's HUD listing (see
+/// systems/hud.rs). Optional - only items that want a tooltip need one.
+#[derive(Clone, PartialEq)]
+pub struct Description(pub String);
+
+/// Converts a mouse position captured in console 0's cell coordinates
+/// (32px tiles) into the HUD console's cell coordinates. Both consoles
+/// span the same physical window, so this is just a ratio of cell counts
+/// - shared by hud.rs (hover-detecting a Battle Attacks row) and
+/// tooltips.rs (hover-detecting a dungeon tile).
+pub fn mouse_to_hud(mouse_pos: Point) -> Point {
+    Point::new(
+        (mouse_pos.x as f32 * HUD_COLS as f32 / DISPLAY_WIDTH as f32) as i32,
+        (mouse_pos.y as f32 * HUD_ROWS as f32 / DISPLAY_HEIGHT as f32) as i32,
+    )
+}
+
 #[derive(Clone, PartialEq)]
 pub struct Carried(pub Entity);
 

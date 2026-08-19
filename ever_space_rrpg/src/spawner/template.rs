@@ -25,6 +25,8 @@ pub struct Template {
     /// means unrestricted - usable by anyone (weapons, potions, etc. stay
     /// unrestricted unless you want to gate those too later).
     pub class: Option<String>,
+    /// Flavor/mechanical text shown when hovering this item's HUD listing.
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -102,6 +104,7 @@ impl Templates {
         ));
         Self::apply_provides(template, entity, &mut commands);
         Self::apply_class(template, entity, &mut commands);
+        Self::apply_description(template, entity, &mut commands);
         commands.flush(ecs);
 
         Some(template.name.clone())
@@ -140,6 +143,7 @@ impl Templates {
         }
         Self::apply_provides(template, entity, commands);
         Self::apply_class(template, entity, commands);
+        Self::apply_description(template, entity, commands);
         if let Some(damage) = &template.base_damage {
             commands.add_component(entity, Damage(*damage));
             if template.entity_type == EntityType::Item {
@@ -195,6 +199,17 @@ impl Templates {
     ) {
         if let Some(class) = &template.class {
             commands.add_component(entity, Class(class.clone()));
+        }
+    }
+
+    /// Tags an entity with its template's Description, if it has one.
+    fn apply_description(
+        template: &Template,
+        entity: Entity,
+        commands: &mut legion::systems::CommandBuffer,
+    ) {
+        if let Some(description) = &template.description {
+            commands.add_component(entity, Description(description.clone()));
         }
     }
 }

@@ -37,28 +37,32 @@ Templates(
             name : "Deathblow", glyph: '*', levels: [ ],
             provides: Some([ ("Deathblow", 0) ]),
             frequency: 0,
-            class: Some("Barbarian")
+            class: Some("Barbarian"),
+            description: Some("A single devastating strike dealing double your normal attack damage.")
         ),
         Template(
             entity_type: Item,
             name : "Quick Attack", glyph: '=', levels: [ ],
             provides: Some([ ("QuickAttack", 0) ]),
             frequency: 0,
-            class: Some("Barbarian")
+            class: Some("Barbarian"),
+            description: Some("Strike twice in the same turn before the enemy can react.")
         ),
         Template(
             entity_type: Item,
             name : "Counter Attack", glyph: '%', levels: [ ],
             provides: Some([ ("CounterAttack", 0) ]),
             frequency: 0,
-            class: Some("Barbarian")
+            class: Some("Barbarian"),
+            description: Some("Skip your attack for a 65% chance to deal 3x damage back when the enemy strikes you.")
         ),
         Template(
             entity_type: Item,
             name : "Garrote", glyph: '&', levels: [ ],
             provides: Some([ ("Garrote", 0) ]),
             frequency: 0,
-            class: Some("Barbarian")
+            class: Some("Barbarian"),
+            description: Some("Wounds the enemy for 2 damage per turn over the next 3 turns.")
         ),
         Template(
             entity_type: Enemy,

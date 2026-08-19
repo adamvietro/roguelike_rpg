@@ -593,6 +593,33 @@ impl State {
                                 self.resources.insert(TurnState::GameOver);
                                 return;
                             }
+
+                            // A Counter Attack can kill the enemy as a
+                            // side effect of their own attack (see
+                            // resolve_enemy_attack) - check for that too,
+                            // or the player gets an extra prompt against
+                            // an already-dead enemy.
+                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+                            if enemy_hp_now < 1 {
+                                let mut rng = RandomNumberGenerator::new();
+                                let loot = grant_random_battle_loot(
+                                    &mut self.ecs,
+                                    &mut rng,
+                                    battle.player,
+                                );
+                                let mut cb = CommandBuffer::new(&mut self.ecs);
+                                cb.remove(battle.enemy);
+                                cb.flush(&mut self.ecs);
+                                self.resources.insert(Some(BattleVictory {
+                                    player: battle.player,
+                                    enemy_name: battle.enemy_name.clone(),
+                                    loot,
+                                }));
+                                self.resources.insert(None::<Battle>);
+                                self.resources.insert(TurnState::BattleVictory);
+                                return;
+                            }
+
                             battle.turn = BattleTurn::PlayerMenu;
                             battle.message.clear();
                         }
@@ -610,44 +637,32 @@ impl State {
                     }
 
                     // Whoever acted second this round attacked whoever
-                    // acted first - check that side's death, then start a
-                    // fresh round (initiative gets recomputed next tick).
-                    let target_died = match battle.first_actor {
-                        Combatant::Player => {
-                            let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
-                            player_hp_now < 1
-                        }
-                        Combatant::Enemy => {
-                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-                            enemy_hp_now < 1
-                        }
-                    };
+                    // acted first - but a Counter Attack can also kill the
+                    // enemy as a side effect of an enemy attack regardless
+                    // of who that attack's "real" target was, so check
+                    // both sides here rather than just the expected one.
+                    let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
+                    let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
 
-                    if target_died {
-                        match battle.first_actor {
-                            Combatant::Player => {
-                                self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::GameOver);
-                            }
-                            Combatant::Enemy => {
-                                let mut rng = RandomNumberGenerator::new();
-                                let loot = grant_random_battle_loot(
-                                    &mut self.ecs,
-                                    &mut rng,
-                                    battle.player,
-                                );
-                                let mut cb = CommandBuffer::new(&mut self.ecs);
-                                cb.remove(battle.enemy);
-                                cb.flush(&mut self.ecs);
-                                self.resources.insert(Some(BattleVictory {
-                                    player: battle.player,
-                                    enemy_name: battle.enemy_name.clone(),
-                                    loot,
-                                }));
-                                self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::BattleVictory);
-                            }
-                        }
+                    if player_hp_now < 1 {
+                        self.resources.insert(None::<Battle>);
+                        self.resources.insert(TurnState::GameOver);
+                        return;
+                    }
+
+                    if enemy_hp_now < 1 {
+                        let mut rng = RandomNumberGenerator::new();
+                        let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
+                        let mut cb = CommandBuffer::new(&mut self.ecs);
+                        cb.remove(battle.enemy);
+                        cb.flush(&mut self.ecs);
+                        self.resources.insert(Some(BattleVictory {
+                            player: battle.player,
+                            enemy_name: battle.enemy_name.clone(),
+                            loot,
+                        }));
+                        self.resources.insert(None::<Battle>);
+                        self.resources.insert(TurnState::BattleVictory);
                         return;
                     }
 
@@ -767,6 +782,10 @@ impl GameState for State {
         self.resources.insert(ctx.key);
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
+        ctx.set_active_console(4);
+        self.resources
+            .insert(HudMousePos(Point::from_tuple(ctx.mouse_pos())));
+        ctx.set_active_console(0);
         let current_state = self.resources.get::<TurnState>().unwrap().clone();
         match current_state {
             TurnState::AwaitingInput => self
