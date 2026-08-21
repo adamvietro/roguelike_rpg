@@ -7,7 +7,14 @@ Make the player or the Enemy stunned after a flee
 
 Player Animations
 
+Title Screen
 Start Screen for the game where you can pick a class.
+
+More fluid motion 
+
+Pause screen when pressing esc
+
+
 
 <br />
 
@@ -32,4 +39,7 @@ Background for the battle system based off the theme of the map.
 ## Classes
 Each class will have default abilities that will need to be always available.
 Add in items that can be won from battle that can be a single use.
+
+## Options
+
 
