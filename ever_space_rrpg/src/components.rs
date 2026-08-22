@@ -151,6 +151,12 @@ pub struct Damage(pub i32);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Speed(pub i32);
 
+/// How much you will take off the damage of an enemy - Higher means lower damage
+/// from an enemy
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Defense(pub i32);
+
 /// How long a single tile-to-tile glide takes, in milliseconds. Shared by
 /// tick_animations (systems/animation.rs, which advances/expires it) and
 /// entity_render (which reads elapsed_ms to interpolate the drawn

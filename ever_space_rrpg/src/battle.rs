@@ -332,11 +332,16 @@ pub fn entity_health(ecs: &World, entity: Entity) -> (i32, i32) {
 
 /// Subtract `amount` from an entity's current Health. Can go below zero;
 /// callers check for death via entity_health and clamp for display.
+/// Defense will remove damage based off the current defense 1 for 1
 pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) {
-    <(Entity, &mut Health)>::query()
+    <(Entity, &mut Health, Option<&Defense>)>::query()
         .iter_mut(ecs)
-        .filter(|(e, _)| **e == entity)
-        .for_each(|(_, hp)| hp.current -= amount);
+        .filter(|(e, _, _)| **e == entity)
+        .for_each(|(_, hp, defense)| {
+            let defense = defense.map_or(0, |d| d.0);
+            let damage = (amount - defense).max(0);
+            hp.current -= damage;
+        });
 }
 
 /// The player's normal attack damage: base Damage plus any equipped weapon.

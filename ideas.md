@@ -2,6 +2,10 @@
 Enemies will initiate a turn based RPG battle. Loot at the end will be class specific "cards" or abilities that a player can use.
 
 Magic only for Mages.
+Fireball 
+Cloak - For 20 moves you cannot be attacked
+Burn
+
 New classes
 
 Make the player or the Enemy stunned after a flee
@@ -27,11 +31,18 @@ HUD Battle Item Tool Tip.
 ## Battle Arena
 Have a Battle Victory Screen to show the items that you won.
 Battle Screen
+Background for the battle system based off the theme of the map.
+
+### Abilities
 Attack
 Defend
 Flee
+
+### Stats
 Add in speed for each type of enemy, and the player so that we can have the ones with low HP get an attack in, for the bigger enemies we want to have their speed slower.
-Background for the battle system based off the theme of the map.
+
+Defense Stat 1 defense is a lot right now so might need to make a negative attack stat, maybe even a half defense stat.
+
 
 ## Player Animations
 Flash on hit
