@@ -63,6 +63,7 @@ pub fn player_input(
             VirtualKeyCode::Key7 => use_item(6, ecs, commands),
             VirtualKeyCode::Key8 => use_item(7, ecs, commands),
             VirtualKeyCode::Key9 => use_item(8, ecs, commands),
+            VirtualKeyCode::Key0 => use_item(9, ecs, commands),
             _ => Point::new(0, 0),
         };
 
