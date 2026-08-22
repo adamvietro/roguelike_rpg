@@ -47,8 +47,31 @@ use prelude::*;
 /// console (see main()): because that console's cells are much bigger than
 /// the dungeon view's 32px tiles, a single glyph drawn there renders as a
 /// large, stretched version of the same sprite - no repetition needed.
+/// (A tiled block of many small cells, as an earlier version of this
+/// function did, does NOT scale the sprite up - it repeats the same small
+/// icon as a grid pattern, since tiling only produces one coherent bigger
+/// image if the source art is itself split into matching fragments, which
+/// our dungeonfont.png icons are not.)
 fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) {
     batch.set(Point::new(col, row), render.color, render.glyph);
+}
+
+/// Tints `base`'s foreground color for a brief post-action flash - white
+/// for Attacking, red for Hit - or returns it unchanged once the flash has
+/// expired or was never set. Background is left untouched: console 3 is a
+/// plain no_bg console, so its background is never actually rendered
+/// anyway. See Battle::enemy_flash/player_flash.
+fn flash_tint(base: ColorPair, flash: Option<(FlashKind, f32)>) -> ColorPair {
+    if let Some((kind, remaining)) = flash {
+        if remaining > 0.0 {
+            let flash_color = match kind {
+                FlashKind::Attacking => WHITE,
+                FlashKind::Hit => RED,
+            };
+            return ColorPair::new(flash_color, base.bg);
+        }
+    }
+    base
 }
 
 /// Draws a stylized tree/feature silhouette - a stepped triangular canopy
@@ -226,7 +249,13 @@ impl State {
     /// Callers look up Render live during an active battle, or pass a
     /// value captured before an entity was removed (see
     /// battle_victory_tick, where the enemy no longer exists in the ECS).
-    fn draw_battle_arena(&mut self, enemy_render: Option<Render>, player_render: Option<Render>) {
+    fn draw_battle_arena(
+        &mut self,
+        enemy_render: Option<Render>,
+        player_render: Option<Render>,
+        enemy_flash: Option<(FlashKind, f32)>,
+        player_flash: Option<(FlashKind, f32)>,
+    ) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
         // plus a soft vignette that brightens toward the center (a
@@ -312,18 +341,25 @@ impl State {
             arena.submit(0).expect("Batch error");
         }
 
-        // --- Portraits: each creature's own glyph, drawn once on the coarse
-        // BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it renders
-        // far larger than its normal dungeon-map size. Enemy sits top-right,
-        // player sits bottom-left - both inset a step from the console
-        // edges so they don't touch the window border.
+        // --- Portraits: each creature's own glyph, drawn once on the
+        // coarse BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it
+        // renders far larger than its normal dungeon-map size. Enemy sits
+        // top-right, player sits bottom-left.
         let mut portraits = DrawBatch::new();
         portraits.target(3);
         if let Some(render) = enemy_render {
-            draw_portrait(&mut portraits, 3, 1, render);
+            let tinted = Render {
+                color: flash_tint(render.color, enemy_flash),
+                glyph: render.glyph,
+            };
+            draw_portrait(&mut portraits, 3, 1, tinted);
         }
         if let Some(render) = player_render {
-            draw_portrait(&mut portraits, 1, 3, render);
+            let tinted = Render {
+                color: flash_tint(render.color, player_flash),
+                glyph: render.glyph,
+            };
+            draw_portrait(&mut portraits, 1, 3, tinted);
         }
         portraits.submit(0).expect("Batch error");
     }
@@ -338,6 +374,21 @@ impl State {
                 return;
             }
         };
+
+        // Tick down any active post-action portrait flash (see
+        // Battle::enemy_flash/player_flash and flash_tint).
+        if let Some((_, remaining)) = &mut battle.enemy_flash {
+            *remaining -= ctx.frame_time_ms;
+            if *remaining <= 0.0 {
+                battle.enemy_flash = None;
+            }
+        }
+        if let Some((_, remaining)) = &mut battle.player_flash {
+            *remaining -= ctx.frame_time_ms;
+            if *remaining <= 0.0 {
+                battle.player_flash = None;
+            }
+        }
 
         // --- Initiative: decided once at the start of each round, from
         // Speed. Garrote (if active) ticks first, before initiative is
@@ -392,7 +443,12 @@ impl State {
 
         let enemy_render = entity_render_component(&self.ecs, battle.enemy);
         let player_render = entity_render_component(&self.ecs, battle.player);
-        self.draw_battle_arena(enemy_render, player_render);
+        self.draw_battle_arena(
+            enemy_render,
+            player_render,
+            battle.enemy_flash,
+            battle.player_flash,
+        );
 
         // --- Text: name + HP bar anchored next to each portrait, and a
         // message/menu panel centered in the gap between them.
@@ -454,6 +510,10 @@ impl State {
                             BattleAction::Attack => {
                                 let dmg = player_attack_damage(&self.ecs, battle.player);
                                 apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                battle.player_flash =
+                                    Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+                                battle.enemy_flash =
+                                    Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
                                 battle.message = format!(
                                     "You hit the {} for {} damage!",
                                     battle.enemy_name, dmg
@@ -479,6 +539,10 @@ impl State {
                                     cb.flush(&mut self.ecs);
                                     let dmg = player_attack_damage(&self.ecs, battle.player) * 2;
                                     apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                    battle.player_flash =
+                                        Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+                                    battle.enemy_flash =
+                                        Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
                                     battle.message = format!(
                                         "Deathblow! You strike the {} for {} damage!",
                                         battle.enemy_name, dmg
@@ -497,6 +561,10 @@ impl State {
                                     let dmg = player_attack_damage(&self.ecs, battle.player);
                                     apply_damage(&mut self.ecs, battle.enemy, dmg);
                                     apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                    battle.player_flash =
+                                        Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+                                    battle.enemy_flash =
+                                        Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
                                     battle.message = format!(
                                         "Quick Attack! You strike the {} twice for {} damage each!",
                                         battle.enemy_name, dmg
@@ -692,7 +760,7 @@ impl State {
         };
 
         let player_render = entity_render_component(&self.ecs, victory.player);
-        self.draw_battle_arena(None, player_render);
+        self.draw_battle_arena(None, player_render, None, None);
 
         ctx.set_active_console(2);
         ctx.print_color_centered(
@@ -780,6 +848,7 @@ impl GameState for State {
         ctx.set_active_console(4);
         ctx.cls();
         self.resources.insert(ctx.key);
+        self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
         ctx.set_active_console(4);

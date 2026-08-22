@@ -10,9 +10,13 @@ Player Animations
 Title Screen
 Start Screen for the game where you can pick a class.
 
-More fluid motion 
+More fluid motion - On hold
+
 
 Pause screen when pressing esc
+
+Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.
+
 
 
 
@@ -35,6 +39,7 @@ Defend
 Flee
 Add in speed for each type of enemy, and the player so that we can have the ones with low HP get an attack in, for the bigger enemies we want to have their speed slower.
 Background for the battle system based off the theme of the map.
+Flash on hit
 
 ## Classes
 Each class will have default abilities that will need to be always available.

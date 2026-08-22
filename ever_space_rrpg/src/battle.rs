@@ -230,6 +230,25 @@ pub struct Battle {
     pub garrote_turns_remaining: i32,
     pub fled: bool,
     pub message: String,
+    /// A brief post-action color flash for each portrait - which kind
+    /// (Attacking/Hit, picking the tint color) and how many milliseconds
+    /// are left, ticked down each frame in battle_tick using
+    /// ctx.frame_time_ms and cleared to None once it reaches zero. Set
+    /// whenever that combatant acts or takes damage; draw_battle_arena
+    /// reads these to tint the portrait's foreground color while active
+    /// (see flash_tint in main.rs).
+    pub enemy_flash: Option<(FlashKind, f32)>,
+    pub player_flash: Option<(FlashKind, f32)>,
+}
+
+/// Which color a portrait's brief post-action flash should use - see
+/// Battle::enemy_flash/player_flash.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FlashKind {
+    /// This combatant just landed a hit - a bright, energetic flash.
+    Attacking,
+    /// This combatant just took damage - a red "ouch" flash.
+    Hit,
 }
 
 impl Battle {
@@ -246,12 +265,17 @@ impl Battle {
             garrote_turns_remaining: 0,
             fled: false,
             message: String::new(),
+            enemy_flash: None,
+            player_flash: None,
         }
     }
 }
 
 pub const GARROTE_DAMAGE: i32 = 2;
 pub const COUNTER_CHANCE_PERCENT: i32 = 65;
+/// How long a portrait's post-action color flash lasts, in milliseconds.
+/// See Battle::enemy_flash/player_flash and flash_tint in main.rs.
+pub const PORTRAIT_FLASH_DURATION_MS: f32 = 150.0;
 
 /// What to show on the post-battle victory screen (TurnState::BattleVictory)
 /// - set right when an enemy dies in battle_tick, read once by
@@ -334,6 +358,8 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
         dmg = (dmg / 2).max(1);
     }
     apply_damage(ecs, battle.player, dmg);
+    battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+    battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
     let mut message = if battle.player_defending {
         format!(
             "The {} attacks - you block some of it! ({} damage)",
@@ -350,6 +376,8 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
         if rng.range(0, 100) < COUNTER_CHANCE_PERCENT {
             let counter_dmg = player_attack_damage(ecs, battle.player) * 3;
             apply_damage(ecs, battle.enemy, counter_dmg);
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
             message = format!("{} You counter for {} damage!", message, counter_dmg);
         } else {
             message = format!("{} Your counter-attack missed!", message);
@@ -367,6 +395,7 @@ pub fn tick_garrote(ecs: &mut World, battle: &mut Battle) -> Option<String> {
         return None;
     }
     apply_damage(ecs, battle.enemy, GARROTE_DAMAGE);
+    battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
     battle.garrote_turns_remaining -= 1;
     Some(format!(
         "The garrote bites - {} takes {} damage!",

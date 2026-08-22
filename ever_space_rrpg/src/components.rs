@@ -151,6 +151,102 @@ pub struct Damage(pub i32);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Speed(pub i32);
 
+/// How long a single tile-to-tile glide takes, in milliseconds. Shared by
+/// tick_animations (systems/animation.rs, which advances/expires it) and
+/// entity_render (which reads elapsed_ms to interpolate the drawn
+/// position) so both stay in lockstep.
+pub const MOVE_ANIM_DURATION_MS: f32 = 150.0;
+
+/// Attached alongside the instant Point update in movement.rs so a
+/// creature's *logical* position (and therefore FOV/turn-state/anything
+/// else that reads Point) updates immediately, while entity_render draws
+/// it sliding from `start` to `end` over MOVE_ANIM_DURATION_MS instead of
+/// popping straight to the destination tile. Removed by tick_animations
+/// once the glide finishes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MovingAnimation {
+    pub start: Point,
+    pub end: Point,
+    pub elapsed_ms: f32,
+}
+
+/// Wall-clock milliseconds since the last frame (see BTerm::frame_time_ms),
+/// inserted as a resource every tick so animation systems advance at a
+/// consistent real-world speed regardless of the current frame rate.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameTime(pub f32);
+
+/// Standard ease-out cubic: fast start, gentle settle into the
+/// destination tile rather than a linear, slightly mechanical glide.
+pub fn ease_out_cubic(t: f32) -> f32 {
+    let t = t - 1.0;
+    t * t * t + 1.0
+}
+
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+/// Where `entity` should actually be drawn this frame: eased between
+/// MovingAnimation.start/.end if one is present and still running,
+/// otherwise its plain logical Point. Keeps the interpolation math in one
+/// place so entity_render doesn't need to know the details.
+pub fn animated_position(ecs: &SubWorld, entity: Entity, logical_pos: Point) -> PointF {
+    if let Ok(entry) = ecs.entry_ref(entity) {
+        if let Ok(anim) = entry.get_component::<MovingAnimation>() {
+            let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
+            return PointF::new(
+                lerp(anim.start.x as f32, anim.end.x as f32, t),
+                lerp(anim.start.y as f32, anim.end.y as f32, t),
+            );
+        }
+    }
+    PointF::new(logical_pos.x as f32, logical_pos.y as f32)
+}
+
+/// Computes the same ColorPair/glyph a tile would be drawn with in
+/// map_render.rs, for a single point - shared so entity_render can paint
+/// the real floor/wall tile underneath a mid-glide entity (see
+/// systems/entity_render.rs) instead of duplicating this logic, and so
+/// the two never drift apart. Returns None if the tile is out of bounds
+/// or has never been seen (nothing should be drawn there).
+pub fn tile_render_at(
+    map: &Map,
+    theme: &dyn MapTheme,
+    visible_tiles: &HashSet<Point>,
+    pt: Point,
+) -> Option<(ColorPair, FontCharType)> {
+    if !map.in_bounds(pt) {
+        return None;
+    }
+    let idx = map_idx(pt.x, pt.y);
+    if !(visible_tiles.contains(&pt) || map.revealed_tiles[idx]) {
+        return None;
+    }
+    let visible = visible_tiles.contains(&pt);
+    let glyph = theme.tile_to_render(map.tiles[idx]);
+    let wall_base = theme.wall_color();
+
+    let color_pair = if map.tiles[idx] == TileType::Wall {
+        let bg = if visible {
+            wall_base
+        } else {
+            RGB::from_f32(wall_base.r * 0.35, wall_base.g * 0.35, wall_base.b * 0.35)
+        };
+        let fg = RGB::from_f32(
+            (bg.r * 1.4).min(1.0),
+            (bg.g * 1.4).min(1.0),
+            (bg.b * 1.4).min(1.0),
+        );
+        ColorPair::new(fg, bg)
+    } else {
+        let tint = if visible { WHITE } else { DARK_GRAY };
+        ColorPair::new(tint, BLACK)
+    };
+
+    Some((color_pair, glyph))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldOfView {
     pub visible_tiles: HashSet<Point>,

@@ -666,3 +666,35 @@ That's a real bug, and I can see why: I converted a *coarse* mouse position into
 
 **Root cause, plainly:** `ctx.mouse_pos()` returns coordinates relative to whichever console is active *at the moment you call it* — that's a bracket-terminal behavior, not something obvious from the outside. The original `mouse_pos` resource was captured with console 0 active (32px cells, ~40×25 grid), so it was already limited to roughly 40×25 distinct positions before I ever touched it. My earlier fix scaled those values up into the 107×67 HUD grid, but scaling up a value that's already been rounded down doesn't get the precision back — it just spreads ~40×25 achievable points across a much bigger grid, and the tightly-packed rows where your item list actually sits fell in the gaps between them. The real fix was capturing the mouse position fresh, with the *correct* console active, rather than trying to convert after the fact.
 
+--- 
+
+# Player and Enemy Movement
+
+## Battle Portrait Hit Feedback
+
+Started as "just a jiggle" for attacks in the battle screen — turned into a good lesson on how the battle portraits actually render, and why a positional shake doesn't fit that setup.
+
+### Why a jiggle didn't work
+
+Portraits aren't sprite art — they're the same tiny glyph used on the dungeon map, drawn on a deliberately coarse 5x5-cell console (`console 3`, `BATTLE_PORTRAIT_COLS`/`BATTLE_PORTRAIT_ROWS`) that shares the same 1280x800 window as everything else. Dividing that window into only 5 columns makes each cell huge (256x160px), and bracket-terminal stretches the glyph to fill it — that's the entire trick behind the "big portrait" look, no scaling code involved.
+
+That coarseness is exactly what broke the jiggle:
+
+- **A "1 cell" shake is enormous.** On a 5-cell-wide grid, one cell is ~1/5 of the screen — nowhere near subtle, confirmed by measuring it directly on screen.
+- **Tiling doesn't scale an image, it repeats it.** Tried switching to a fine 40x25 grid (32px cells, matching the dungeon view) and drawing each portrait as a tiled block of cells to get finer shake resolution — produced a repeated grid of tiny sprites instead of one big one, since tiling only reconstructs a single image if the source art is itself split into matching fragments. Ours is one repeated icon, so a pattern is the only possible result. Reverted.
+- **Sub-pixel movement (bracket-lib's "fancy console") was the book's own suggested technique** for smooth positioning — genuinely the right tool for the underlying dungeon-tile movement work, but wrong here for a different reason: our portrait would be a static image sliding over a static background, which reveals a moving box edge as soon as it's not perfectly aligned — no amount of background color-matching fixes a box that's in motion.
+
+### What we shipped instead: a color flash
+
+No repositioning at all — just a brief foreground color swap on the portrait that already works, confined to the console we know is safe (console 3, plain `no_bg`, no box risk since background was never rendered there in the first place).
+
+- `Battle` gained `enemy_flash`/`player_flash: Option<(FlashKind, f32)>`, replacing the old shake-timer fields. `FlashKind` is `Attacking` (white) or `Hit` (red).
+- Every damage-dealing path sets both sides at once: whoever swung gets `Attacking`, whoever got hit gets `Hit`. Covers Attack, Deathblow, Quick Attack, Garrote's tick, the enemy's own attack, and a landed Counter Attack.
+- `flash_tint()` (`main.rs`) swaps in the flash color for the portrait's foreground while its timer is running, then falls back to the normal sprite color once it expires — ticked down each frame in `battle_tick` using `ctx.frame_time_ms`, same pattern as everything else time-based in this file.
+
+| File        | What changed                                                                                                                                                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `battle.rs` | New `FlashKind` enum; `Battle::enemy_flash`/`player_flash` replace the old shake-timer fields; all damage-applying functions (`resolve_enemy_attack`, `tick_garrote`) set the appropriate flash                         |
+| `main.rs`   | New `flash_tint()` helper (replaces `shake_offset`); `draw_battle_arena` takes flash state instead of shake amounts; per-frame flash countdown in `battle_tick`; the three player-attack menu branches set both flashes |
+
+**Known limitation, not yet addressed:** the flash is a hard on/off, not a fade — pops to white/red instantly, then snaps back to normal exactly at 150ms. If it reads as too abrupt once we've looked at it more, the next step is fading the tint proportionally to remaining time instead of a flat swap.
