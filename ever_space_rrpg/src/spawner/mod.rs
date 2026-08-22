@@ -36,29 +36,29 @@ pub fn spawn_level(
     template.spawn_entities(ecs, rng, level, spawn_points);
 }
 
-/// Spawns guaranteed enemies at a fortress prefab's guard positions - see
-/// Templates::spawn_fortress_enemies for why this is separate from
+/// Spawns guaranteed enemies at a prefab's guard positions - see
+/// Templates::spawn_prefab_enemies for why this is separate from
 /// spawn_level's general pool.
-pub fn spawn_fortress_enemies(
+pub fn spawn_prefab_enemies(
     ecs: &mut World,
     rng: &mut RandomNumberGenerator,
     level: usize,
     spawn_points: &[Point],
 ) {
     let template = Templates::load();
-    template.spawn_fortress_enemies(ecs, rng, level, spawn_points);
+    template.spawn_prefab_enemies(ecs, rng, level, spawn_points);
 }
 
-/// Spawns a guaranteed sword at a fortress prefab's treasure position, if
-/// one placed this level - see Templates::spawn_fortress_sword.
-pub fn spawn_fortress_sword(
+/// Spawns a guaranteed sword at a prefab's treasure position, if
+/// one placed this level - see Templates::spawn_prefab_sword.
+pub fn spawn_prefab_sword(
     ecs: &mut World,
     rng: &mut RandomNumberGenerator,
     level: usize,
     spawn_point: Option<Point>,
 ) {
     let template = Templates::load();
-    template.spawn_fortress_sword(ecs, rng, level, spawn_point);
+    template.spawn_prefab_sword(ecs, rng, level, spawn_point);
 }
 
 /// Rolls a chance to grant the player a random one-time battle item after

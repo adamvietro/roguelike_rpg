@@ -49,20 +49,20 @@ pub struct MapBuilder {
     pub player_start: Point,
     pub amulet_start: Point,
     pub theme: Box<dyn MapTheme>,
-    /// Guaranteed enemy spawn points from a placed fortress prefab's 'M'
+    /// Guaranteed enemy spawn points from a placed prefab's 'M'
     /// markers (see map_builder::prefab). Spawned directly via
-    /// spawn_fortress_enemies rather than mixed into the general
-    /// monster_spawns lottery, so a fortress's guards are always actually
+    /// spawn_prefab_enemies rather than mixed into the general
+    /// monster_spawns lottery, so a prefab's guards are always actually
     /// monsters - previously they were just added to monster_spawns,
     /// where the normal weighted pick could just as easily hand that
     /// point an item instead.
-    pub fortress_enemy_spawns: Vec<Point>,
-    /// Guaranteed sword spawn point from a placed fortress's 'S' marker,
-    /// if a fortress placed successfully this level (see
+    pub prefab_enemy_spawns: Vec<Point>,
+    /// Guaranteed sword spawn point from a placed prefab's 'S' marker,
+    /// if a prefab placed successfully this level (see
     /// map_builder::prefab - placement can fail, so this may be None).
     /// Swords no longer spawn in the general ambient pool at all - see
-    /// Template::fortress_only.
-    pub fortress_sword_spawn: Option<Point>,
+    /// Template::prefab_only.
+    pub prefab_sword_spawn: Option<Point>,
 }
 
 impl MapBuilder {

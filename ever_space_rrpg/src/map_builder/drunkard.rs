@@ -16,8 +16,8 @@ impl MapArchitect for DrunkardsWalkArchitect {
             player_start: Point::zero(),
             amulet_start: Point::zero(),
             theme: super::themes::DungeonTheme::new(),
-            fortress_enemy_spawns: Vec::new(),
-            fortress_sword_spawn: None,
+            prefab_enemy_spawns: Vec::new(),
+            prefab_sword_spawn: None,
         };
 
         mb.fill(TileType::Wall);

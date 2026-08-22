@@ -176,33 +176,33 @@ pub struct MovingAnimation {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameTime(pub f32);
 
-/// Standard ease-out cubic: fast start, gentle settle into the
-/// destination tile rather than a linear, slightly mechanical glide.
-pub fn ease_out_cubic(t: f32) -> f32 {
-    let t = t - 1.0;
-    t * t * t + 1.0
-}
+// /// Standard ease-out cubic: fast start, gentle settle into the
+// /// destination tile rather than a linear, slightly mechanical glide.
+// pub fn ease_out_cubic(t: f32) -> f32 {
+//     let t = t - 1.0;
+//     t * t * t + 1.0
+// }
 
-pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t
-}
+// pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+//     a + (b - a) * t
+// }
 
-/// Where `entity` should actually be drawn this frame: eased between
-/// MovingAnimation.start/.end if one is present and still running,
-/// otherwise its plain logical Point. Keeps the interpolation math in one
-/// place so entity_render doesn't need to know the details.
-pub fn animated_position(ecs: &SubWorld, entity: Entity, logical_pos: Point) -> PointF {
-    if let Ok(entry) = ecs.entry_ref(entity) {
-        if let Ok(anim) = entry.get_component::<MovingAnimation>() {
-            let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
-            return PointF::new(
-                lerp(anim.start.x as f32, anim.end.x as f32, t),
-                lerp(anim.start.y as f32, anim.end.y as f32, t),
-            );
-        }
-    }
-    PointF::new(logical_pos.x as f32, logical_pos.y as f32)
-}
+// /// Where `entity` should actually be drawn this frame: eased between
+// /// MovingAnimation.start/.end if one is present and still running,
+// /// otherwise its plain logical Point. Keeps the interpolation math in one
+// /// place so entity_render doesn't need to know the details.
+// pub fn animated_position(ecs: &SubWorld, entity: Entity, logical_pos: Point) -> PointF {
+//     if let Ok(entry) = ecs.entry_ref(entity) {
+//         if let Ok(anim) = entry.get_component::<MovingAnimation>() {
+//             let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
+//             return PointF::new(
+//                 lerp(anim.start.x as f32, anim.end.x as f32, t),
+//                 lerp(anim.start.y as f32, anim.end.y as f32, t),
+//             );
+//         }
+//     }
+//     PointF::new(logical_pos.x as f32, logical_pos.y as f32)
+// }
 
 /// Computes the same ColorPair/glyph a tile would be drawn with in
 /// map_render.rs, for a single point - shared so entity_render can paint

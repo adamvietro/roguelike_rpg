@@ -13,30 +13,30 @@ Templates(
             frequency: 1
         ),
         Template(
-            // Fortress treasure only - fortress_only:true means this never
+            // prefab treasure only - prefab_only:true means this never
             // appears in the general ambient spawn pool, only via a
-            // fortress prefab's guaranteed 'S' marker (see
-            // spawn_fortress_sword). levels still gates which dungeon
+            // prefab prefab's guaranteed 'S' marker (see
+            // spawn_prefab_sword). levels still gates which dungeon
             // levels this tier is eligible to be picked on.
             entity_type: Item,
             name : "Rusty Sword", glyph: 's', levels: [ 0],
             frequency: 1,
             base_damage: Some(1),
-            fortress_only: true
+            prefab_only: true
         ),
         Template(
             entity_type: Item,
             name : "Shiny Sword", glyph: 'S', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
-            fortress_only: true
+            prefab_only: true
         ),
         Template(
             entity_type: Item,
             name : "Huge Sword", glyph: '/', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
-            fortress_only: true
+            prefab_only: true
         ),
         Template(
             // Battle loot only - levels:[] means this never appears as a

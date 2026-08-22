@@ -12,8 +12,8 @@ impl MapArchitect for EmptyArchitect {
             player_start: Point::zero(),
             amulet_start: Point::zero(),
             theme: super::themes::DungeonTheme::new(),
-            fortress_enemy_spawns: Vec::new(),
-            fortress_sword_spawn: None,
+            prefab_enemy_spawns: Vec::new(),
+            prefab_sword_spawn: None,
         };
         mb.fill(TileType::Floor);
         mb.player_start = Point::new(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);

@@ -10,12 +10,43 @@ const FORTRESS: (&str, i32, i32) = (
 --M--S---M--
 -###----###-
 ---#----#---
----#----#---
+---#--M-#---
 ---######---
 ------------
 ",
     12,
     11,
+);
+
+const TURRET: (&str, i32, i32) = (
+    "
+--------
+--##-##-
+--#-M-#-
+----S---
+--#-M-#-
+--##-##-
+--------
+    ",
+    8,
+    7,
+);
+
+const BUNKER: (&str, i32, i32) = (
+    "
+--------
+---##---
+--#M-#--
+-#----#-
+#------#
+-M-S--M-
+#------#
+-#----#-
+--#--#--
+---##---
+    ",
+    8,
+    10,
 );
 
 pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
@@ -29,15 +60,22 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
         1024.0,
     );
 
+    let template = match rng.range(0, 3) {
+        0 => FORTRESS,
+        1 => TURRET,
+        2 => BUNKER,
+        _ => unreachable!(),
+    };
+
     let mut attempts = 0; // (1)
     while placement.is_none() && attempts < 10 {
         // (2)
         let dimensions = Rect::with_size(
             // (3)
-            rng.range(0, SCREEN_WIDTH - FORTRESS.1),
-            rng.range(0, SCREEN_HEIGHT - FORTRESS.2),
-            FORTRESS.1,
-            FORTRESS.2,
+            rng.range(0, SCREEN_WIDTH - template.1),
+            rng.range(0, SCREEN_HEIGHT - template.2),
+            template.1,
+            template.2,
         );
 
         let mut can_place = false; // (4)
@@ -62,15 +100,15 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
 
     if let Some(placement) = placement {
         // (9)
-        let string_vec: Vec<char> = FORTRESS
+        let string_vec: Vec<char> = template
             .0
             .chars()
             .filter(|a| *a != '\r' && *a != '\n')
             .collect(); // (10)
         let mut i = 0; // (11)
-        for ty in placement.y..placement.y + FORTRESS.2 {
+        for ty in placement.y..placement.y + template.2 {
             // (12)
-            for tx in placement.x..placement.x + FORTRESS.1 {
+            for tx in placement.x..placement.x + template.1 {
                 let idx = map_idx(tx, ty);
                 let c = string_vec[i]; // (13)
                 match c {
@@ -81,17 +119,17 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                         // that general list feeds a weighted lottery that
                         // picks any template (enemy OR item) for a given
                         // point, so a guard position had no actual
-                        // guarantee of getting a monster. spawn_fortress_enemies
+                        // guarantee of getting a monster. spawn_prefab_enemies
                         // (see spawner/template.rs) spawns these directly
                         // instead.
                         mb.map.tiles[idx] = TileType::Floor;
-                        mb.fortress_enemy_spawns.push(Point::new(tx, ty));
+                        mb.prefab_enemy_spawns.push(Point::new(tx, ty));
                     }
                     'S' => {
                         // Guaranteed sword spawn - see
-                        // Template::fortress_only / spawn_fortress_sword.
+                        // Template::prefab_only / spawn_prefab_sword.
                         mb.map.tiles[idx] = TileType::Floor;
-                        mb.fortress_sword_spawn = Some(Point::new(tx, ty));
+                        mb.prefab_sword_spawn = Some(Point::new(tx, ty));
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor, // (16)
                     '#' => mb.map.tiles[idx] = TileType::Wall,

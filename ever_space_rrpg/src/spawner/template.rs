@@ -29,11 +29,11 @@ pub struct Template {
     pub description: Option<String>,
     /// If true, this template never appears in the general ambient spawn
     /// pool (spawn_entities) - it's only ever placed directly at a
-    /// fortress prefab's dedicated marker point (see
-    /// map_builder::prefab and spawn_fortress_sword/spawn_fortress_enemies).
+    /// prefab's dedicated marker point (see
+    /// map_builder::prefab and spawn_prefab_sword/spawn_prefab_enemies).
     /// Missing from template.ron defaults to false via serde.
     #[serde(default)]
-    pub fortress_only: bool,
+    pub prefab_only: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -60,7 +60,7 @@ impl Templates {
         let mut available_entities = Vec::new();
         self.entities
             .iter()
-            .filter(|e| e.levels.contains(&level) && !e.fortress_only)
+            .filter(|e| e.levels.contains(&level) && !e.prefab_only)
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_entities.push(t);
@@ -78,12 +78,12 @@ impl Templates {
 
     /// Spawns a guaranteed enemy (never an item) at each of `spawn_points`,
     /// weighted by frequency among Enemy-type templates for this level.
-    /// Used for a fortress prefab's guard positions (see
-    /// map_builder::prefab / MapBuilder::fortress_enemy_spawns) - unlike
+    /// Used for a prefab's guard positions (see
+    /// map_builder::prefab / MapBuilder::prefab_enemy_spawns) - unlike
     /// spawn_entities' general pool, which mixes enemies and items
     /// together with no guarantee either way, this only ever picks an
     /// actual monster.
-    pub fn spawn_fortress_enemies(
+    pub fn spawn_prefab_enemies(
         &self,
         ecs: &mut World,
         rng: &mut RandomNumberGenerator,
@@ -109,16 +109,16 @@ impl Templates {
         commands.flush(ecs);
     }
 
-    /// Spawns a guaranteed sword at `spawn_point`, if a fortress placed
+    /// Spawns a guaranteed sword at `spawn_point`, if a prefab placed
     /// successfully this level (see map_builder::prefab /
-    /// MapBuilder::fortress_sword_spawn - placement can fail, so this may
+    /// MapBuilder::prefab_sword_spawn - placement can fail, so this may
     /// be None). Picks randomly, weighted by frequency, among
-    /// `fortress_only` templates whose `levels` includes this dungeon
+    /// `prefab_only` templates whose `levels` includes this dungeon
     /// level - e.g. a Huge Sword tagged `levels: [1, 2]` simply won't be
     /// eligible on level 0, the same way `levels` already gates the
     /// general ambient pool. Swords no longer appear in that general pool
-    /// at all - see Template::fortress_only.
-    pub fn spawn_fortress_sword(
+    /// at all - see Template::prefab_only.
+    pub fn spawn_prefab_sword(
         &self,
         ecs: &mut World,
         rng: &mut RandomNumberGenerator,
@@ -133,7 +133,7 @@ impl Templates {
         let mut available_swords = Vec::new();
         self.entities
             .iter()
-            .filter(|t| t.fortress_only && t.levels.contains(&level))
+            .filter(|t| t.prefab_only && t.levels.contains(&level))
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_swords.push(t);
