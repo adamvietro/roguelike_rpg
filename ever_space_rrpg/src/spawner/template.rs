@@ -27,6 +27,13 @@ pub struct Template {
     pub class: Option<String>,
     /// Flavor/mechanical text shown when hovering this item's HUD listing.
     pub description: Option<String>,
+    /// If true, this template never appears in the general ambient spawn
+    /// pool (spawn_entities) - it's only ever placed directly at a
+    /// fortress prefab's dedicated marker point (see
+    /// map_builder::prefab and spawn_fortress_sword/spawn_fortress_enemies).
+    /// Missing from template.ron defaults to false via serde.
+    #[serde(default)]
+    pub fortress_only: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -53,7 +60,7 @@ impl Templates {
         let mut available_entities = Vec::new();
         self.entities
             .iter()
-            .filter(|e| e.levels.contains(&level))
+            .filter(|e| e.levels.contains(&level) && !e.fortress_only)
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_entities.push(t);
@@ -67,6 +74,77 @@ impl Templates {
             }
         });
         commands.flush(ecs);
+    }
+
+    /// Spawns a guaranteed enemy (never an item) at each of `spawn_points`,
+    /// weighted by frequency among Enemy-type templates for this level.
+    /// Used for a fortress prefab's guard positions (see
+    /// map_builder::prefab / MapBuilder::fortress_enemy_spawns) - unlike
+    /// spawn_entities' general pool, which mixes enemies and items
+    /// together with no guarantee either way, this only ever picks an
+    /// actual monster.
+    pub fn spawn_fortress_enemies(
+        &self,
+        ecs: &mut World,
+        rng: &mut RandomNumberGenerator,
+        level: usize,
+        spawn_points: &[Point],
+    ) {
+        let mut available_enemies = Vec::new();
+        self.entities
+            .iter()
+            .filter(|t| t.entity_type == EntityType::Enemy && t.levels.contains(&level))
+            .for_each(|t| {
+                for _ in 0..t.frequency {
+                    available_enemies.push(t);
+                }
+            });
+
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        spawn_points.iter().for_each(|pt| {
+            if let Some(entity) = rng.random_slice_entry(&available_enemies) {
+                self.spawn_entity(pt, entity, &mut commands);
+            }
+        });
+        commands.flush(ecs);
+    }
+
+    /// Spawns a guaranteed sword at `spawn_point`, if a fortress placed
+    /// successfully this level (see map_builder::prefab /
+    /// MapBuilder::fortress_sword_spawn - placement can fail, so this may
+    /// be None). Picks randomly, weighted by frequency, among
+    /// `fortress_only` templates whose `levels` includes this dungeon
+    /// level - e.g. a Huge Sword tagged `levels: [1, 2]` simply won't be
+    /// eligible on level 0, the same way `levels` already gates the
+    /// general ambient pool. Swords no longer appear in that general pool
+    /// at all - see Template::fortress_only.
+    pub fn spawn_fortress_sword(
+        &self,
+        ecs: &mut World,
+        rng: &mut RandomNumberGenerator,
+        level: usize,
+        spawn_point: Option<Point>,
+    ) {
+        let pt = match spawn_point {
+            Some(pt) => pt,
+            None => return,
+        };
+
+        let mut available_swords = Vec::new();
+        self.entities
+            .iter()
+            .filter(|t| t.fortress_only && t.levels.contains(&level))
+            .for_each(|t| {
+                for _ in 0..t.frequency {
+                    available_swords.push(t);
+                }
+            });
+
+        if let Some(template) = rng.random_slice_entry(&available_swords) {
+            let mut commands = legion::systems::CommandBuffer::new(ecs);
+            self.spawn_entity(&pt, template, &mut commands);
+            commands.flush(ecs);
+        }
     }
 
     /// Rolls a chance to grant the player a random one-time battle item

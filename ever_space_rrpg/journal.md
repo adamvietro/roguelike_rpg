@@ -698,3 +698,35 @@ No repositioning at all — just a brief foreground color swap on the portrait t
 | `main.rs`   | New `flash_tint()` helper (replaces `shake_offset`); `draw_battle_arena` takes flash state instead of shake amounts; per-frame flash countdown in `battle_tick`; the three player-attack menu branches set both flashes |
 
 **Known limitation, not yet addressed:** the flash is a hard on/off, not a fade — pops to white/red instantly, then snaps back to normal exactly at 150ms. If it reads as too abrupt once we've looked at it more, the next step is fading the tint proportionally to remaining time instead of a flat swap.
+
+# Fortress Sword Placement
+Good catch — let's look at that more carefully before I fix anything.Confirmed — the 'M' points get pushed into the exact same `monster_spawns` list that feeds the general weighted lottery in `spawn_entities`, which picks *any* template (enemy or item) at each point. So a fortress guard slot has no more guarantee of actually being a monster than any other random point on the level — that's the bug. Let me fix that properly while adding the sword.
+
+**Plan:**
+1. Give guaranteed fortress spawns their own dedicated path — no more mixing into the general lottery.
+2. Add a `'S'` marker to the fortress layout for the sword, guarded in the center by the existing 3 `'M'`s.
+3. Add a `fortress_only` flag on templates so swords stop appearing in the ambient pool entirely, and pick which sword tier appears based on the dungeon level (reusing the `levels` field templates already have).
+
+Let's build it.Now update all four architect files to initialize the new fields:Now the fortress prefab itself — add the `'S'` marker and route `'M'`/`'S'` into the new dedicated fields instead of the general pool:Now `spawner/template.rs` — add the `fortress_only` flag, exclude it from the ambient pool, and add the two dedicated guaranteed-spawn functions:Now add the two new guaranteed-spawn methods, right after `spawn_entities`:Now `spawner/mod.rs` — add thin wrapper functions matching the `spawn_level` pattern:Now `resources/template.ron` — mark the three swords `fortress_only: true`:Now let's find and update the three `spawn_level` call sites in `main.rs`:Now updating all three call sites:Let me verify the fortress layout dimensions are still exactly correct after editing:Confirmed correct — 11 rows of exactly 12 characters, sword sitting in the exact center between the three guards. Now let's do a final consistency sweep across every changed file:Everything wires up consistently across all 4 architects, the prefab, the spawner, and all 3 `main.rs` call sites. Let's pull all the changed files for delivery.All 10 files above. **Note on filenames:** two of these had to be renamed since your project has same-named files in different folders — save them back to their real paths:
+
+| Downloaded as        | Save to                                     |
+| -------------------- | ------------------------------------------- |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs` (**replace**)      |
+| `spawner_mod.rs`     | `src/spawner/mod.rs` (**replace**)          |
+| `rooms.rs`           | `src/map_builder/rooms.rs` (**replace**)    |
+| `automata.rs`        | `src/map_builder/automata.rs` (**replace**) |
+| `drunkard.rs`        | `src/map_builder/drunkard.rs` (**replace**) |
+| `empty.rs`           | `src/map_builder/empty.rs` (**replace**)    |
+| `prefab.rs`          | `src/map_builder/prefab.rs` (**replace**)   |
+| `template.rs`        | `src/spawner/template.rs` (**replace**)     |
+| `template.ron`       | `resources/template.ron` (**replace**)      |
+| `main.rs`            | `src/main.rs` (**replace**)                 |
+
+**Summary of the change:**
+- Fixed the actual bug you spotted: fortress guard markers (`'M'`) no longer feed into the general weighted spawn lottery (where they could just as easily become an item). They now go through a new `spawn_fortress_enemies` path that only ever picks from Enemy-type templates.
+- Added a `'S'` marker to the existing fortress layout, placed dead-center between the three guards. A new `spawn_fortress_sword` function places a guaranteed sword there.
+- Swords (`Rusty`/`Shiny`/`Huge Sword`) got a new `fortress_only: true` flag in `template.ron` and are excluded from the ambient pool in `spawn_entities` — they genuinely can't spawn anywhere except a fortress now.
+- Which sword tier can appear still reuses each sword's existing `levels` field (`Huge Sword` stays `[1, 2]`, so it won't show up on level 0) — no new level-scaling mechanism needed, the data was already there.
+
+One thing worth knowing: fortress placement can still fail (up to 10 attempts, per the existing logic) if no valid spot is found — per your "let's get this working now" steer, I left that as-is rather than adding a placement guarantee, so it's possible (if uncommon) for a level to generate with no sword available at all. Easy to revisit later if that turns out to matter in practice.
+
