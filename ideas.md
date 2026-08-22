@@ -27,6 +27,7 @@ Pause screen when pressing esc
 ## HUD
 Better UI for attacks
 HUD Battle Item Tool Tip.
+Add a 0 command for the item use
 
 ## Battle Arena
 Have a Battle Victory Screen to show the items that you won.
