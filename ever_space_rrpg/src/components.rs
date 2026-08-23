@@ -24,13 +24,39 @@ pub struct Weapon;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmuletOfYala;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesHealing {
-    pub amount: i32,
+// --- Out-of-combat item effects ---------------------------------------------
+//
+// One component + data enum, mirroring Technique/TechniqueEffect below -
+// replaces the old approach of a separate marker component per effect
+// (ProvidesHealing, ProvidesDungeonMap, ProvidesInvisibility) with one
+// generic Effect component whose meaning is data, not a distinct Rust
+// type. An item has at most one such effect.
+
+/// An out-of-combat item's effect, applied when used from the dungeon-view
+/// item list (see systems/use_items.rs) - set from `Template.effect` in
+/// template.ron.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+pub enum ProvidesEffect {
+    /// Restore `0` HP immediately - the i32 is the amount healed.
+    Healing(i32),
+    /// Reveal the entire map immediately.
+    MagicMap,
+    /// Become Invisible (see components::Invisible) for `0` player turns -
+    /// the i32 is the move count.
+    Invisibility(i32),
+    /// Gain `defense_bonus` extra Defense for the next `attacks` enemy
+    /// hits taken (see components::IceArmored) - applied immediately and
+    /// persists across dungeon exploration and into battle, unlike the
+    /// old in-battle-only Shield technique this replaces. "Mages buff
+    /// before battle."
+    IceArmor { defense_bonus: i32, attacks: i32 },
 }
 
+/// Marks an Item entity with its out-of-combat effect. Granted via normal
+/// floor spawns, starting kits, or battle loot, and consumed on use in
+/// systems/use_items.rs.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesDungeonMap;
+pub struct Effect(pub ProvidesEffect);
 
 // --- One-time battle items -------------------------------------------------
 //
@@ -70,12 +96,6 @@ pub enum TechniqueEffect {
     /// Wound the enemy for `damage` at the start of each of the next
     /// `turns` rounds.
     DamageOverTime { damage: i32, turns: i32 },
-    /// Boost your own Defense by `defense_bonus`, reducing incoming damage
-    /// further, for the next `attacks` enemy hits actually landed on you
-    /// (not turns - only counts down when the enemy connects). Scoped to
-    /// the battle it's cast in; doesn't carry over into the next fight -
-    /// see Battle::shield.
-    Shield { defense_bonus: i32, attacks: i32 },
     /// Restore `amount` HP to yourself right now. Not used by any current
     /// Barbarian technique - included so a Mage healing spell has
     /// somewhere to plug in without another battle.rs change.
@@ -99,13 +119,17 @@ pub struct Invisible {
     pub moves_remaining: i32,
 }
 
-/// Marks an Item entity as an Invisible Cloak - granting `moves` turns of
-/// Invisible on use (see systems/use_items.rs). Ordinary carried item, not
-/// a BattleItem - used from the dungeon-view item keys, not the battle
-/// menu, since it's explicitly an out-of-combat ability.
+/// Persistent Defense buff granted by Ice Armor (see ProvidesEffect::IceArmor).
+/// Applied immediately on use, outside combat - "Mages buff before battle."
+/// Checked and ticked down entirely within battle::resolve_enemy_attack:
+/// unlike the old Shield technique it replaces, this survives across
+/// multiple turns AND multiple battles until its `attacks_remaining` runs
+/// out, since it's a lasting status on the player rather than something
+/// scoped to a single Battle.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesInvisibility {
-    pub moves: i32,
+pub struct IceArmored {
+    pub defense_bonus: i32,
+    pub attacks_remaining: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

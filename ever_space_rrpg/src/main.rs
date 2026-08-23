@@ -66,6 +66,37 @@ fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) {
     batch.set(Point::new(col, row), render.color, render.glyph);
 }
 
+/// Draws a hollow rectangular border - plain '-'/'|'/'+' characters, built
+/// from the same DrawBatch::set + to_cp437 primitives already proven
+/// throughout this file (map/portrait/arena rendering), rather than
+/// reaching for a higher-level box-drawing API this project hasn't used
+/// anywhere else. Used to frame the battle-menu action list - see
+/// BattleTurn::PlayerMenu in battle_tick.
+fn draw_hollow_box(
+    batch: &mut DrawBatch,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    color: ColorPair,
+) {
+    let dash = to_cp437('-');
+    let pipe = to_cp437('|');
+    let corner = to_cp437('+');
+    for dx in 0..width {
+        batch.set(Point::new(x + dx, y), color, dash);
+        batch.set(Point::new(x + dx, y + height - 1), color, dash);
+    }
+    for dy in 0..height {
+        batch.set(Point::new(x, y + dy), color, pipe);
+        batch.set(Point::new(x + width - 1, y + dy), color, pipe);
+    }
+    batch.set(Point::new(x, y), color, corner);
+    batch.set(Point::new(x + width - 1, y), color, corner);
+    batch.set(Point::new(x, y + height - 1), color, corner);
+    batch.set(Point::new(x + width - 1, y + height - 1), color, corner);
+}
+
 /// Tints `base`'s foreground color for a brief post-action flash - white
 /// for Attacking, red for Hit - or returns it unchanged once the flash has
 /// expired or was never set. Background is left untouched: console 3 is a
@@ -243,7 +274,13 @@ impl State {
         map_builder.map.tiles[exit_idx] = TileType::Exit;
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
         spawn_prefab_enemies(&mut self.ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
-        spawn_prefab_weapon(&mut self.ecs, &mut rng, 0, map_builder.prefab_weapon_spawn);
+        spawn_prefab_weapon(
+            &mut self.ecs,
+            &mut rng,
+            0,
+            map_builder.prefab_weapon_spawn,
+            class,
+        );
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
@@ -467,11 +504,13 @@ impl State {
             map_level as usize,
             &map_builder.prefab_enemy_spawns,
         );
+        let player_class = entity_class(&self.ecs, player_entity).unwrap_or_default();
         spawn_prefab_weapon(
             &mut self.ecs,
             &mut rng,
             map_level as usize,
             map_builder.prefab_weapon_spawn,
+            &player_class,
         );
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
@@ -725,21 +764,64 @@ impl State {
                 }
 
                 let actions = available_actions(&self.ecs, battle.player);
-                let menu_text: String = actions
-                    .iter()
-                    .enumerate()
-                    .map(|(i, entry)| match entry.count {
-                        Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
-                        None => format!("{}) {}", i + 1, entry.label),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("   ");
-                ctx.print_color_centered(48, GREEN, BLACK, &menu_text);
+
+                // --- Bottom-right actions box, on the HUD console (107x67
+                // grid, ~12px cells - the same "1.5x" size used for the
+                // dungeon HUD) rather than the fine-text console (8px, too
+                // small) or the big-text title console (32px, too big) -
+                // a middle ground per your feedback. BOX_X=44 is
+                // deliberate: the player portrait is drawn at column 1 of
+                // the 5-column portrait console (256-512px), and
+                // 44*~12=528px clears that portrait's right edge (512px)
+                // with a little margin, at any box height, since only the
+                // box's top edge moves with action count.
+                const BOX_X: i32 = 44;
+                const BOX_WIDTH: i32 = 26;
+                let box_height = actions.len() as i32 + 4;
+                let box_y = HUD_ROWS - box_height;
+
+                let mut menu_batch = DrawBatch::new();
+                menu_batch.target(4);
+                draw_hollow_box(
+                    &mut menu_batch,
+                    BOX_X,
+                    box_y,
+                    BOX_WIDTH,
+                    box_height,
+                    ColorPair::new(GREEN, BLACK),
+                );
+                menu_batch.submit(0).expect("Batch error");
+
+                ctx.set_active_console(4);
+                ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
+                for (i, entry) in actions.iter().enumerate() {
+                    // Every action this class could ever have is always
+                    // listed (see battle::available_actions) - one not
+                    // currently owned shows greyed out and isn't
+                    // selectable, rather than disappearing from the menu
+                    // entirely, so the list stays a stable reference of
+                    // what the class can eventually do.
+                    let (label, color) = if entry.action.is_some() {
+                        let label = match entry.count {
+                            Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
+                            None => format!("{}) {}", i + 1, entry.label),
+                        };
+                        (label, GREEN)
+                    } else {
+                        (format!("{}) {} (locked)", i + 1, entry.label), DARK_GRAY)
+                    };
+                    ctx.print_color(BOX_X + 1, box_y + 3 + i as i32, color, BLACK, &label);
+                }
+                // Restore console 2 - the enemy/player name+HP text above
+                // and the FirstResult/SecondResult arms below all assume
+                // it's active (it's set once, above the whole match block,
+                // not re-set per arm).
+                ctx.set_active_console(2);
 
                 if let Some(key) = ctx.key {
                     let chosen = number_key_index(key)
                         .and_then(|i| actions.get(i))
-                        .map(|entry| entry.action);
+                        .and_then(|entry| entry.action);
                     if let Some(chosen) = chosen {
                         // Every technique's mechanical effect is resolved
                         // in one place (battle::apply_player_technique)
@@ -748,7 +830,7 @@ impl State {
                         match chosen {
                             BattleAction::Attack => {
                                 let dmg = player_attack_damage(&self.ecs, battle.player);
-                                apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                let dmg = apply_damage(&mut self.ecs, battle.enemy, dmg);
                                 battle.player_flash =
                                     Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
                                 battle.enemy_flash =

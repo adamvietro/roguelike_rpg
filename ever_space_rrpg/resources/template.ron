@@ -3,27 +3,28 @@ Templates(
         Template(
             entity_type: Item,
             name : "Healing Potion", glyph : '!', levels : [ 0, 1, 2 ],
-            provides: Some([ ("Healing", 6) ]),
+            effect: Some(Healing(6)),
             frequency: 2
         ),
         Template(
             entity_type: Item,
             name : "Dungeon Map", glyph : '{', levels : [ 0, 1, 2 ],
-            provides: Some([ ("MagicMap", 0) ]),
+            effect: Some(MagicMap),
             frequency: 1
         ),
         Template(
             // prefab treasure only - prefab_only:true means this never
             // appears in the general ambient spawn pool, only via a
             // prefab's guaranteed 'S' marker (see spawn_prefab_weapon).
-            // Shares that single guaranteed slot with the 3 Staff tiers
-            // below - a level gets one weapon or the other, not both.
-            // levels still gates which dungeon levels this tier is
-            // eligible to be picked on.
+            // class: Barbarian - a Mage will never find one of these here;
+            // it shares its guaranteed slot with the 3 Staff tiers below
+            // instead. levels still gates which dungeon levels this tier
+            // is eligible to be picked on.
             entity_type: Item,
             name : "Rusty Sword", glyph: 's', levels: [ 0],
             frequency: 1,
             base_damage: Some(1),
+            class: Some("Barbarian"),
             prefab_only: true
         ),
         Template(
@@ -31,6 +32,7 @@ Templates(
             name : "Shiny Sword", glyph: 'S', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
+            class: Some("Barbarian"),
             prefab_only: true
         ),
         Template(
@@ -38,17 +40,20 @@ Templates(
             name : "Huge Sword", glyph: '/', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
+            class: Some("Barbarian"),
             prefab_only: true
         ),
         Template(
             // Mage's weapon tier, parallel to the 3 Swords above - same
-            // guaranteed prefab slot, same level gating. Glyphs are 0/1/2
-            // placeholders (same idea as the class-select letter icons)
-            // until real sprite art exists.
+            // guaranteed prefab slot, same level gating, but class: Mage
+            // so a Barbarian will never find one of these instead. Glyphs
+            // are 0/1/2 placeholders (same idea as the class-select letter
+            // icons) until real sprite art exists.
             entity_type: Item,
             name : "Wooden Staff", glyph: '0', levels: [ 0 ],
             frequency: 1,
             base_damage: Some(1),
+            class: Some("Mage"),
             prefab_only: true
         ),
         Template(
@@ -56,6 +61,7 @@ Templates(
             name : "Silver Staff", glyph: '1', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
+            class: Some("Mage"),
             prefab_only: true
         ),
         Template(
@@ -63,6 +69,7 @@ Templates(
             name : "Arcane Staff", glyph: '2', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
+            class: Some("Mage"),
             prefab_only: true
         ),
         Template(
@@ -120,30 +127,31 @@ Templates(
             description: Some("Sets the enemy alight for 1 damage per turn over the next 3 turns.")
         ),
         Template(
-            // +2 Defense for the next 10 enemy hits actually landed
-            // (counts down on hits absorbed, not turns) - see
-            // TechniqueEffect::Shield. Numbers are a first guess, easy to
-            // retune here with no code change.
+            // Ice Armor is used out of combat, like Invisible Cloak -
+            // "Mages buff before battle." +2 Defense for the next 10
+            // enemy hits actually landed (counts down on hits absorbed,
+            // not turns) - see components::IceArmored /
+            // battle::resolve_enemy_attack. Numbers are a first guess,
+            // easy to retune here with no code change.
             entity_type: Item,
             name : "Ice Armor", glyph: '+', levels: [ ],
-            technique: Some(Shield(defense_bonus: 2, attacks: 10)),
+            effect: Some(IceArmor(defense_bonus: 2, attacks: 10)),
             frequency: 0,
             class: Some("Mage"),
-            description: Some("Encases you in ice, adding 2 Defense for your next 10 hits taken.")
+            description: Some("Encases you in ice, adding 2 Defense for your next 10 hits taken. Use it before you walk into a fight.")
         ),
         Template(
-            // Battle loot only now (levels:[]/frequency:0, same convention
-            // as the technique items above) - NOT an ambient floor spawn.
-            // grant_random_battle_loot already filters its candidate pool
-            // by class alone (not by BattleItem/technique), so this needed
-            // no code changes to become loot - only this data change.
-            // Still not a BattleItem/Technique itself, though - it stays
-            // off the battle menu and shows up in the ordinary dungeon-view
-            // item list once won, since it's explicitly an out-of-combat
-            // ability (see components::Invisible / systems/player_input.rs).
+            // Battle loot only (levels:[]/frequency:0) - NOT an ambient
+            // floor spawn. grant_random_battle_loot filters its candidate
+            // pool by class alone (not by BattleItem/technique/effect), so
+            // this needed no code changes to become loot - only data.
+            // Not a BattleItem/Technique - it stays off the battle menu
+            // and shows up in the ordinary dungeon-view item list once
+            // won, since it's explicitly an out-of-combat ability (see
+            // components::Invisible / systems/player_input.rs).
             entity_type: Item,
             name : "Invisible Cloak", glyph: '"', levels: [ ],
-            provides: Some([ ("Invisibility", 20) ]),
+            effect: Some(Invisibility(20)),
             frequency: 0,
             class: Some("Mage"),
             description: Some("Wear it to become unseen for 20 moves - enemies can't touch you, but you can't push past them either.")

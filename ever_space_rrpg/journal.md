@@ -951,4 +951,44 @@ Two solid additions. Let me build both.
 Mage's kit right now: **Healing Potion, Wooden Staff, Fireball** — a real weapon, a real offensive technique, and a safety net, instead of walking into the first Goblin fight barefisted at −1 Defense. `spawn_player` now returns the player `Entity` so `start_game` can hand it straight to `grant_starting_items`. Barbarian has no kit yet since it's already proven playable without one — adding one later, or one for Rogue/Amazon/Archer, is just another `StartingKit` entry.
 
 ## Battle Screen Update Items For Classes
+Let's look at the screenshot together — that muscular sprite is the actual pixel-art tile the dungeon font draws for whatever glyph code the player is using; the small pixelated `m` underneath is a *different* font rendering the literal letter (that's likely from a leftover render call, I'll check). All three issues make sense — let me dig into each.This confirms it exactly — `apply_damage` silently clamps damage by the target's Defense internally, but every message is built from the *pre-clamp* number that was passed in. Fixing this at the source:Now update every call site to shadow the local variable with the real returned value:Now the three `apply_player_technique` arms:Now the last call site, in `main.rs`'s basic Attack action:Now let's confirm every call site was caught and check brace/logic balance:Every call site now uses the real applied damage. Now let's tackle the class-restricted weapon spawning:Now the wrapper in `spawner/mod.rs`:Now tag the Swords/Staffs with their class in `template.ron`:Now update the two call sites in `main.rs` to pass the player's class:`player_entity` is available. Let's use it with `entity_class`:Now let's tackle the abilities box — moving the menu to the bottom-right with a border. Let's view the current `PlayerMenu` block:Now let's add a `draw_hollow_box` helper using only proven primitives (`DrawBatch::set` + `to_cp437`, both already used extensively throughout this file):Now let's rewrite the `PlayerMenu` block to draw the box in the bottom-right and list actions vertically inside it:This all reads correctly. Now let's do one last full-project sanity sweep, then package everything for delivery.Everything is consistent — both call sites now pass the class, both weapon families are properly tagged. Let's package the final deliverables
+
+**5 files, all modified:**
+
+| Downloaded as         | Save to                   |
+| --------------------- | ------------------------- |
+| `battle.rs`           | `src/battle.rs`           |
+| `main.rs`             | `src/main.rs`             |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`      |
+| `spawner_template.rs` | `src/spawner/template.rs` |
+| `template.ron`        | `resources/template.ron`  |
+
+**1. Damage messages now show real numbers.** Root cause: `apply_damage` silently reduced damage by the target's Defense internally, but every message was built from the number *passed in*, not what actually happened. With Mage's Defense at −1 (or any future positive-Defense enemy), the two would diverge. `apply_damage` now returns the actual damage dealt, and all seven call sites (basic Attack, every technique, the enemy's attack, Counter, and damage-over-time ticks) were updated to report that real number.
+
+**2. Actions moved to a bordered box, bottom-right.** Console 2 is 160×100, so the box sits at columns 96–157, its height growing with however many actions that class currently has (baseline 3 for Attack/Defend/Flee, more with techniques) — well clear of the name/HP text and the message line above it. I built the border by hand with `DrawBatch::set` (the same primitive every other visual in this file already uses) rather than reaching for an unproven higher-level box-drawing call, since I can't compile-test this project myself.
+
+**3. Mage can no longer find a Sword.** `spawn_prefab_weapon` now filters its candidate pool to the current player's class (or unrestricted), and the 3 Swords/3 Staffs got tagged `class: Some("Barbarian")`/`class: Some("Mage")` in `template.ron`. Worth knowing: Rogue/Amazon/Archer have no weapon tier defined yet, so a fortress treasure room for one of them will now find *nothing* — silent, not a crash, but you'll notice an empty guarded room until they get their own weapon type.
+
+### Move Improvements
+You're right — I hadn't finished the implementation yet, so there was nothing to send. Let me finish the remaining pieces now and then deliver everything together.Now let's view and rewrite `resolve_enemy_attack` to check the persistent `IceArmored` component instead of `battle.shield`:Now let's remove the `Shield` match arm from `apply_player_technique`:Now let's add `class_technique_names` support. First let's find `available_actions` and `BattleMenuEntry` to rework them for the full-roster/greyed-out display:Now let's rework `BattleAction`, `BattleMenuEntry`, and `available_actions` for the full-roster/greyed-out design:Now let's add `class_technique_names` — a way for `battle.rs` to see a class's full technique roster, not just what's currently owned. This needs a small addition in `spawner/template.rs` and `spawner/mod.rs`:Now let's do the full consolidation — `provides` → `effect`, and add `technique_names_for_class`:Now update the three call sites and add `technique_names_for_class`:All 3 call sites updated. Now add `technique_names_for_class`:Now the wrapper in `spawner/mod.rs`:Now let's update `use_items.rs` to work with the consolidated `Effect`/`ProvidesEffect`:Now let's update `template.ron` — change `provides:` to `effect:` everywhere, and move Ice Armor out of the technique system:Now let's update `main.rs` — move the box to the more moderate HUD console (12px cells, not the huge 32px one) and grey out locked entries:Good, `HUD_ROWS` is in scope. Let's do a full sanity sweep now across every touched file:All braces balanced, no stale code references (the one hit is just an explanatory comment), and no leftover `provides:` fields in the RON file. Let's also verify `class_technique_names` and `Effect`/`ProvidesEffect` wiring end-to-end:Everything is correctly wired end-to-end. Now let's package the full set of changed files for delivery:Here they are — 7 files, all modified:
+
+| Downloaded as         | Save to                    |
+| --------------------- | -------------------------- |
+| `main.rs`             | `src/main.rs`              |
+| `battle.rs`           | `src/battle.rs`            |
+| `components.rs`       | `src/components.rs`        |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`       |
+| `spawner_template.rs` | `src/spawner/template.rs`  |
+| `use_items.rs`        | `src/systems/use_items.rs` |
+| `template.ron`        | `resources/template.ron`   |
+
+**What changed:**
+
+1. **Box is smaller.** Moved off the 32px "big text" console onto the HUD console instead (~12px cells — the same "1.5x" size the dungeon HUD already uses). Its left edge is still pinned to clear the player portrait exactly, just at the new scale.
+
+2. **Full roster, greyed out.** The battle menu now always lists every technique a class *could* have, not just what you're currently carrying. Unowned ones show as `4) Ice Armor (locked)` in dark grey and can't be selected — but wait, Ice Armor's not there anymore, see below. This needed a new `class_technique_names` lookup that reads the full `template.ron` roster for a class, separate from what's actually in your inventory.
+
+3. **Ice Armor moved out of battle entirely.** This was the bigger piece: since Ice Armor needed two parameters (`defense_bonus` and `attacks`) and the old `provides` field only supported one, I consolidated the whole out-of-combat item-effect system into one typed `ProvidesEffect` enum + `Effect` component — the same pattern `TechniqueEffect`/`Technique` already used for battle items. Healing Potion, Dungeon Map, and Invisible Cloak all moved onto this new system too (mechanically identical, just cleaner data). Ice Armor is now a persistent `IceArmored` status (mirroring `Invisible`) applied the moment you use it from your item list — it survives across turns and even across separate battles until its 10 hits are used up, unlike before where it reset between fights. It's still Mage-only, still won from battle loot, same as Invisible Cloak.
+
+One thing worth testing: since Ice Armor left the technique system, Mage's in-battle roster is now just Attack/Defend/Fireball/Burn/Flee — smaller box automatically. Let me know if the grey/locked look reads clearly once you see it running.
 

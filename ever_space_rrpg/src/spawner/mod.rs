@@ -115,16 +115,17 @@ pub fn spawn_prefab_enemies(
 }
 
 /// Spawns a guaranteed weapon at a prefab's treasure position, if one
-/// placed this level - see Templates::spawn_prefab_weapon. Swords and
-/// Staffs share this same single guaranteed slot.
+/// placed this level - see Templates::spawn_prefab_weapon. Filtered to
+/// `player_class` (or unrestricted), so a Mage never finds a Sword here.
 pub fn spawn_prefab_weapon(
     ecs: &mut World,
     rng: &mut RandomNumberGenerator,
     level: usize,
     spawn_point: Option<Point>,
+    player_class: &str,
 ) {
     let template = Templates::load();
-    template.spawn_prefab_weapon(ecs, rng, level, spawn_point);
+    template.spawn_prefab_weapon(ecs, rng, level, spawn_point, player_class);
 }
 
 /// Rolls a chance to grant the player a random one-time battle item after
@@ -167,4 +168,13 @@ pub fn spawn_amulet_of_yala(ecs: &mut World, pos: Point) {
         },
         Name("Amulet of Yala".to_string()),
     ));
+}
+
+/// Every distinct technique name defined for `class` in template.ron,
+/// regardless of ownership - see Templates::technique_names_for_class.
+/// Used by battle::available_actions to show a class's full technique
+/// roster with unowned ones greyed out.
+pub fn class_technique_names(class: &str) -> Vec<String> {
+    let template = Templates::load();
+    template.technique_names_for_class(class)
 }

@@ -35,13 +35,16 @@ pub enum BattleAction {
 }
 
 /// One rendered battle-menu row: the action it triggers, its display
-/// label, and a remaining-use count (None for the always-available
-/// capability actions, Some(n) for technique items - only included while
-/// n > 0). Built fresh each menu render, so using an item immediately
-/// updates the count / removes the option once you run out.
+/// label, and a remaining-use count. `action` is None for a class
+/// technique you don't currently own a copy of - it's still shown (greyed
+/// out, see main.rs) so the menu always reflects the class's full
+/// technique roster rather than only whatever you happen to be carrying,
+/// but there's no Entity to reference for it and it can't be selected.
+/// Built fresh each menu render, so using an item immediately updates the
+/// count.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BattleMenuEntry {
-    pub action: BattleAction,
+    pub action: Option<BattleAction>,
     pub label: String,
     pub count: Option<i32>,
 }
@@ -65,39 +68,50 @@ fn has_can_flee(ecs: &World, entity: Entity) -> bool {
 }
 
 /// The ordered list of battle-menu rows this entity currently has
-/// available. Built fresh each menu render, so using an item immediately
-/// updates the count / removes the option once you run out. Class
-/// filtering happens once here (via `grouped_carried_techniques`) - callers
-/// don't need to know or pass the wielder's class at all.
+/// available. Always shows the acting class's full technique roster (see
+/// class_technique_names) - not just what's currently carried - so the
+/// menu stays a stable reference of "what this class can eventually do";
+/// entries for techniques not currently owned get `action: None` (count
+/// Some(0)) so main.rs can grey them out and skip them on selection. Class
+/// filtering happens once here - callers don't need to know or pass the
+/// wielder's class at all.
 pub fn available_actions(ecs: &World, entity: Entity) -> Vec<BattleMenuEntry> {
     let mut actions = Vec::new();
     if has_can_attack(ecs, entity) {
         actions.push(BattleMenuEntry {
-            action: BattleAction::Attack,
+            action: Some(BattleAction::Attack),
             label: "Attack".to_string(),
             count: None,
         });
     }
     if has_can_defend(ecs, entity) {
         actions.push(BattleMenuEntry {
-            action: BattleAction::Defend,
+            action: Some(BattleAction::Defend),
             label: "Defend".to_string(),
             count: None,
         });
     }
 
     let class = entity_class(ecs, entity).unwrap_or_default();
-    for (name, entities) in grouped_carried_techniques(ecs, entity, &class) {
-        actions.push(BattleMenuEntry {
-            action: BattleAction::Technique(entities[0]),
-            label: name,
-            count: Some(entities.len() as i32),
-        });
+    let owned = grouped_carried_techniques(ecs, entity, &class);
+    for name in class_technique_names(&class) {
+        match owned.iter().find(|(n, _)| *n == name) {
+            Some((_, entities)) => actions.push(BattleMenuEntry {
+                action: Some(BattleAction::Technique(entities[0])),
+                label: name,
+                count: Some(entities.len() as i32),
+            }),
+            None => actions.push(BattleMenuEntry {
+                action: None,
+                label: name,
+                count: Some(0),
+            }),
+        }
     }
 
     if has_can_flee(ecs, entity) {
         actions.push(BattleMenuEntry {
-            action: BattleAction::Flee,
+            action: Some(BattleAction::Flee),
             label: "Flee".to_string(),
             count: None,
         });
@@ -239,13 +253,6 @@ pub struct Battle {
     /// a Rend-shaped technique), ticked once per round in `tick_dot`.
     /// None when inactive.
     pub enemy_dot: Option<DotState>,
-    /// A temporary Defense boost from a Shield-shaped technique (e.g. Ice
-    /// Armor), reducing incoming damage further for a limited number of
-    /// enemy attacks - ticked down once per attack actually absorbed in
-    /// `resolve_enemy_attack`. None when inactive. Reset to None at the
-    /// start of every new battle (see Battle::new) - an unused shield does
-    /// not carry over into the next fight.
-    pub shield: Option<ShieldState>,
     pub fled: bool,
     pub message: String,
     /// A brief post-action color flash for each portrait - which kind
@@ -281,7 +288,6 @@ impl Battle {
             player_defending: false,
             countering: None,
             enemy_dot: None,
-            shield: None,
             fled: false,
             message: String::new(),
             enemy_flash: None,
@@ -305,13 +311,6 @@ pub struct DotState {
     /// The technique's own name, lowercased, for the per-tick message
     /// (e.g. "The garrote bites...").
     pub label: String,
-}
-
-/// An active temporary Defense boost on the player - see Battle::shield.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ShieldState {
-    pub defense_bonus: i32,
-    pub attacks_remaining: i32,
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
@@ -371,10 +370,14 @@ pub fn entity_health(ecs: &World, entity: Entity) -> (i32, i32) {
         .unwrap_or((0, 0))
 }
 
-/// Subtract `amount` from an entity's current Health. Can go below zero;
-/// callers check for death via entity_health and clamp for display.
-/// Defense will remove damage based off the current defense 1 for 1
-pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) {
+/// Subtract `amount` from an entity's current Health, reduced by the
+/// target's Defense (if any). Can go below zero; callers check for death
+/// via entity_health and clamp for display. Returns the actual damage
+/// dealt (post-Defense) - callers should use this return value, not the
+/// `amount` they passed in, when building a message: the two can diverge
+/// for any entity with nonzero Defense (e.g. Mage's -1).
+pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) -> i32 {
+    let mut actual_damage = 0;
     <(Entity, &mut Health, Option<&Defense>)>::query()
         .iter_mut(ecs)
         .filter(|(e, _, _)| **e == entity)
@@ -382,7 +385,9 @@ pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) {
             let defense = defense.map_or(0, |d| d.0);
             let damage = (amount - defense).max(0);
             hp.current -= damage;
+            actual_damage = damage;
         });
+    actual_damage
 }
 
 /// The player's normal attack damage: base Damage plus any equipped weapon.
@@ -403,14 +408,20 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     if battle.player_defending && dmg > 0 {
         dmg = (dmg / 2).max(1);
     }
-    let shield_absorbed = if let Some(shield) = &battle.shield {
+
+    // Ice Armor is applied out-of-combat (via an Invisible-Cloak-style
+    // item - "Mages buff before battle") and persists as a status on the
+    // player rather than per-Battle state, so it's looked up here instead
+    // of read from `battle` directly - see components::IceArmored.
+    let ice_armor = entity_ice_armor(ecs, battle.player);
+    let mut ice_absorbed = false;
+    if let Some(armor) = &ice_armor {
         let before = dmg;
-        dmg = (dmg - shield.defense_bonus).max(0);
-        before > dmg
-    } else {
-        false
-    };
-    apply_damage(ecs, battle.player, dmg);
+        dmg = (dmg - armor.defense_bonus).max(0);
+        ice_absorbed = before > dmg;
+    }
+
+    let dmg = apply_damage(ecs, battle.player, dmg);
     battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
     battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
     let mut message = if battle.player_defending {
@@ -418,7 +429,7 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
             "The {} attacks - you block some of it! ({} damage)",
             battle.enemy_name, dmg
         )
-    } else if shield_absorbed {
+    } else if ice_absorbed {
         format!(
             "The {} attacks - your icy armor absorbs some of it! ({} damage)",
             battle.enemy_name, dmg
@@ -428,20 +439,30 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     };
     battle.player_defending = false;
 
-    // A Shield-shaped technique wears down by one attack actually absorbed,
-    // regardless of whether Defend also reduced this same hit.
-    if let Some(shield) = &mut battle.shield {
-        shield.attacks_remaining -= 1;
-        if shield.attacks_remaining <= 0 {
-            battle.shield = None;
+    // Ice Armor wears down by one attack actually absorbed, same "attacks"
+    // semantics the old in-battle Shield technique used - just persistent
+    // across turns and battles now instead of scoped to a single fight.
+    if let Some(armor) = ice_armor {
+        let mut cb = CommandBuffer::new(ecs);
+        if armor.attacks_remaining <= 1 {
+            cb.remove_component::<IceArmored>(battle.player);
+        } else {
+            cb.add_component(
+                battle.player,
+                IceArmored {
+                    defense_bonus: armor.defense_bonus,
+                    attacks_remaining: armor.attacks_remaining - 1,
+                },
+            );
         }
+        cb.flush(ecs);
     }
 
     if let Some(counter) = battle.countering.take() {
         let mut rng = RandomNumberGenerator::new();
         if rng.range(0, 100) < counter.chance_percent {
             let counter_dmg = player_attack_damage(ecs, battle.player) * counter.multiplier;
-            apply_damage(ecs, battle.enemy, counter_dmg);
+            let counter_dmg = apply_damage(ecs, battle.enemy, counter_dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
             message = format!("{} You counter for {} damage!", message, counter_dmg);
@@ -451,6 +472,14 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     }
 
     message
+}
+
+/// An entity's active IceArmored bonus, if any - see resolve_enemy_attack.
+fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
+    <(Entity, &IceArmored)>::query()
+        .iter(ecs)
+        .find(|(e, _)| **e == entity)
+        .map(|(_, armor)| *armor)
 }
 
 /// If a damage-over-time effect is active on the enemy, ticks it down by
@@ -467,7 +496,7 @@ pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
         battle.enemy_dot = None;
         return None;
     }
-    apply_damage(ecs, battle.enemy, damage);
+    let damage = apply_damage(ecs, battle.enemy, damage);
     battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
     let remaining = turns_remaining - 1;
     if remaining <= 0 {
@@ -511,7 +540,7 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
     match effect {
         TechniqueEffect::DamageMultiplier(multiplier) => {
             let dmg = player_attack_damage(ecs, battle.player) * multiplier;
-            apply_damage(ecs, battle.enemy, dmg);
+            let dmg = apply_damage(ecs, battle.enemy, dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
             format!(
@@ -521,7 +550,7 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
         }
         TechniqueEffect::FlatDamage(amount) => {
             let dmg = amount + carried_weapon_damage(ecs, battle.player);
-            apply_damage(ecs, battle.enemy, dmg);
+            let dmg = apply_damage(ecs, battle.enemy, dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
             format!(
@@ -530,9 +559,10 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             )
         }
         TechniqueEffect::MultiHit(hits) => {
-            let dmg = player_attack_damage(ecs, battle.player);
+            let raw = player_attack_damage(ecs, battle.player);
+            let mut dmg = 0;
             for _ in 0..hits {
-                apply_damage(ecs, battle.enemy, dmg);
+                dmg = apply_damage(ecs, battle.enemy, raw);
             }
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
@@ -560,19 +590,6 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             format!(
                 "You use {} on the {} - it will wound them over time!",
                 name, battle.enemy_name
-            )
-        }
-        TechniqueEffect::Shield {
-            defense_bonus,
-            attacks,
-        } => {
-            battle.shield = Some(ShieldState {
-                defense_bonus,
-                attacks_remaining: attacks,
-            });
-            format!(
-                "{}! Your defenses harden for the next {} attacks.",
-                name, attacks
             )
         }
         TechniqueEffect::Heal { amount } => {

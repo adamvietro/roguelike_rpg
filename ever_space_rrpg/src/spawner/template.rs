@@ -17,17 +17,18 @@ pub struct Template {
     pub frequency: i32,
     pub name: String,
     pub glyph: char,
-    pub provides: Option<Vec<(String, i32)>>,
+    /// An out-of-combat item's effect, e.g. `Healing(6)` or
+    /// `IceArmor(defense_bonus: 2, attacks: 10)`. See
+    /// components::ProvidesEffect. Applied when used from the dungeon-view
+    /// item list (systems/use_items.rs) - separate from `technique`, which
+    /// is for battle-menu-only items.
+    pub effect: Option<ProvidesEffect>,
     pub hp: Option<i32>,
     pub base_damage: Option<i32>,
     pub speed: Option<i32>,
     /// A one-time battle technique's mechanical effect, e.g.
     /// `DamageMultiplier(2)` or `Counter(chance_percent: 65, multiplier: 3)`.
-    /// See components::TechniqueEffect. Replaces the old approach of
-    /// matching hardcoded strings ("Deathblow", "QuickAttack", ...) in
-    /// `provides` and adding a distinct marker component per match -
-    /// `provides` is still used for non-technique effects (Healing,
-    /// MagicMap).
+    /// See components::TechniqueEffect.
     pub technique: Option<TechniqueEffect>,
     /// Which class can use/be granted this item, e.g. "Barbarian". None
     /// means unrestricted - usable by anyone (weapons, potions, etc. stay
@@ -120,18 +121,20 @@ impl Templates {
     /// Spawns a guaranteed weapon at `spawn_point`, if a prefab placed
     /// successfully this level (see map_builder::prefab /
     /// MapBuilder::prefab_weapon_spawn - placement can fail, so this may
-    /// be None). Picks randomly, weighted by frequency, among ALL
-    /// `prefab_only` templates whose `levels` includes this dungeon level
-    /// - Swords and Staffs share this same single guaranteed slot (a level
-    /// gets one or the other, not both), the same way `levels` already
-    /// gates the general ambient pool. Neither weapon family appears in
-    /// that general pool at all - see Template::prefab_only.
+    /// be None). Picks randomly, weighted by frequency, among `prefab_only`
+    /// templates whose `levels` includes this dungeon level AND whose
+    /// `class` either matches `player_class` or is unset (unrestricted) -
+    /// e.g. a Mage only ever finds Staffs here, never a Sword. If a class
+    /// has no matching weapon tier defined yet (Rogue/Amazon/Archer right
+    /// now), the pool comes up empty and nothing spawns this level -
+    /// silent, not an error, same as when spawn_point is None.
     pub fn spawn_prefab_weapon(
         &self,
         ecs: &mut World,
         rng: &mut RandomNumberGenerator,
         level: usize,
         spawn_point: Option<Point>,
+        player_class: &str,
     ) {
         let pt = match spawn_point {
             Some(pt) => pt,
@@ -141,7 +144,11 @@ impl Templates {
         let mut available_weapons = Vec::new();
         self.entities
             .iter()
-            .filter(|t| t.prefab_only && t.levels.contains(&level))
+            .filter(|t| {
+                t.prefab_only
+                    && t.levels.contains(&level)
+                    && (t.class.is_none() || t.class.as_deref() == Some(player_class))
+            })
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_weapons.push(t);
@@ -158,8 +165,13 @@ impl Templates {
     /// Rolls a chance to grant the player a random one-time battle item
     /// after a battle victory, picked only from templates whose `class`
     /// matches `player_class` - a Barbarian only ever gets Barbarian
-    /// techniques, etc. Call this from battle_tick when an enemy dies.
-    /// Returns the granted item's display name, if any.
+    /// techniques, etc. Excludes `prefab_only` templates (Swords, Staffs)
+    /// even when their class matches - those are guaranteed fortress
+    /// treasure only (see spawn_prefab_weapon), never random loot; without
+    /// this exclusion, tagging Staffs `class: Some("Mage")` to fix them
+    /// spawning for the wrong class also made them eligible here by
+    /// accident. Call this from battle_tick when an enemy dies. Returns
+    /// the granted item's display name, if any.
     pub fn grant_random_battle_loot(
         &self,
         ecs: &mut World,
@@ -174,7 +186,7 @@ impl Templates {
         let candidates: Vec<&Template> = self
             .entities
             .iter()
-            .filter(|t| t.class.as_deref() == Some(player_class))
+            .filter(|t| !t.prefab_only && t.class.as_deref() == Some(player_class))
             .collect();
         let template = rng.random_slice_entry(&candidates)?;
 
@@ -188,7 +200,7 @@ impl Templates {
             Item {},
             Carried(player),
         ));
-        Self::apply_provides(template, entity, &mut commands);
+        Self::apply_effect(template, entity, &mut commands);
         Self::apply_technique(template, entity, &mut commands);
         Self::apply_class(template, entity, &mut commands);
         Self::apply_description(template, entity, &mut commands);
@@ -227,7 +239,7 @@ impl Templates {
             Item {},
             Carried(player),
         ));
-        Self::apply_provides(template, entity, &mut commands);
+        Self::apply_effect(template, entity, &mut commands);
         Self::apply_technique(template, entity, &mut commands);
         Self::apply_class(template, entity, &mut commands);
         Self::apply_description(template, entity, &mut commands);
@@ -238,6 +250,19 @@ impl Templates {
             }
         }
         commands.flush(ecs);
+    }
+
+    /// Every distinct technique name defined for `class`, regardless of
+    /// whether the player currently owns any copies - used by the battle
+    /// menu to show a class's full technique roster with unowned ones
+    /// greyed out, instead of only ever showing what's currently carried.
+    /// Preserves template.ron's file order.
+    pub fn technique_names_for_class(&self, class: &str) -> Vec<String> {
+        self.entities
+            .iter()
+            .filter(|t| t.technique.is_some() && t.class.as_deref() == Some(class))
+            .map(|t| t.name.clone())
+            .collect()
     }
 
     fn spawn_entity(
@@ -271,7 +296,7 @@ impl Templates {
                 );
             }
         }
-        Self::apply_provides(template, entity, commands);
+        Self::apply_effect(template, entity, commands);
         Self::apply_technique(template, entity, commands);
         Self::apply_class(template, entity, commands);
         Self::apply_description(template, entity, commands);
@@ -283,29 +308,16 @@ impl Templates {
         }
     }
 
-    /// Adds whichever ProvidesXxx component a template's `provides` list
-    /// calls for. Only non-technique effects live here now (Healing,
-    /// MagicMap, Invisibility) - one-time battle techniques are handled by
-    /// `apply_technique` instead, driven directly by `Template.technique`
-    /// rather than a string tag.
-    fn apply_provides(
+    /// Tags an entity with its template's out-of-combat Effect, if it has
+    /// one. Only non-technique effects live here - one-time battle
+    /// techniques are handled by `apply_technique` instead.
+    fn apply_effect(
         template: &Template,
         entity: Entity,
         commands: &mut legion::systems::CommandBuffer,
     ) {
-        if let Some(effects) = &template.provides {
-            effects
-                .iter()
-                .for_each(|(provides, n)| match provides.as_str() {
-                    "Healing" => commands.add_component(entity, ProvidesHealing { amount: *n }),
-                    "MagicMap" => commands.add_component(entity, ProvidesDungeonMap {}),
-                    "Invisibility" => {
-                        commands.add_component(entity, ProvidesInvisibility { moves: *n })
-                    }
-                    _ => {
-                        println!("Warning: we don't know how to provide {}", provides);
-                    }
-                });
+        if let Some(effect) = template.effect {
+            commands.add_component(entity, Effect(effect));
         }
     }
 
