@@ -5,9 +5,7 @@ Enemies will initiate a turn based RPG battle. Loot at the end will be class spe
 
 New classes
 Rogue
-Stealth (used out of combat) 20 moves to pick up items, if you run into an enemy you will go first and get 3 times dmg.
-garrote - wound for 2 dmg for next 3 turns
-Dodge - for next 3 turns in battle 70% chance to dodge attacks.
+
 
 Amazon
 
@@ -85,9 +83,18 @@ Defense is -1
 Health is 10
 Weapons is staffs 3 types
 Ice Armor Increases Armor by 1 for 20 attacks
+speed - 6
 
 ### Rogue
-
+Stealth (used out of combat) 20 moves to pick up items, if you run into an enemy you will go first and get 3 times dmg.
+garrote - wound for 2 dmg for next 3 turns
+Dodge - for next 3 turns in battle 70% chance to dodge attacks.
+Back-stab - 2x damage
+Speed - 10
+health- 10
+defense - 0
+attack - 1
+Evasion- 10%
 
 
 ## Options
