@@ -51,7 +51,7 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             damage: 1,
             speed: 6,
             defense: 0,
-            glyph: 'b',
+            glyph: 'B',
         },
         // Barbarian, and a safe fallback for any unrecognized class name.
         _ => ClassBaseStats {

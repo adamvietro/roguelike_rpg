@@ -76,7 +76,7 @@ Templates(
             // Battle loot only - levels:[] means this never appears as a
             // normal floor spawn, only via grant_random_battle_loot.
             entity_type: Item,
-            name : "Deathblow", glyph: '*', levels: [ ],
+            name : "Deathblow", glyph: '?', levels: [ ],
             technique: Some(DamageMultiplier(2)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -84,7 +84,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Quick Attack", glyph: '=', levels: [ ],
+            name : "Quick Attack", glyph: '?', levels: [ ],
             technique: Some(MultiHit(2)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -92,7 +92,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Counter Attack", glyph: '%', levels: [ ],
+            name : "Counter Attack", glyph: '?', levels: [ ],
             technique: Some(Counter(chance_percent: 65, multiplier: 3)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -102,7 +102,7 @@ Templates(
             // Replaces the old "Garrote" technique - same DamageOverTime
             // effect, just a new name.
             entity_type: Item,
-            name : "Rend", glyph: '&', levels: [ ],
+            name : "Rend", glyph: '?', levels: [ ],
             technique: Some(DamageOverTime(damage: 2, turns: 3)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -112,7 +112,7 @@ Templates(
             // Mage battle loot - same levels:[]/frequency:0 pattern as the
             // Barbarian techniques above (battle-loot only).
             entity_type: Item,
-            name : "Fireball", glyph: '*', levels: [ ],
+            name : "Fireball", glyph: '?', levels: [ ],
             technique: Some(FlatDamage(2)),
             frequency: 0,
             class: Some("Mage"),
@@ -120,7 +120,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Burn", glyph: '&', levels: [ ],
+            name : "Burn", glyph: '?', levels: [ ],
             technique: Some(DamageOverTime(damage: 1, turns: 3)),
             frequency: 0,
             class: Some("Mage"),
@@ -134,7 +134,7 @@ Templates(
             // battle::resolve_enemy_attack. Numbers are a first guess,
             // easy to retune here with no code change.
             entity_type: Item,
-            name : "Ice Armor", glyph: '+', levels: [ ],
+            name : "Ice Armor", glyph: '?', levels: [ ],
             effect: Some(IceArmor(defense_bonus: 2, attacks: 10)),
             frequency: 0,
             class: Some("Mage"),
@@ -150,7 +150,7 @@ Templates(
             // won, since it's explicitly an out-of-combat ability (see
             // components::Invisible / systems/player_input.rs).
             entity_type: Item,
-            name : "Invisible Cloak", glyph: '"', levels: [ ],
+            name : "Invisible Cloak", glyph: '?', levels: [ ],
             effect: Some(Invisibility(20)),
             frequency: 0,
             class: Some("Mage"),
