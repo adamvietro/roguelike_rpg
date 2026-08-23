@@ -1,0 +1,21 @@
+// Guaranteed starting inventory per class, granted once right after
+// spawn_player (see spawner::grant_starting_items). Item names must
+// exactly match a Template.name in template.ron - this works even for
+// prefab_only weapons or levels:[] battle-loot techniques, since it
+// bypasses all the normal spawn pools and grants exactly what's listed.
+//
+// A class with no entry here just starts with nothing extra, same as
+// every class did before this file existed - Barbarian doesn't have one
+// yet since it's already proven playable without a kit.
+StartingKits(
+    kits: [
+        StartingKit(
+            // Mage is squishy (Defense -1, no innate weapon damage) and
+            // otherwise starts completely empty-handed relying on random
+            // battle loot for any technique at all - this kit exists so a
+            // fresh Mage run is actually survivable from turn one.
+            class: "Mage",
+            items: [ "Healing Potion", "Fireball", "Invisible Cloak", "Ice Armor" ],
+        ),
+    ],
+)

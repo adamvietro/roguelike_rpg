@@ -239,6 +239,13 @@ pub struct Battle {
     /// a Rend-shaped technique), ticked once per round in `tick_dot`.
     /// None when inactive.
     pub enemy_dot: Option<DotState>,
+    /// A temporary Defense boost from a Shield-shaped technique (e.g. Ice
+    /// Armor), reducing incoming damage further for a limited number of
+    /// enemy attacks - ticked down once per attack actually absorbed in
+    /// `resolve_enemy_attack`. None when inactive. Reset to None at the
+    /// start of every new battle (see Battle::new) - an unused shield does
+    /// not carry over into the next fight.
+    pub shield: Option<ShieldState>,
     pub fled: bool,
     pub message: String,
     /// A brief post-action color flash for each portrait - which kind
@@ -274,6 +281,7 @@ impl Battle {
             player_defending: false,
             countering: None,
             enemy_dot: None,
+            shield: None,
             fled: false,
             message: String::new(),
             enemy_flash: None,
@@ -297,6 +305,13 @@ pub struct DotState {
     /// The technique's own name, lowercased, for the per-tick message
     /// (e.g. "The garrote bites...").
     pub label: String,
+}
+
+/// An active temporary Defense boost on the player - see Battle::shield.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShieldState {
+    pub defense_bonus: i32,
+    pub attacks_remaining: i32,
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
@@ -388,6 +403,13 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     if battle.player_defending && dmg > 0 {
         dmg = (dmg / 2).max(1);
     }
+    let shield_absorbed = if let Some(shield) = &battle.shield {
+        let before = dmg;
+        dmg = (dmg - shield.defense_bonus).max(0);
+        before > dmg
+    } else {
+        false
+    };
     apply_damage(ecs, battle.player, dmg);
     battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
     battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
@@ -396,10 +418,24 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
             "The {} attacks - you block some of it! ({} damage)",
             battle.enemy_name, dmg
         )
+    } else if shield_absorbed {
+        format!(
+            "The {} attacks - your icy armor absorbs some of it! ({} damage)",
+            battle.enemy_name, dmg
+        )
     } else {
         format!("The {} attacks you for {} damage!", battle.enemy_name, dmg)
     };
     battle.player_defending = false;
+
+    // A Shield-shaped technique wears down by one attack actually absorbed,
+    // regardless of whether Defend also reduced this same hit.
+    if let Some(shield) = &mut battle.shield {
+        shield.attacks_remaining -= 1;
+        if shield.attacks_remaining <= 0 {
+            battle.shield = None;
+        }
+    }
 
     if let Some(counter) = battle.countering.take() {
         let mut rng = RandomNumberGenerator::new();
@@ -524,6 +560,19 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             format!(
                 "You use {} on the {} - it will wound them over time!",
                 name, battle.enemy_name
+            )
+        }
+        TechniqueEffect::Shield {
+            defense_bonus,
+            attacks,
+        } => {
+            battle.shield = Some(ShieldState {
+                defense_bonus,
+                attacks_remaining: attacks,
+            });
+            format!(
+                "{}! Your defenses harden for the next {} attacks.",
+                name, attacks
             )
         }
         TechniqueEffect::Heal { amount } => {

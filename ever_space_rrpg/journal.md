@@ -928,5 +928,27 @@ Now `components.rs` — add `Invisible`, `ProvidesInvisibility`, and the `FlatDa
 - **3 Staff tiers** (Wooden/Silver/Arcane, 1/2/3 damage) are `prefab_only` items exactly like the Swords, sharing the *same* single guaranteed fortress-treasure slot — a level's guaranteed weapon is randomly a Sword or a Staff, not both, since `spawn_prefab_sword`'s eligible-item pool was already name-agnostic (filtered only by `prefab_only` + `levels`). I renamed it to `spawn_prefab_weapon` throughout (map_builder, spawner, main.rs) since it's no longer sword-specific — that rename touched the map architect files even though their actual logic didn't change, just the field name they initialize.
 - **Invisible Cloak**: new `Invisible { moves_remaining }` status component + `ProvidesInvisibility` item component, consumed like any other item via `use_items.rs`. It ticks down once per completed player turn in `end_turn.rs`, and `player_input.rs` now checks it before triggering a battle — if you're Invisible and walk into an enemy, it's blocked exactly like a wall (no `WantsToMove` queued, no battle), consuming the turn the same way a real wall-bump already does.
 
+## Starting Items and Ice Armor
+Two solid additions. Let me build both.
 
+**Ice Armor** needs a new mechanic — none of the existing techniques model "temporary extra Defense for N incoming hits." **Starting kits** need a way to guarantee specific items land in a class's inventory at spawn, bypassing the random floor/loot pools entirely. Let's do the design work first, then implement.Now let's add the `Shield` mechanic to `battle.rs`:Now update `resolve_enemy_attack` to apply and tick down the shield, and add the `Shield` variant to `TechniqueEffect`/`apply_player_technique`:Now `components.rs` — add the `Shield` variant:Now the match arm in `apply_player_technique`:Now let's add "Ice Armor" to `template.ron`:No collision. Now let's build the starting-kits system. First, `spawn_player` needs to return the `Entity` so callers can grant items to it:Now create the new `spawner/starting_kits.rs` module:Now add `spawn_named_item` to `Templates` in `template.rs` — a guaranteed, non-random grant by name, reusing the same entity-construction helpers as battle loot:This is correctly placed and structured. Now wire it into `spawner/mod.rs`:Now the `resources/starting_kits.ron` data file:Now update `main.rs`'s `start_game` to capture the player entity and grant starting items:Only one call site, correctly updated. Now let's do a full sanity sweep across everything touched:All consistent. Let's package everything for delivery:**8 files — 2 new, 6 modified:**
+
+| Downloaded as         | Save to                        | Action  |
+| --------------------- | ------------------------------ | ------- |
+| `starting_kits.ron`   | `resources/starting_kits.ron`  | **New** |
+| `starting_kits.rs`    | `src/spawner/starting_kits.rs` | **New** |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`           | Replace |
+| `spawner_template.rs` | `src/spawner/template.rs`      | Replace |
+| `battle.rs`           | `src/battle.rs`                | Replace |
+| `components.rs`       | `src/components.rs`            | Replace |
+| `main.rs`             | `src/main.rs`                  | Replace |
+| `template.ron`        | `resources/template.ron`       | Replace |
+
+**Ice Armor:** needed a genuinely new mechanic — none of the existing effects modeled "temporary bonus Defense." Added `TechniqueEffect::Shield { defense_bonus, attacks }`. It lives on `Battle` (like Defend/Counter), not on the persistent `Defense` component, so it never leaks outside the fight it's cast in — a fresh battle always starts with no shield. It reduces incoming damage by `defense_bonus` on top of your normal Defense, and ticks down once per enemy attack actually thrown at you (not per round) until it expires. Numbers are a first guess — **+2 Defense for 10 hits** — pure data in `template.ron`, trivial to retune.
+
+**Starting kits:** new file, `resources/starting_kits.ron`, separate from the main item table on purpose — it's a different shape of data (class → item list) and keeping it apart means it can't accidentally corrupt `Templates` parsing. A new `Templates::spawn_named_item` grants any named item straight into inventory with zero RNG — it deliberately bypasses `prefab_only`/`levels: []` restrictions, so a kit can hand out things like a starting Staff or a starting Fireball that would otherwise only come from a guarded treasure room or battle-loot luck.
+
+Mage's kit right now: **Healing Potion, Wooden Staff, Fireball** — a real weapon, a real offensive technique, and a safety net, instead of walking into the first Goblin fight barefisted at −1 Defense. `spawn_player` now returns the player `Entity` so `start_game` can hand it straight to `grant_starting_items`. Barbarian has no kit yet since it's already proven playable without one — adding one later, or one for Rogue/Amazon/Archer, is just another `StartingKit` entry.
+
+## Battle Screen Update Items For Classes
 

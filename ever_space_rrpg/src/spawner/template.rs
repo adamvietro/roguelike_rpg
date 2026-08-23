@@ -197,6 +197,49 @@ impl Templates {
         Some(template.name.clone())
     }
 
+    /// Spawns a guaranteed named item directly into `player`'s inventory -
+    /// no RNG, no drop chance, no pool filtering. Used for class starting
+    /// kits (see spawner::grant_starting_items /
+    /// resources/starting_kits.ron), which can name ANY template
+    /// including `prefab_only` weapons or `levels: []` battle-loot
+    /// techniques - this bypasses those restrictions entirely and grants
+    /// exactly what's asked for. Unlike grant_random_battle_loot, this
+    /// also handles base_damage/Weapon, so a starting kit can hand out a
+    /// real weapon (e.g. a starting Staff), not just techniques/potions.
+    /// Silently warns and does nothing if `name` doesn't match any
+    /// template, so a typo in starting_kits.ron can't crash the game.
+    pub fn spawn_named_item(&self, ecs: &mut World, player: Entity, name: &str) {
+        let template = match self.entities.iter().find(|t| t.name == name) {
+            Some(t) => t,
+            None => {
+                println!("Warning: starting kit references unknown item '{}'", name);
+                return;
+            }
+        };
+
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        let entity = commands.push((
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437(template.glyph),
+            },
+            Name(template.name.clone()),
+            Item {},
+            Carried(player),
+        ));
+        Self::apply_provides(template, entity, &mut commands);
+        Self::apply_technique(template, entity, &mut commands);
+        Self::apply_class(template, entity, &mut commands);
+        Self::apply_description(template, entity, &mut commands);
+        if let Some(damage) = &template.base_damage {
+            commands.add_component(entity, Damage(*damage));
+            if template.entity_type == EntityType::Item {
+                commands.add_component(entity, Weapon {});
+            }
+        }
+        commands.flush(ecs);
+    }
+
     fn spawn_entity(
         &self,
         pt: &Point,

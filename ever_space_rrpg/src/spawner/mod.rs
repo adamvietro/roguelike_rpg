@@ -1,5 +1,7 @@
 use crate::prelude::*;
+mod starting_kits;
 mod template;
+use starting_kits::StartingKits;
 use template::Templates;
 
 /// A class's starting Health/Damage/Speed/Defense, plus which glyph the
@@ -62,7 +64,7 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
     }
 }
 
-pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) {
+pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) -> Entity {
     let stats = class_base_stats(class);
     let mut commands = legion::systems::CommandBuffer::new(ecs);
     let player = commands.push((
@@ -86,6 +88,7 @@ pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) {
     commands.add_component(player, Class(class.to_string()));
     commands.add_component(player, Defense(stats.defense));
     commands.flush(ecs);
+    player
 }
 
 pub fn spawn_level(
@@ -135,6 +138,22 @@ pub fn grant_random_battle_loot(
     let player_class = entity_class(ecs, player)?;
     let template = Templates::load();
     template.grant_random_battle_loot(ecs, rng, player, &player_class)
+}
+
+/// Grants `player` their class's guaranteed starting inventory - see
+/// resources/starting_kits.ron. Call once, right after spawn_player, when
+/// a new run begins. Classes without a defined kit there simply start
+/// with nothing extra, same as every class did before this system existed.
+pub fn grant_starting_items(ecs: &mut World, player: Entity, class: &str) {
+    let kits = StartingKits::load();
+    let items = kits.items_for(class);
+    if items.is_empty() {
+        return;
+    }
+    let template = Templates::load();
+    for item_name in items {
+        template.spawn_named_item(ecs, player, item_name);
+    }
 }
 
 pub fn spawn_amulet_of_yala(ecs: &mut World, pos: Point) {

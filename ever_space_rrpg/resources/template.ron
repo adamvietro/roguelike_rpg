@@ -120,6 +120,18 @@ Templates(
             description: Some("Sets the enemy alight for 1 damage per turn over the next 3 turns.")
         ),
         Template(
+            // +2 Defense for the next 10 enemy hits actually landed
+            // (counts down on hits absorbed, not turns) - see
+            // TechniqueEffect::Shield. Numbers are a first guess, easy to
+            // retune here with no code change.
+            entity_type: Item,
+            name : "Ice Armor", glyph: '+', levels: [ ],
+            technique: Some(Shield(defense_bonus: 2, attacks: 10)),
+            frequency: 0,
+            class: Some("Mage"),
+            description: Some("Encases you in ice, adding 2 Defense for your next 10 hits taken.")
+        ),
+        Template(
             // Battle loot only now (levels:[]/frequency:0, same convention
             // as the technique items above) - NOT an ambient floor spawn.
             // grant_random_battle_loot already filters its candidate pool

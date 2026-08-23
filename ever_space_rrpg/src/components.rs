@@ -70,6 +70,12 @@ pub enum TechniqueEffect {
     /// Wound the enemy for `damage` at the start of each of the next
     /// `turns` rounds.
     DamageOverTime { damage: i32, turns: i32 },
+    /// Boost your own Defense by `defense_bonus`, reducing incoming damage
+    /// further, for the next `attacks` enemy hits actually landed on you
+    /// (not turns - only counts down when the enemy connects). Scoped to
+    /// the battle it's cast in; doesn't carry over into the next fight -
+    /// see Battle::shield.
+    Shield { defense_bonus: i32, attacks: i32 },
     /// Restore `amount` HP to yourself right now. Not used by any current
     /// Barbarian technique - included so a Mage healing spell has
     /// somewhere to plug in without another battle.rs change.
