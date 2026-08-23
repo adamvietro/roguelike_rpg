@@ -1,5 +1,7 @@
 # Getting Started
 Right now I will be taking the code that I made while working through the Hands on Rust book. I created a new project with Claude and it has a full set of instructions.
+
+```cargo build --release --target x86_64-pc-windows-gnu```
 <br />
 
 ---
@@ -668,7 +670,7 @@ That's a real bug, and I can see why: I converted a *coarse* mouse position into
 
 --- 
 
-# Player and Enemy Movement
+# Battle Feedback
 
 ## Battle Portrait Hit Feedback
 
@@ -730,3 +732,4 @@ Let's build it.Now update all four architect files to initialize the new fields:
 
 One thing worth knowing: fortress placement can still fail (up to 10 attempts, per the existing logic) if no valid spot is found — per your "let's get this working now" steer, I left that as-is rather than adding a placement guarantee, so it's possible (if uncommon) for a level to generate with no sword available at all. Easy to revisit later if that turns out to matter in practice.
 
+# Defense Stats

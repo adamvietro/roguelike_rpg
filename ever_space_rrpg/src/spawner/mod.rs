@@ -24,7 +24,7 @@ pub fn spawn_player(ecs: &mut World, pos: Point) {
     commands.add_component(player, Speed(6));
     // Will need to add a check for the class the player picks
     commands.add_component(player, Class("Barbarian".to_string()));
-    commands.add_component(player, Defense(1));
+    commands.add_component(player, Defense(0));
     commands.flush(ecs);
 }
 

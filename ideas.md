@@ -1,12 +1,15 @@
 # Working 
 Enemies will initiate a turn based RPG battle. Loot at the end will be class specific "cards" or abilities that a player can use.
 
+
+
+New classes
 Magic only for Mages.
 Fireball 
 Cloak - For 20 moves you cannot be attacked
 Burn
 
-New classes
+
 
 Make the player or the Enemy stunned after a flee
 
