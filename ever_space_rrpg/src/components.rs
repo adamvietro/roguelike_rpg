@@ -33,21 +33,50 @@ pub struct ProvidesHealing {
 pub struct ProvidesDungeonMap;
 
 // --- One-time battle items -------------------------------------------------
-// Each is a marker on an Item entity, granted after battle (see
-// spawner::Templates::grant_random_battle_loot) and consumed on use in
-// battle_tick. See battle.rs for the actual effects.
+//
+// A single component + data enum replaces what used to be one marker
+// component (ProvidesDeathblow, ProvidesQuickAttack, ...) and one
+// near-identical `carried_*` lookup function PER technique, all baked to
+// the Barbarian class specifically. The mechanical shape of a technique is
+// now data (TechniqueEffect), not a Rust type - so a new class's technique
+// that reuses an existing shape (e.g. a Mage spell that's also "multiply
+// damage") is a template.ron entry only, no code change. A genuinely new
+// mechanic still needs a new variant here, but only ONE new match arm
+// (in battle::apply_player_technique) instead of a new component, a new
+// BattleAction variant, a new carried_* function, AND a new main.rs match
+// arm like before.
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesDeathblow;
+/// One battle technique's mechanical effect. Attached to an Item entity via
+/// `Technique`, set from `Template.technique` in template.ron - see
+/// spawner/template.rs. Interpreted in one place: battle::apply_player_technique.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
+pub enum TechniqueEffect {
+    /// Attack right now for `multiplier`x normal attack damage.
+    DamageMultiplier(i32),
+    /// Attack `hits` times in a row, each for full normal attack damage.
+    MultiHit(i32),
+    /// Skip your attack this turn; the next hit the enemy lands on you has
+    /// `chance_percent` chance to reflect `multiplier`x your normal attack
+    /// damage back at them.
+    Counter {
+        chance_percent: i32,
+        multiplier: i32,
+    },
+    /// Wound the enemy for `damage` at the start of each of the next
+    /// `turns` rounds.
+    DamageOverTime { damage: i32, turns: i32 },
+    /// Restore `amount` HP to yourself right now. Not used by any current
+    /// Barbarian technique - included so a Mage healing spell has
+    /// somewhere to plug in without another battle.rs change.
+    Heal { amount: i32 },
+}
 
+/// Marks an Item entity as a one-time battle technique and carries its
+/// effect. Granted after battle (see
+/// spawner::Templates::grant_random_battle_loot) and consumed on use in
+/// battle::apply_player_technique.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesQuickAttack;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesCounterAttack;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ProvidesGarrote;
+pub struct Technique(pub TechniqueEffect);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovingRandomly;
@@ -78,10 +107,10 @@ pub struct Name(pub String);
 #[derive(Clone, PartialEq)]
 pub struct Class(pub String);
 
-/// Marks an Item entity as a one-time battle attack (Deathblow, Quick
-/// Attack, etc.) rather than a regular carried item (potion, weapon, map).
-/// Lets the HUD split the ordinary "Items carried" list (left) from a
-/// separate "Battle Attacks" panel (right) - see systems/hud.rs.
+/// Marks an Item entity as a one-time battle technique (see Technique)
+/// rather than a regular carried item (potion, weapon, map). Lets the HUD
+/// split the ordinary "Items carried" list (left) from a separate "Battle
+/// Attacks" panel (right) - see systems/hud.rs.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BattleItem;
 

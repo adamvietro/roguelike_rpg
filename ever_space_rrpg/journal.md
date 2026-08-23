@@ -733,3 +733,120 @@ Let's build it.Now update all four architect files to initialize the new fields:
 One thing worth knowing: fortress placement can still fail (up to 10 attempts, per the existing logic) if no valid spot is found — per your "let's get this working now" steer, I left that as-is rather than adding a placement guarantee, so it's possible (if uncommon) for a level to generate with no sword available at all. Easy to revisit later if that turns out to matter in practice.
 
 # Defense Stats
+I was able to add in a defense stat by adding a new component and then going to the battle.rs and adding a check to the damage that looks for a defense stat and if it is on the entity it will remove that amount of damage from the attack.
+
+
+# New Classes
+Now let me see the full main.rs, particularly the middle section covering `battle_tick` in its current (post-journal) form, plus the rest.Good, that's every site — three files to change (`components.rs`, `battle.rs`, `spawner/template.rs`), plus `main.rs` and `resources/template.ron`. Here's the design before I write it:
+
+**Replace the "one enum variant + one marker component + one lookup function per technique" pattern with a single data-driven `TechniqueEffect` enum.** Instead of `ProvidesDeathblow`/`ProvidesQuickAttack`/`ProvidesCounterAttack`/`ProvidesGarrote` as four separate marker components with four near-identical `carried_*` functions and a hardcoded match arm per action in `main.rs`, there's one `Technique(TechniqueEffect)` component where `TechniqueEffect` is an enum describing *what the item does* (`DamageMultiplier(2)`, `MultiHit(2)`, `Counter{chance,mult}`, `DamageOverTime{damage,turns}`, plus a new `Heal{amount}` for later). `template.ron` picks the variant per item — no Rust code changes needed to add a new technique that reuses an existing effect shape.
+
+This means: adding a Mage's Fireball that also multiplies damage is a **content-only** change (`technique: Some(DamageMultiplier(3))` in `template.ron`, tagged `class: Some("Mage")`). A genuinely new mechanic (e.g. a shield) needs one new enum variant handled once in `battle.rs`, not a new component + a new match arm scattered across `main.rs`.
+
+Let me build this out.Now the `battle.rs` rewrite — this is where most of the hardcoding lived.Now replace the four `carried_*` lookup functions with one generic grouping function, plus small helpers `technique_effect` and `entity_name`:Now update the `Battle` struct's `countering`/`garrote_turns_remaining` fields to be data-driven, and remove the hardcoded constants:Now update `resolve_enemy_attack` to use `CounterState`, replace `tick_garrote` with a generic `tick_dot`, and add `apply_player_technique` + `heal_entity`:This looks correct. Now the `Templates` struct in `spawner/template.rs`:Now simplify `apply_provides` and add `apply_technique`, wiring it into both spawn paths:Now wire `apply_technique` into both call sites (`spawn_entity` and `grant_random_battle_loot`):Now `resources/template.ron` — swap the four Barbarian items' `provides:` for `technique:`:Now the `main.rs` `battle_tick` — replace the giant per-action match with the simplified generic version, and rename `tick_garrote` → `tick_dot`:Now the big one — the `PlayerMenu` match block:Now let's clean up the dead `src/systems/combat.rs` file, and double-check for any remaining stale references across the whole project:Clean — the only remaining `player_class` references are legitimate generic parameter names in the loot-filtering code (not hardcoded to Barbarian). Let me do a final full read-through of every touched file to check consistency before delivering.Now let's view the full modified `battle.rs` middle section (the `Battle` struct) and `main.rs` battle_tick end-to-end once more to make sure everything is coherent:Good — logic flow unchanged, just renamed. Let's view the rest of `battle_tick` to confirm the `PlayerMenu` edit landed cleanly and nothing downstream references the old fields:This is clean and correct. Everything downstream (`FirstResult`/`SecondResult`) only reads `battle.message`/`battle.fled`/health, which are unaffected by this refactor. Let's confirm nothing else in the file references removed items, and do a final full-project grep sanity check:Everything is consistent and `combat.rs` is gone with no dangling module reference. Now let's package the four changed files plus the deletion note for delivery.Yes, this makes sense — that's a solid four-part session. I've done part 1 (the refactor) now, since it's the foundation everything else builds on. Here's what changed and what's next.
+
+## What I did: class refactor
+
+**File delivery — save these to their real paths:**
+
+| Downloaded as         | Save to                   | Action                                                  |
+| --------------------- | ------------------------- | ------------------------------------------------------- |
+| `battle.rs`           | `src/battle.rs`           | **Replace**                                             |
+| `components.rs`       | `src/components.rs`       | **Replace**                                             |
+| `spawner_template.rs` | `src/spawner/template.rs` | **Replace** (renamed to avoid collision with `main.rs`) |
+| `main.rs`             | `src/main.rs`             | **Replace**                                             |
+| `template.ron`        | `resources/template.ron`  | **Replace**                                             |
+
+**Also delete:** `src/systems/combat.rs` — confirmed genuinely dead (not even declared in `systems/mod.rs`, so it wasn't compiling), left over from a session that told you to delete it but it never got removed.
+
+**The core change:** the four Barbarian-specific pieces (`ProvidesDeathblow`/`QuickAttack`/`CounterAttack`/`Garrote` marker components → four near-identical `carried_*` lookup functions → four `BattleAction` enum variants → four hardcoded match arms in `main.rs`) collapse into **one data-driven system**:
+
+- One component, `Technique(TechniqueEffect)`, where `TechniqueEffect` is an enum describing the *shape* of an effect: `DamageMultiplier(n)`, `MultiHit(n)`, `Counter{chance,mult}`, `DamageOverTime{damage,turns}`, plus a new `Heal{amount}` that nothing uses yet but is ready for a Mage spell.
+- `template.ron` picks the variant per item (`technique: Some(DamageMultiplier(2))` for Deathblow, etc.) — the mechanical difference between techniques is now content, not Rust types.
+- `main.rs`'s `battle_tick` has exactly one match arm for all techniques (`BattleAction::Technique(item) => apply_player_technique(...)`) instead of one per item.
+- `Battle.countering`/`garrote_turns_remaining` became `Option<CounterState>`/`Option<DotState>`, carrying their own chance/multiplier/damage/turns instead of hardcoded constants.
+
+**What this buys you for the Mage stage:** a Mage spell that reuses an existing shape (e.g. a damage-multiplying Fireball) is a `template.ron` entry only — zero Rust changes. A genuinely new mechanic (shield, mana cost, AoE) needs one new `TechniqueEffect` variant and one match arm in `apply_player_technique` — not a new component, enum variant, lookup function, *and* `main.rs` block like before.
+
+**One wording note to flag:** Counter Attack's "ready" message is now generated from the item's name (`"You ready a {name.to_lowercase()}..."` → "You ready a counter attack..."), a slightly different string than the old hardcoded "You ready a counter-attack..." (no hyphen). Cosmetic, but you'll notice it in testing.
+
+Ready to move on to the Mage class whenever you've applied and built this.
+
+## Error
+```rust
+   Compiling ever_space_rrpg v0.1.0 (/home/vinny/Projects/roguelike_rpg/ever_space_rrpg)
+error[E0308]: mismatched types
+   --> src/battle.rs:164:58
+    |
+164 |         .filter(|(e, _, _, _)| item_usable_by_class(ecs, *e, wielder_class))
+    |                                --------------------      ^^ expected `Entity`, found `&Entity`
+    |                                |
+    |                                arguments to this function are incorrect
+    |
+note: function defined here
+   --> src/battle.rs:142:4
+    |
+142 | fn item_usable_by_class(ecs: &World, item: Entity, wielder_class: &str) -> bool {
+    |    ^^^^^^^^^^^^^^^^^^^^              ------------
+help: consider dereferencing the borrow
+    |
+164 |         .filter(|(e, _, _, _)| item_usable_by_class(ecs, **e, wielder_class))
+    |                                                          +
+
+error[E0308]: mismatched types
+   --> src/battle.rs:167:54
+    |
+167 |                 Some((_, entities)) => entities.push(e),
+    |                                                 ---- ^ expected `Entity`, found `&Entity`
+    |                                                 |
+    |                                                 arguments to this method are incorrect
+    |
+note: method defined here
+   --> /home/vinny/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc/src/vec/mod.rs:991:12
+    |
+991 |     pub fn push(&mut self, value: T) {
+    |            ^^^^
+help: consider dereferencing the borrow
+    |
+167 |                 Some((_, entities)) => entities.push(*e),
+    |                                                      +
+
+error[E0308]: mismatched types
+   --> src/battle.rs:168:59
+    |
+168 |                 None => groups.push((name.0.clone(), vec![e])),
+    |                                                           ^ expected `Entity`, found `&Entity`
+    |
+help: consider dereferencing the borrow
+    |
+168 |                 None => groups.push((name.0.clone(), vec![*e])),
+    |                                                           +
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `ever_space_rrpg` (bin "ever_space_rrpg") due to 3 previous errors
+```
+
+## Title Screen and Character Select
+Now `spawn_player` needs to take the chosen class instead of hardcoding `"Barbarian"`:Now the bigger part — restructuring `main.rs`. Let's view the current `State::new()` / `reset_game_state()`:Now update `game_over`/`victory` to route back to the title screen instead of restarting directly, and wire the new states into the dispatcher:Now the `tick()` dispatcher:Good — only one call site, correctly updated, and the comment is just documentation referencing the old name for context. Let's view the full new block once more end-to-end to double check borrow/logic correctness:This all lines up correctly. Let's package and deliver the three changed files.Makes sense. Here's the flow now: **Title Screen → Class Select → game**, and both Game Over and Victory route back to the **Title Screen** instead of restarting directly.
+
+**Files — three modified:**
+
+| Downloaded as    | Save to                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `main.rs`        | `src/main.rs` (**replace**)                                                                |
+| `turn_state.rs`  | `src/turn_state.rs` (**replace**)                                                          |
+| `spawner_mod.rs` | `src/spawner/mod.rs` (**replace** — renamed to avoid collision with `spawner/template.rs`) |
+
+**What changed:**
+
+- **`TurnState`** gains `TitleScreen` and `ClassSelect`.
+- **`State::new()`** no longer builds a game world — it just sets `TurnState::TitleScreen`. The old world-building code moved into a new **`start_game(&mut self, class: &str)`**, which is the one place a run actually begins (replaces `reset_game_state`, which always hardcoded `"Barbarian"`).
+- **`spawn_player`** now takes a `class: &str` parameter instead of hardcoding it — this is the actual plumbing that lets class selection matter.
+- **`title_screen`**: shows the game name, any key advances to class select.
+- **`class_select`**: lists classes with number keys — `1) Barbarian` (full techniques), `2) Mage` (explicitly labeled as a placeholder on-screen — it's selectable and playable right now, but only has the universal Attack/Defend/Flee, no spells yet, since we haven't built its techniques). Picking one calls `start_game(class)`.
+- **`return_to_title`**: tears down the ECS/resources and goes back to `TitleScreen`. `game_over` and `victory` now call this instead of restarting immediately — their prompts read "Press 1 to return to the title screen."
+
+One thing worth testing specifically: I put the title text at row 15/18/30 and the class list at rows 10–21 on console 2, which is a 160×100 grid (same one `game_over`/`victory` already use successfully) — so it should fit fine, but I can't render this myself, so let me know if anything's crowded or off-screen and I'll adjust the row numbers.
+
+Next up: giving the Mage actual spell techniques and probably differentiating its base stats (lower HP/damage, higher speed, or whatever direction you want) from the Barbarian — let me know when you're ready for that.
+

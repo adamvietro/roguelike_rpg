@@ -19,32 +19,31 @@ pub struct CanDefend;
 pub struct CanFlee;
 
 /// One battle menu option. The always-available capability actions
-/// (Attack/Defend/Flee) come from CanXxx components above; the one-time
-/// item actions below come from ProvidesXxx items in inventory instead -
-/// see `available_actions`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// (Attack/Defend/Flee) come from CanXxx components above; Technique wraps
+/// a carried item entity whose mechanical effect (TechniqueEffect, see
+/// components.rs) is class/content data rather than a fixed enum variant -
+/// see `available_actions` and `apply_player_technique`.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BattleAction {
     Attack,
     Defend,
     Flee,
-    Deathblow,
-    QuickAttack,
-    CounterAttack,
-    Garrote,
+    /// Points at one representative entity from a group of same-named
+    /// carried technique items (see `grouped_carried_techniques`) -
+    /// resolving it consumes one item from that group.
+    Technique(Entity),
 }
 
-impl BattleAction {
-    pub fn label(self) -> &'static str {
-        match self {
-            BattleAction::Attack => "Attack",
-            BattleAction::Defend => "Defend",
-            BattleAction::Flee => "Flee",
-            BattleAction::Deathblow => "Deathblow",
-            BattleAction::QuickAttack => "Quick Attack",
-            BattleAction::CounterAttack => "Counter Attack",
-            BattleAction::Garrote => "Garrote",
-        }
-    }
+/// One rendered battle-menu row: the action it triggers, its display
+/// label, and a remaining-use count (None for the always-available
+/// capability actions, Some(n) for technique items - only included while
+/// n > 0). Built fresh each menu render, so using an item immediately
+/// updates the count / removes the option once you run out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BattleMenuEntry {
+    pub action: BattleAction,
+    pub label: String,
+    pub count: Option<i32>,
 }
 
 fn has_can_attack(ecs: &World, entity: Entity) -> bool {
@@ -65,41 +64,43 @@ fn has_can_flee(ecs: &World, entity: Entity) -> bool {
         .any(|(e, _)| *e == entity)
 }
 
-/// The ordered list of battle actions this entity currently has available,
-/// paired with a remaining-use count (None for the always-available
-/// capability actions, Some(n) for one-time items - only included while
-/// n > 0). Built fresh each menu render, so using an item immediately
-/// updates the count / removes the option once you run out.
-pub fn available_actions(ecs: &World, entity: Entity) -> Vec<(BattleAction, Option<i32>)> {
+/// The ordered list of battle-menu rows this entity currently has
+/// available. Built fresh each menu render, so using an item immediately
+/// updates the count / removes the option once you run out. Class
+/// filtering happens once here (via `grouped_carried_techniques`) - callers
+/// don't need to know or pass the wielder's class at all.
+pub fn available_actions(ecs: &World, entity: Entity) -> Vec<BattleMenuEntry> {
     let mut actions = Vec::new();
     if has_can_attack(ecs, entity) {
-        actions.push((BattleAction::Attack, None));
+        actions.push(BattleMenuEntry {
+            action: BattleAction::Attack,
+            label: "Attack".to_string(),
+            count: None,
+        });
     }
     if has_can_defend(ecs, entity) {
-        actions.push((BattleAction::Defend, None));
+        actions.push(BattleMenuEntry {
+            action: BattleAction::Defend,
+            label: "Defend".to_string(),
+            count: None,
+        });
     }
 
     let class = entity_class(ecs, entity).unwrap_or_default();
-
-    let deathblows = carried_deathblows(ecs, entity, &class).len() as i32;
-    if deathblows > 0 {
-        actions.push((BattleAction::Deathblow, Some(deathblows)));
-    }
-    let quick_attacks = carried_quick_attacks(ecs, entity, &class).len() as i32;
-    if quick_attacks > 0 {
-        actions.push((BattleAction::QuickAttack, Some(quick_attacks)));
-    }
-    let counter_attacks = carried_counter_attacks(ecs, entity, &class).len() as i32;
-    if counter_attacks > 0 {
-        actions.push((BattleAction::CounterAttack, Some(counter_attacks)));
-    }
-    let garrotes = carried_garrotes(ecs, entity, &class).len() as i32;
-    if garrotes > 0 {
-        actions.push((BattleAction::Garrote, Some(garrotes)));
+    for (name, entities) in grouped_carried_techniques(ecs, entity, &class) {
+        actions.push(BattleMenuEntry {
+            action: BattleAction::Technique(entities[0]),
+            label: name,
+            count: Some(entities.len() as i32),
+        });
     }
 
     if has_can_flee(ecs, entity) {
-        actions.push((BattleAction::Flee, None));
+        actions.push(BattleMenuEntry {
+            action: BattleAction::Flee,
+            label: "Flee".to_string(),
+            count: None,
+        });
     }
     actions
 }
@@ -144,40 +145,48 @@ fn item_usable_by_class(ecs: &World, item: Entity, wielder_class: &str) -> bool 
         .unwrap_or(true)
 }
 
-pub fn carried_deathblows(ecs: &World, wielder: Entity, wielder_class: &str) -> Vec<Entity> {
-    <(Entity, &Carried, &ProvidesDeathblow)>::query()
+/// Every Carried+Technique item `wielder` can currently use (unrestricted,
+/// or matching `wielder_class`), grouped by display Name with all matching
+/// entities kept together (so the menu can show "Deathblow x2" and consume
+/// one at a time). Replaces the old one-function-per-technique-type
+/// approach - the mechanical difference between techniques is data
+/// (TechniqueEffect) now, not a distinct Rust component type, so one
+/// generic lookup covers every class's techniques.
+pub fn grouped_carried_techniques(
+    ecs: &World,
+    wielder: Entity,
+    wielder_class: &str,
+) -> Vec<(String, Vec<Entity>)> {
+    let mut groups: Vec<(String, Vec<Entity>)> = Vec::new();
+    <(Entity, &Carried, &Technique, &Name)>::query()
         .iter(ecs)
-        .filter(|(_, carried, _)| carried.0 == wielder)
-        .map(|(e, _, _)| *e)
-        .filter(|e| item_usable_by_class(ecs, *e, wielder_class))
-        .collect()
+        .filter(|(_, carried, _, _)| carried.0 == wielder)
+        .filter(|(e, _, _, _)| item_usable_by_class(ecs, **e, wielder_class))
+        .for_each(
+            |(e, _, _, name)| match groups.iter_mut().find(|(n, _)| *n == name.0) {
+                Some((_, entities)) => entities.push(*e),
+                None => groups.push((name.0.clone(), vec![*e])),
+            },
+        );
+    groups
 }
 
-pub fn carried_quick_attacks(ecs: &World, wielder: Entity, wielder_class: &str) -> Vec<Entity> {
-    <(Entity, &Carried, &ProvidesQuickAttack)>::query()
+/// The TechniqueEffect a carried item's Technique component holds, if it
+/// has one.
+pub fn technique_effect(ecs: &World, item: Entity) -> Option<TechniqueEffect> {
+    <(Entity, &Technique)>::query()
         .iter(ecs)
-        .filter(|(_, carried, _)| carried.0 == wielder)
-        .map(|(e, _, _)| *e)
-        .filter(|e| item_usable_by_class(ecs, *e, wielder_class))
-        .collect()
+        .find(|(e, _)| **e == item)
+        .map(|(_, t)| t.0)
 }
 
-pub fn carried_counter_attacks(ecs: &World, wielder: Entity, wielder_class: &str) -> Vec<Entity> {
-    <(Entity, &Carried, &ProvidesCounterAttack)>::query()
+/// An entity's Name text, or a generic fallback if it has none.
+pub fn entity_name(ecs: &World, entity: Entity) -> String {
+    <(Entity, &Name)>::query()
         .iter(ecs)
-        .filter(|(_, carried, _)| carried.0 == wielder)
-        .map(|(e, _, _)| *e)
-        .filter(|e| item_usable_by_class(ecs, *e, wielder_class))
-        .collect()
-}
-
-pub fn carried_garrotes(ecs: &World, wielder: Entity, wielder_class: &str) -> Vec<Entity> {
-    <(Entity, &Carried, &ProvidesGarrote)>::query()
-        .iter(ecs)
-        .filter(|(_, carried, _)| carried.0 == wielder)
-        .map(|(e, _, _)| *e)
-        .filter(|e| item_usable_by_class(ecs, *e, wielder_class))
-        .collect()
+        .find(|(e, _)| **e == entity)
+        .map(|(_, n)| n.0.clone())
+        .unwrap_or_else(|| "technique".to_string())
 }
 
 // --- Battle state ------------------------------------------------------
@@ -221,13 +230,15 @@ pub struct Battle {
     /// decided yet - battle_tick resolves this before rendering anything.
     pub awaiting_order_decision: bool,
     pub player_defending: bool,
-    /// Set by Counter Attack; consumed (and cleared) by the next
-    /// resolve_enemy_attack call, whenever that happens to land.
-    pub countering: bool,
-    /// Rounds of Garrote damage still owed to the enemy (0 = inactive).
-    /// Ticks down by one, dealing GARROTE_DAMAGE, at the start of each
-    /// round starting the round *after* Garrote is used.
-    pub garrote_turns_remaining: i32,
+    /// Set by any Counter-shaped technique; consumed (and cleared) by the
+    /// next resolve_enemy_attack call, whenever that happens to land. Holds
+    /// the technique's own chance/multiplier rather than a hardcoded
+    /// constant, so different classes' counter-style techniques can differ.
+    pub countering: Option<CounterState>,
+    /// A damage-over-time effect currently active on the enemy (e.g. from
+    /// a Garrote-shaped technique), ticked once per round in `tick_dot`.
+    /// None when inactive.
+    pub enemy_dot: Option<DotState>,
     pub fled: bool,
     pub message: String,
     /// A brief post-action color flash for each portrait - which kind
@@ -261,8 +272,8 @@ impl Battle {
             first_actor: Combatant::Player,
             awaiting_order_decision: true,
             player_defending: false,
-            countering: false,
-            garrote_turns_remaining: 0,
+            countering: None,
+            enemy_dot: None,
             fled: false,
             message: String::new(),
             enemy_flash: None,
@@ -271,8 +282,23 @@ impl Battle {
     }
 }
 
-pub const GARROTE_DAMAGE: i32 = 2;
-pub const COUNTER_CHANCE_PERCENT: i32 = 65;
+/// A pending counter-technique's chance/multiplier - see Battle::countering.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CounterState {
+    pub chance_percent: i32,
+    pub multiplier: i32,
+}
+
+/// An active damage-over-time effect on the enemy - see Battle::enemy_dot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DotState {
+    pub damage: i32,
+    pub turns_remaining: i32,
+    /// The technique's own name, lowercased, for the per-tick message
+    /// (e.g. "The garrote bites...").
+    pub label: String,
+}
+
 /// How long a portrait's post-action color flash lasts, in milliseconds.
 /// See Battle::enemy_flash/player_flash and flash_tint in main.rs.
 pub const PORTRAIT_FLASH_DURATION_MS: f32 = 150.0;
@@ -375,11 +401,10 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     };
     battle.player_defending = false;
 
-    if battle.countering {
-        battle.countering = false;
+    if let Some(counter) = battle.countering.take() {
         let mut rng = RandomNumberGenerator::new();
-        if rng.range(0, 100) < COUNTER_CHANCE_PERCENT {
-            let counter_dmg = player_attack_damage(ecs, battle.player) * 3;
+        if rng.range(0, 100) < counter.chance_percent {
+            let counter_dmg = player_attack_damage(ecs, battle.player) * counter.multiplier;
             apply_damage(ecs, battle.enemy, counter_dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
@@ -392,20 +417,111 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     message
 }
 
-/// If Garrote is active, ticks it down by one and applies its damage.
-/// Called once at the start of each round. Returns a message describing
-/// the tick if it happened, or None if Garrote isn't active.
-pub fn tick_garrote(ecs: &mut World, battle: &mut Battle) -> Option<String> {
-    if battle.garrote_turns_remaining <= 0 {
+/// If a damage-over-time effect is active on the enemy, ticks it down by
+/// one and applies its damage. Called once at the start of each round.
+/// Returns a message describing the tick if it happened, or None if no
+/// effect is active. Generic over whichever technique applied it (Garrote
+/// today, potentially a Mage DoT spell later) - see Battle::enemy_dot.
+pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
+    let (damage, label, turns_remaining) = match &battle.enemy_dot {
+        Some(dot) => (dot.damage, dot.label.clone(), dot.turns_remaining),
+        None => return None,
+    };
+    if turns_remaining <= 0 {
+        battle.enemy_dot = None;
         return None;
     }
-    apply_damage(ecs, battle.enemy, GARROTE_DAMAGE);
+    apply_damage(ecs, battle.enemy, damage);
     battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-    battle.garrote_turns_remaining -= 1;
+    let remaining = turns_remaining - 1;
+    if remaining <= 0 {
+        battle.enemy_dot = None;
+    } else if let Some(dot) = &mut battle.enemy_dot {
+        dot.turns_remaining = remaining;
+    }
     Some(format!(
-        "The garrote bites - {} takes {} damage!",
-        battle.enemy_name, GARROTE_DAMAGE
+        "The {} bites - {} takes {} damage!",
+        label, battle.enemy_name, damage
     ))
+}
+
+/// Restores `amount` HP to an entity, clamped to its max. Used by the
+/// Heal technique effect.
+pub fn heal_entity(ecs: &mut World, entity: Entity, amount: i32) {
+    <(Entity, &mut Health)>::query()
+        .iter_mut(ecs)
+        .filter(|(e, _)| **e == entity)
+        .for_each(|(_, hp)| hp.current = (hp.current + amount).min(hp.max));
+}
+
+/// Applies a chosen technique's effect on behalf of the player, consuming
+/// one copy of `item` first. This is the single place a technique's
+/// mechanical effect is interpreted - main.rs no longer needs one match
+/// arm per technique. Adding a new class's technique that reuses an
+/// existing TechniqueEffect shape needs zero code changes here (just a
+/// template.ron entry); a genuinely new mechanic needs one new match arm,
+/// not a new component/BattleAction variant/main.rs block like before.
+pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity) -> String {
+    let effect = match technique_effect(ecs, item) {
+        Some(e) => e,
+        None => return String::new(),
+    };
+    let name = entity_name(ecs, item);
+
+    let mut cb = CommandBuffer::new(ecs);
+    cb.remove(item);
+    cb.flush(ecs);
+
+    match effect {
+        TechniqueEffect::DamageMultiplier(multiplier) => {
+            let dmg = player_attack_damage(ecs, battle.player) * multiplier;
+            apply_damage(ecs, battle.enemy, dmg);
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+            format!(
+                "{}! You strike the {} for {} damage!",
+                name, battle.enemy_name, dmg
+            )
+        }
+        TechniqueEffect::MultiHit(hits) => {
+            let dmg = player_attack_damage(ecs, battle.player);
+            for _ in 0..hits {
+                apply_damage(ecs, battle.enemy, dmg);
+            }
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+            format!(
+                "{}! You strike the {} {} times for {} damage each!",
+                name, battle.enemy_name, hits, dmg
+            )
+        }
+        TechniqueEffect::Counter {
+            chance_percent,
+            multiplier,
+        } => {
+            battle.countering = Some(CounterState {
+                chance_percent,
+                multiplier,
+            });
+            format!("You ready a {}...", name.to_lowercase())
+        }
+        TechniqueEffect::DamageOverTime { damage, turns } => {
+            battle.enemy_dot = Some(DotState {
+                damage,
+                turns_remaining: turns,
+                label: name.to_lowercase(),
+            });
+            format!(
+                "You use {} on the {} - it will wound them over time!",
+                name, battle.enemy_name
+            )
+        }
+        TechniqueEffect::Heal { amount } => {
+            heal_entity(ecs, battle.player, amount);
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            format!("{}! You recover {} HP!", name, amount)
+        }
+    }
 }
 
 /// An entity's Render component (color + glyph), if it has one. Used to draw

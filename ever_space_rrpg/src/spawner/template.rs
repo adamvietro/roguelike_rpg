@@ -21,6 +21,14 @@ pub struct Template {
     pub hp: Option<i32>,
     pub base_damage: Option<i32>,
     pub speed: Option<i32>,
+    /// A one-time battle technique's mechanical effect, e.g.
+    /// `DamageMultiplier(2)` or `Counter(chance_percent: 65, multiplier: 3)`.
+    /// See components::TechniqueEffect. Replaces the old approach of
+    /// matching hardcoded strings ("Deathblow", "QuickAttack", ...) in
+    /// `provides` and adding a distinct marker component per match -
+    /// `provides` is still used for non-technique effects (Healing,
+    /// MagicMap).
+    pub technique: Option<TechniqueEffect>,
     /// Which class can use/be granted this item, e.g. "Barbarian". None
     /// means unrestricted - usable by anyone (weapons, potions, etc. stay
     /// unrestricted unless you want to gate those too later).
@@ -181,6 +189,7 @@ impl Templates {
             Carried(player),
         ));
         Self::apply_provides(template, entity, &mut commands);
+        Self::apply_technique(template, entity, &mut commands);
         Self::apply_class(template, entity, &mut commands);
         Self::apply_description(template, entity, &mut commands);
         commands.flush(ecs);
@@ -220,6 +229,7 @@ impl Templates {
             }
         }
         Self::apply_provides(template, entity, commands);
+        Self::apply_technique(template, entity, commands);
         Self::apply_class(template, entity, commands);
         Self::apply_description(template, entity, commands);
         if let Some(damage) = &template.base_damage {
@@ -233,6 +243,11 @@ impl Templates {
     /// Adds whichever ProvidesXxx component(s) a template's `provides` list
     /// calls for. Shared by spawn_entity (floor spawns) and
     /// grant_random_battle_loot (post-battle loot) so both stay in sync.
+    /// Adds whichever ProvidesXxx component a template's `provides` list
+    /// calls for. Only non-technique effects live here now (Healing,
+    /// MagicMap) - one-time battle techniques are handled by
+    /// `apply_technique` instead, driven directly by `Template.technique`
+    /// rather than a string tag.
     fn apply_provides(
         template: &Template,
         entity: Entity,
@@ -244,26 +259,24 @@ impl Templates {
                 .for_each(|(provides, n)| match provides.as_str() {
                     "Healing" => commands.add_component(entity, ProvidesHealing { amount: *n }),
                     "MagicMap" => commands.add_component(entity, ProvidesDungeonMap {}),
-                    "Deathblow" => {
-                        commands.add_component(entity, ProvidesDeathblow {});
-                        commands.add_component(entity, BattleItem);
-                    }
-                    "QuickAttack" => {
-                        commands.add_component(entity, ProvidesQuickAttack {});
-                        commands.add_component(entity, BattleItem);
-                    }
-                    "CounterAttack" => {
-                        commands.add_component(entity, ProvidesCounterAttack {});
-                        commands.add_component(entity, BattleItem);
-                    }
-                    "Garrote" => {
-                        commands.add_component(entity, ProvidesGarrote {});
-                        commands.add_component(entity, BattleItem);
-                    }
                     _ => {
                         println!("Warning: we don't know how to provide {}", provides);
                     }
                 });
+        }
+    }
+
+    /// Tags an entity with its template's Technique effect (and BattleItem,
+    /// so it shows up in the HUD's separate "Battle Attacks" panel), if it
+    /// has one. Shared by spawn_entity and grant_random_battle_loot.
+    fn apply_technique(
+        template: &Template,
+        entity: Entity,
+        commands: &mut legion::systems::CommandBuffer,
+    ) {
+        if let Some(effect) = template.technique {
+            commands.add_component(entity, Technique(effect));
+            commands.add_component(entity, BattleItem);
         }
     }
 

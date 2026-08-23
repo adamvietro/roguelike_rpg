@@ -180,12 +180,7 @@ impl State {
         let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
         map_builder.map.tiles[exit_idx] = TileType::Exit;
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
-        spawn_prefab_enemies(
-            &mut self.ecs,
-            &mut rng,
-            0,
-            &map_builder.prefab_enemy_spawns,
-        );
+        spawn_prefab_enemies(&mut self.ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
         spawn_prefab_sword(&mut self.ecs, &mut rng, 0, map_builder.prefab_sword_spawn);
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
@@ -417,7 +412,7 @@ impl State {
         // enemy is faster, they attack immediately here - no menu shown -
         // before the player ever gets a choice this round.
         if battle.awaiting_order_decision {
-            let garrote_message = tick_garrote(&mut self.ecs, &mut battle);
+            let dot_message = tick_dot(&mut self.ecs, &mut battle);
 
             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
             if enemy_hp_now < 1 {
@@ -447,15 +442,15 @@ impl State {
 
             if battle.first_actor == Combatant::Enemy {
                 let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.message = match garrote_message {
-                    Some(g) => format!("{} Too fast to react! {}", g, attack_message),
+                battle.message = match dot_message {
+                    Some(d) => format!("{} Too fast to react! {}", d, attack_message),
                     None => format!("Too fast to react! {}", attack_message),
                 };
                 battle.turn = BattleTurn::FirstResult;
             } else {
                 // Player is first_actor - PlayerMenu renders this same
-                // tick, so surface the Garrote tick there instead.
-                battle.message = garrote_message.unwrap_or_default();
+                // tick, so surface the damage-over-time tick there instead.
+                battle.message = dot_message.unwrap_or_default();
             }
         }
 
@@ -509,14 +504,13 @@ impl State {
                     ctx.print_color_centered(45, YELLOW, BLACK, &battle.message);
                 }
 
-                let player_class = entity_class(&self.ecs, battle.player).unwrap_or_default();
                 let actions = available_actions(&self.ecs, battle.player);
                 let menu_text: String = actions
                     .iter()
                     .enumerate()
-                    .map(|(i, (action, count))| match count {
-                        Some(n) => format!("{}) {} x{}", i + 1, action.label(), n),
-                        None => format!("{}) {}", i + 1, action.label()),
+                    .map(|(i, entry)| match entry.count {
+                        Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
+                        None => format!("{}) {}", i + 1, entry.label),
                     })
                     .collect::<Vec<_>>()
                     .join("   ");
@@ -525,8 +519,12 @@ impl State {
                 if let Some(key) = ctx.key {
                     let chosen = number_key_index(key)
                         .and_then(|i| actions.get(i))
-                        .map(|(action, _)| *action);
+                        .map(|entry| entry.action);
                     if let Some(chosen) = chosen {
+                        // Every technique's mechanical effect is resolved
+                        // in one place (battle::apply_player_technique)
+                        // rather than a match arm per item here - adding a
+                        // new class's technique needs no main.rs change.
                         match chosen {
                             BattleAction::Attack => {
                                 let dmg = player_attack_damage(&self.ecs, battle.player);
@@ -549,77 +547,9 @@ impl State {
                                 battle.message =
                                     format!("You flee from the {}!", battle.enemy_name);
                             }
-                            BattleAction::Deathblow => {
-                                if let Some(item) =
-                                    carried_deathblows(&self.ecs, battle.player, &player_class)
-                                        .first()
-                                        .copied()
-                                {
-                                    let mut cb = CommandBuffer::new(&mut self.ecs);
-                                    cb.remove(item);
-                                    cb.flush(&mut self.ecs);
-                                    let dmg = player_attack_damage(&self.ecs, battle.player) * 2;
-                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
-                                    battle.player_flash =
-                                        Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-                                    battle.enemy_flash =
-                                        Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-                                    battle.message = format!(
-                                        "Deathblow! You strike the {} for {} damage!",
-                                        battle.enemy_name, dmg
-                                    );
-                                }
-                            }
-                            BattleAction::QuickAttack => {
-                                if let Some(item) =
-                                    carried_quick_attacks(&self.ecs, battle.player, &player_class)
-                                        .first()
-                                        .copied()
-                                {
-                                    let mut cb = CommandBuffer::new(&mut self.ecs);
-                                    cb.remove(item);
-                                    cb.flush(&mut self.ecs);
-                                    let dmg = player_attack_damage(&self.ecs, battle.player);
-                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
-                                    apply_damage(&mut self.ecs, battle.enemy, dmg);
-                                    battle.player_flash =
-                                        Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-                                    battle.enemy_flash =
-                                        Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-                                    battle.message = format!(
-                                        "Quick Attack! You strike the {} twice for {} damage each!",
-                                        battle.enemy_name, dmg
-                                    );
-                                }
-                            }
-                            BattleAction::CounterAttack => {
-                                if let Some(item) =
-                                    carried_counter_attacks(&self.ecs, battle.player, &player_class)
-                                        .first()
-                                        .copied()
-                                {
-                                    let mut cb = CommandBuffer::new(&mut self.ecs);
-                                    cb.remove(item);
-                                    cb.flush(&mut self.ecs);
-                                    battle.countering = true;
-                                    battle.message = "You ready a counter-attack...".to_string();
-                                }
-                            }
-                            BattleAction::Garrote => {
-                                if let Some(item) =
-                                    carried_garrotes(&self.ecs, battle.player, &player_class)
-                                        .first()
-                                        .copied()
-                                {
-                                    let mut cb = CommandBuffer::new(&mut self.ecs);
-                                    cb.remove(item);
-                                    cb.flush(&mut self.ecs);
-                                    battle.garrote_turns_remaining = 3;
-                                    battle.message = format!(
-                                        "You garrote the {} - it will bleed!",
-                                        battle.enemy_name
-                                    );
-                                }
+                            BattleAction::Technique(item) => {
+                                battle.message =
+                                    apply_player_technique(&mut self.ecs, &mut battle, item);
                             }
                         }
                         // The player is first_actor at the start of a round
