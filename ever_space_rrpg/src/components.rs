@@ -50,6 +50,12 @@ pub enum ProvidesEffect {
     /// old in-battle-only Shield technique this replaces. "Mages buff
     /// before battle."
     IceArmor { defense_bonus: i32, attacks: i32 },
+    /// Become Stealthed (see components::Stealthed) for `0` player moves.
+    /// Unlike Invisibility, which blocks a bump-into-enemy from starting a
+    /// battle at all, Stealth lets the battle start but grants it an
+    /// ambush bonus (forced first turn + 3x damage on the opening action -
+    /// see systems/player_input.rs and battle::Battle::sneak_attack).
+    Stealth(i32),
 }
 
 /// Marks an Item entity with its out-of-combat effect. Granted via normal
@@ -100,6 +106,11 @@ pub enum TechniqueEffect {
     /// Barbarian technique - included so a Mage healing spell has
     /// somewhere to plug in without another battle.rs change.
     Heal { amount: i32 },
+    /// Gain `chance_percent` additional chance to fully evade an incoming
+    /// attack (stacking with the entity's base Evasion, see
+    /// components::Evasion) for the next `turns` enemy attacks faced -
+    /// see battle::resolve_enemy_attack / Battle::dodge_bonus.
+    Evade { chance_percent: i32, turns: i32 },
 }
 
 /// Marks an Item entity as a one-time battle technique and carries its
@@ -116,6 +127,19 @@ pub struct Technique(pub TechniqueEffect);
 /// systems/end_turn.rs, and is removed once it reaches zero.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Invisible {
+    pub moves_remaining: i32,
+}
+
+/// Temporary out-of-combat status granted by Stealth (Rogue). Unlike
+/// Invisible, walking into an enemy while Stealthed does NOT block the
+/// battle - it starts normally, but as an ambush: see
+/// systems/player_input.rs (checks this to arm Battle::sneak_attack, then
+/// consumes/removes this component) and battle.rs's forced first-turn +
+/// damage-multiplier handling. Ticks down by one every player turn in
+/// systems/end_turn.rs, same as Invisible, and is removed once it reaches
+/// zero (or immediately, if consumed by an ambush first).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stealthed {
     pub moves_remaining: i32,
 }
 
@@ -317,6 +341,14 @@ pub struct Speed(pub i32);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Defense(pub i32);
+
+/// Base percent chance to fully evade an incoming attack (0 damage,
+/// logged as "Dodge attack.") - checked in battle::resolve_enemy_attack
+/// alongside any temporary Evade technique bonus (see Battle::dodge_bonus),
+/// which stacks additively on top of this. Currently only Rogue has a
+/// nonzero value; other classes default to 0 via entity_evasion.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Evasion(pub i32);
 
 /// How long a single tile-to-tile glide takes, in milliseconds. Shared by
 /// tick_animations (systems/animation.rs, which advances/expires it) and

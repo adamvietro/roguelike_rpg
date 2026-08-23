@@ -11,6 +11,7 @@ const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 #[read_component(Player)]
 #[read_component(Health)]
 #[read_component(Invisible)]
+#[read_component(Stealthed)]
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
@@ -44,7 +45,7 @@ fn tinted_color(ecs: &SubWorld, entity: Entity, base: ColorPair) -> ColorPair {
     if entry.get_component::<Player>().is_err() {
         return base;
     }
-    if entry.get_component::<Invisible>().is_ok() {
+    if entry.get_component::<Invisible>().is_ok() || entry.get_component::<Stealthed>().is_ok() {
         return ColorPair::new(GRAY, BLACK);
     }
     if let Ok(health) = entry.get_component::<Health>() {

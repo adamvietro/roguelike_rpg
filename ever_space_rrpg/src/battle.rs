@@ -282,6 +282,19 @@ pub struct Battle {
     /// required anymore). Set via enter_result whenever the turn changes
     /// to one of those two states.
     pub result_timer_ms: f32,
+    /// True for a battle that started as a Stealth ambush (see
+    /// systems/player_input.rs) - forces this battle's first round to go
+    /// to the player regardless of Speed, and triples the damage of
+    /// whichever action the player picks first. Cleared (one-shot) the
+    /// instant that first PlayerMenu action resolves, whatever it was -
+    /// see main.rs's BattleTurn::PlayerMenu handling.
+    pub sneak_attack: bool,
+    /// An active Evade-technique bonus (e.g. Rogue's Dodge) - adds
+    /// `chance_percent` on top of the player's base Evasion for the next
+    /// `turns` enemy attacks faced, ticked down once per attack in
+    /// resolve_enemy_attack regardless of whether that attack was
+    /// evaded. None when inactive.
+    pub dodge_bonus: Option<DodgeState>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -313,7 +326,17 @@ impl Battle {
             enemy_damage_popup: None,
             player_damage_popup: None,
             result_timer_ms: 0.0,
+            sneak_attack: false,
+            dodge_bonus: None,
         }
+    }
+
+    /// Marks this battle as a Stealth ambush - see Battle::sneak_attack.
+    /// Chainable so player_input.rs can set it right after Battle::new
+    /// without an extra statement.
+    pub fn as_sneak_attack(mut self) -> Self {
+        self.sneak_attack = true;
+        self
     }
 
     /// Switches to FirstResult or SecondResult and (re)arms the
@@ -375,6 +398,13 @@ pub struct DotState {
     pub label: String,
 }
 
+/// An active Evade-technique bonus on the player - see Battle::dodge_bonus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DodgeState {
+    pub chance_percent: i32,
+    pub turns_remaining: i32,
+}
+
 /// How long a portrait's post-action color flash lasts, in milliseconds.
 /// See Battle::enemy_flash/player_flash and flash_tint in main.rs.
 pub const PORTRAIT_FLASH_DURATION_MS: f32 = 150.0;
@@ -431,6 +461,16 @@ pub fn entity_speed(ecs: &World, entity: Entity) -> i32 {
         .find(|(e, _)| **e == entity)
         .map(|(_, s)| s.0)
         .unwrap_or(5)
+}
+
+/// An entity's own Evasion component value, or 0 (no innate dodge chance)
+/// if it doesn't have one - most classes/enemies today.
+pub fn entity_evasion(ecs: &World, entity: Entity) -> i32 {
+    <(Entity, &Evasion)>::query()
+        .iter(ecs)
+        .find(|(e, _)| **e == entity)
+        .map(|(_, ev)| ev.0)
+        .unwrap_or(0)
 }
 
 /// Sum of Damage on anything Carried by `wielder` (i.e. equipped weapons).
@@ -490,6 +530,33 @@ pub fn player_attack_damage(ecs: &World, player: Entity) -> i32 {
 /// vs neither all just reduce the same final number), so there's nothing
 /// left for a caller to do with a returned message.
 pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
+    // Evasion check first (base Evasion stat + any active Dodge-technique
+    // bonus, additive - see components::Evasion / Battle::dodge_bonus). A
+    // full dodge skips the entire rest of this function: no Defend or Ice
+    // Armor gets consumed and no Counter triggers, since nothing actually
+    // landed to defend against or counter.
+    let dodge_chance = entity_evasion(ecs, battle.player)
+        + battle.dodge_bonus.as_ref().map_or(0, |d| d.chance_percent);
+    let mut rng = RandomNumberGenerator::new();
+    let evaded = dodge_chance > 0 && rng.range(0, 100) < dodge_chance;
+
+    // The Dodge-technique bonus's duration ticks down once per enemy
+    // attack faced, regardless of whether this particular attack was the
+    // one that got evaded.
+    if let Some(dodge) = &mut battle.dodge_bonus {
+        dodge.turns_remaining -= 1;
+        if dodge.turns_remaining <= 0 {
+            battle.dodge_bonus = None;
+        }
+    }
+
+    if evaded {
+        battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+        battle.push_log("Dodge attack.".to_string());
+        battle.player_defending = false;
+        return;
+    }
+
     let mut dmg = entity_damage(ecs, battle.enemy);
     if battle.player_defending && dmg > 0 {
         dmg = (dmg / 2).max(1);
@@ -684,6 +751,16 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             heal_entity(ecs, battle.player, amount);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             format!("Heal {} HP.", amount)
+        }
+        TechniqueEffect::Evade {
+            chance_percent,
+            turns,
+        } => {
+            battle.dodge_bonus = Some(DodgeState {
+                chance_percent,
+                turns_remaining: turns,
+            });
+            "Boost evasion.".to_string()
         }
     }
 }

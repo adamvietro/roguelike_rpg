@@ -11,6 +11,7 @@ use crate::prelude::*;
 #[read_component(Weapon)]
 #[read_component(BattleItem)]
 #[read_component(Invisible)]
+#[read_component(Stealthed)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -111,7 +112,24 @@ pub fn player_input(
                         .map(|n| n.0)
                         .unwrap_or_else(|| "the enemy".to_string());
 
-                    *battle = Some(Battle::new(player_entity, enemy_entity, enemy_name));
+                    // Stealth (Rogue) doesn't block the battle like
+                    // Invisible does - it starts normally, but as an
+                    // ambush: forced first turn + 3x damage on the
+                    // opening action (see Battle::sneak_attack /
+                    // battle_tick and main.rs's Attack handling). Stealth
+                    // breaks the instant it's used this way, same as any
+                    // other consumed status.
+                    let player_is_stealthed = <(Entity, &Stealthed)>::query()
+                        .iter(ecs)
+                        .any(|(e, _)| *e == player_entity);
+
+                    let new_battle = Battle::new(player_entity, enemy_entity, enemy_name);
+                    *battle = Some(if player_is_stealthed {
+                        commands.remove_component::<Stealthed>(player_entity);
+                        new_battle.as_sneak_attack()
+                    } else {
+                        new_battle
+                    });
                     *turn_state = TurnState::InBattle;
                     return;
                 }

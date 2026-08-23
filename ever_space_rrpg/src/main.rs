@@ -229,7 +229,9 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
         key_label: "2",
         name: "Rogue",
         icon_glyph: 'r',
-        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+        description: "A fast, evasive fighter (10% base Evasion). Battle \
+                       techniques: Garrote, Dodge. Also carries the \
+                       out-of-combat Stealth ability for ambush attacks.",
     },
     ClassRosterEntry {
         key: VirtualKeyCode::Key3,
@@ -264,12 +266,39 @@ struct State {
     monster_systems: Schedule,
     pause_systems: Schedule,
     background_systems: Schedule,
+    /// See build_title_background_movement_scheduler - the decorative
+    /// background enemies' movement, run separately from
+    /// background_systems (which redraws every frame) so it can be
+    /// throttled by background_move_timer_ms instead of moving a full
+    /// tile 30 times a second.
+    background_movement_systems: Schedule,
+    /// Accumulates real elapsed time (ms) while the title/class-select
+    /// background is on screen; background_movement_systems only
+    /// actually runs once this passes BACKGROUND_MOVE_INTERVAL_MS, then
+    /// it resets to 0 - see title_screen/class_select.
+    background_move_timer_ms: f32,
 }
+
+/// How long between each step of the decorative background enemies'
+/// ambient wandering, in milliseconds - tuned to look like a deliberate,
+/// unhurried stroll rather than the 30-steps-per-second scramble running
+/// movement every rendered frame produced. Easy to retune here with no
+/// other code change.
+const BACKGROUND_MOVE_INTERVAL_MS: f32 = 400.0;
 
 impl State {
     fn new() -> Self {
         let mut resources = Resources::default();
         resources.insert(TurnState::TitleScreen);
+        // random_move_system (part of background_movement_systems, see
+        // build_title_background_movement_scheduler) reads this resource -
+        // it must exist before the very first
+        // background_movement_systems.execute() call, which happens from
+        // title_screen()'s tick right after this constructor returns.
+        // Previously nothing in the background schedules touched
+        // Option<Battle> at all, so its absence here was harmless; it no
+        // longer is.
+        resources.insert(None::<Battle>);
         let mut state = Self {
             ecs: World::default(),
             resources,
@@ -278,6 +307,8 @@ impl State {
             monster_systems: build_monster_scheduler(),
             pause_systems: build_pause_scheduler(),
             background_systems: build_title_background_scheduler(),
+            background_movement_systems: build_title_background_movement_scheduler(),
+            background_move_timer_ms: 0.0,
         };
         state.spawn_title_background();
         state
@@ -334,6 +365,23 @@ impl State {
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
         spawn_prefab_enemies(&mut self.ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
 
+        // Ambient wandering for the background enemies (see
+        // build_title_background_scheduler, which now runs
+        // random_move_system/movement_system). Real dungeon enemies only
+        // get ChasingPlayer, not MovingRandomly (see
+        // spawner::template::Templates::spawn_entities), so this world's
+        // enemies wouldn't move at all otherwise - deliberately NOT using
+        // chasing_system here instead, since that paths every enemy
+        // toward the anchor entity below and could still trigger a battle
+        // against it if reached.
+        let mut commands = legion::systems::CommandBuffer::new(&mut self.ecs);
+        <(Entity, &Enemy)>::query()
+            .iter(&self.ecs)
+            .for_each(|(entity, _)| {
+                commands.add_component(*entity, MovingRandomly);
+            });
+        commands.flush(&mut self.ecs);
+
         // An invisible anchor entity - Player + FieldOfView, deliberately
         // no Render component - so map_render/entity_render (which both
         // query for a Player's FieldOfView to know what's "visible") have
@@ -350,8 +398,27 @@ impl State {
             }
         }
         fov.is_dirty = false;
-        self.ecs
+        let anchor = self
+            .ecs
             .push((Player { map_level: 0 }, map_builder.player_start, fov));
+
+        // Now that enemies actually move (see above), a wandering one
+        // could in principle step onto this anchor's tile and trigger
+        // random_move's normal "player" battle-start path - which would
+        // be a real bug here, since this fake Player has none of the
+        // Health/Damage/Speed/Defense/Evasion/Class components battle
+        // code assumes a real player has. Marking it permanently
+        // Invisible makes random_move treat it exactly like it already
+        // treats a real Invisible player: movement onto its tile is
+        // blocked like a wall, but no battle ever starts.
+        let mut commands = legion::systems::CommandBuffer::new(&mut self.ecs);
+        commands.add_component(
+            anchor,
+            Invisible {
+                moves_remaining: i32::MAX,
+            },
+        );
+        commands.flush(&mut self.ecs);
 
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
@@ -368,11 +435,33 @@ impl State {
         self.resources = Resources::default();
         self.spawn_title_background();
         self.resources.insert(TurnState::TitleScreen);
+        // Resources::default() above wipes Option<Battle> along with
+        // everything else - background_movement_systems (random_move_system)
+        // needs it present before the next
+        // background_movement_systems.execute() call, same reasoning as
+        // State::new().
+        self.resources.insert(None::<Battle>);
+        self.background_move_timer_ms = 0.0;
+    }
+
+    /// Redraws the decorative title/class-select background every frame,
+    /// but only advances the wandering enemies' movement once every
+    /// BACKGROUND_MOVE_INTERVAL_MS - see background_move_timer_ms. Shared
+    /// by title_screen and class_select, which both show this same
+    /// background.
+    fn tick_background(&mut self, ctx: &BTerm) {
+        self.background_move_timer_ms += ctx.frame_time_ms;
+        if self.background_move_timer_ms >= BACKGROUND_MOVE_INTERVAL_MS {
+            self.background_move_timer_ms = 0.0;
+            self.background_movement_systems
+                .execute(&mut self.ecs, &mut self.resources);
+        }
+        self.background_systems
+            .execute(&mut self.ecs, &mut self.resources);
     }
 
     fn title_screen(&mut self, ctx: &mut BTerm) {
-        self.background_systems
-            .execute(&mut self.ecs, &mut self.resources);
+        self.tick_background(ctx);
 
         ctx.set_active_console(5);
         ctx.print_color_centered(6, YELLOW, BLACK, "EVER SPACE RRPG");
@@ -403,8 +492,7 @@ impl State {
     /// the player picks. New classes go here as one more CLASS_ROSTER
     /// entry - this function needs no other changes.
     fn class_select(&mut self, ctx: &mut BTerm) {
-        self.background_systems
-            .execute(&mut self.ecs, &mut self.resources);
+        self.tick_background(ctx);
 
         ctx.set_active_console(5);
         ctx.print_color_centered(0, YELLOW, BLACK, "Choose Your Class");
@@ -767,7 +855,7 @@ impl State {
 
             let player_speed = entity_speed(&self.ecs, battle.player);
             let enemy_speed = entity_speed(&self.ecs, battle.enemy);
-            battle.first_actor = if player_speed >= enemy_speed {
+            battle.first_actor = if battle.sneak_attack || player_speed >= enemy_speed {
                 Combatant::Player
             } else {
                 Combatant::Enemy
@@ -1002,7 +1090,10 @@ impl State {
                         // new class's technique needs no main.rs change.
                         match chosen {
                             BattleAction::Attack => {
-                                let dmg = player_attack_damage(&self.ecs, battle.player);
+                                let mut dmg = player_attack_damage(&self.ecs, battle.player);
+                                if battle.sneak_attack {
+                                    dmg *= 3;
+                                }
                                 let dmg = apply_damage(&mut self.ecs, battle.enemy, dmg);
                                 battle.show_enemy_damage(dmg);
                                 battle.player_flash =
@@ -1029,6 +1120,12 @@ impl State {
                                 battle.push_log(result);
                             }
                         }
+                        // Sneak attack is a one-shot ambush bonus for the
+                        // guaranteed first action only - clear it here
+                        // regardless of which action was actually chosen,
+                        // so it can never linger and apply again later in
+                        // the same fight.
+                        battle.sneak_attack = false;
                         // The player is first_actor at the start of a round
                         // they act in unprompted; if the enemy already
                         // opened the round (first_actor == Enemy), this

@@ -37,6 +37,19 @@ pub fn use_items(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] m
                                 },
                             );
                         }
+                        // Stealth (Rogue) - grants Stealthed for `moves`
+                        // turns. Unlike Invisibility, this does NOT block
+                        // a bump-into-enemy from starting a battle - see
+                        // components::Stealthed / systems/player_input.rs.
+                        // Same refresh-on-reuse behavior as Invisibility.
+                        ProvidesEffect::Stealth(moves) => {
+                            commands.add_component(
+                                activate.used_by,
+                                Stealthed {
+                                    moves_remaining: moves,
+                                },
+                            );
+                        }
                         // Ice Armor - "Mages buff before battle." Applied
                         // immediately here, out of combat, as a persistent
                         // status that survives into (and across) whichever

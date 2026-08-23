@@ -64,18 +64,42 @@ pub fn build_monster_scheduler() -> Schedule {
         .build()
 }
 
-/// Redraws the map (console 0) and entities (console 1) with no other
-/// systems running - used for the decorative, fully-revealed background
-/// world shown behind the title and class-select screens. Unlike
-/// build_pause_scheduler, entities ARE drawn here (the point is to show
-/// "a map with everything explored and enemies inside" as backdrop) - see
-/// State::spawn_title_background for how that world's fake "player"
-/// FieldOfView is pre-filled with the whole map so nothing is hidden by
-/// normal fog-of-war rules.
+/// Redraws the map (console 0) and entities (console 1) - the
+/// always-every-frame half of the decorative background shown behind the
+/// title and class-select screens. See build_title_background_movement_scheduler
+/// for the enemy-wandering half, which is deliberately NOT run every
+/// frame here (see State::background_move_timer_ms for why). No
+/// fov_system here - running it would recompute the anchor's FieldOfView
+/// from scratch and undo the "everything already explored" full-map
+/// reveal it's set up with once at spawn time.
 pub fn build_title_background_scheduler() -> Schedule {
     Schedule::builder()
         .add_system(map_render::map_render_system())
         .add_system(entity_render::entity_render_system())
+        .build()
+}
+
+/// Drives ambient wandering for the decorative background enemies (see
+/// State::spawn_title_background, which tags them with MovingRandomly).
+/// Kept as a SEPARATE schedule from build_title_background_scheduler, and
+/// only executed every BACKGROUND_MOVE_INTERVAL_MS (see
+/// State::background_move_timer_ms) rather than every rendered frame -
+/// real gameplay movement is naturally paced by TurnState only advancing
+/// once per player input, which this decorative world has no equivalent
+/// of, so without its own throttle enemies moved a full tile 30 times a
+/// second (this schedule's frame rate) instead of looking like deliberate
+/// steps. Deliberately uses random_move, not chasing - chasing paths
+/// every enemy toward the anchor entity in spawn_title_background and
+/// could still attempt a battle against it if one ever reached it,
+/// whereas random_move's equivalent check just blocks that one move like
+/// bumping a wall (see spawn_title_background's Invisible anchor).
+pub fn build_title_background_movement_scheduler() -> Schedule {
+    Schedule::builder()
+        .add_system(random_move::random_move_system())
+        .flush()
+        .add_system(movement::movement_system())
+        .flush()
+        .add_system(animation::tick_animations_system())
         .build()
 }
 

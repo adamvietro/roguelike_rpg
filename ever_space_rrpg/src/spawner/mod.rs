@@ -4,39 +4,53 @@ mod template;
 use starting_kits::StartingKits;
 use template::Templates;
 
-/// A class's starting Health/Damage/Speed/Defense, plus which glyph the
-/// player renders as in the dungeon - matches the same letter used for
-/// that class's icon on the class-select screen (see CLASS_ROSTER in
-/// main.rs), so the choice you made stays visually consistent in-game.
-/// Looked up by class_base_stats at spawn time - previously every class
-/// got identical hardcoded numbers/glyph regardless of which was picked.
+/// A class's starting Health/Damage/Speed/Defense/Evasion, plus which
+/// glyph the player renders as in the dungeon - matches the same letter
+/// used for that class's icon on the class-select screen (see
+/// CLASS_ROSTER in main.rs), so the choice you made stays visually
+/// consistent in-game. Looked up by class_base_stats at spawn time -
+/// previously every class got identical hardcoded numbers/glyph
+/// regardless of which was picked.
 struct ClassBaseStats {
     health: i32,
     damage: i32,
     speed: i32,
     defense: i32,
+    /// Base percent chance to fully evade an incoming attack - see
+    /// components::Evasion. 0 for every class except Rogue so far.
+    evasion: i32,
     glyph: char,
 }
 
-/// Base stats + glyph for a given class name. Rogue/Amazon/Archer don't
-/// have designed stats yet (still placeholders - see CLASS_ROSTER in
-/// main.rs), so they share Barbarian's numbers for now - only Mage has
-/// real numbers so far (Health 10, Defense -1 - a squishier caster). Each
-/// class still gets its own glyph even while sharing stats.
+/// Base stats + glyph for a given class name. Amazon/Archer don't have
+/// designed stats yet (still placeholders - see CLASS_ROSTER in main.rs),
+/// so they share the fallback numbers for now - Barbarian, Mage, and
+/// Rogue all have real, distinct numbers. Each class still gets its own
+/// glyph even while sharing stats.
 fn class_base_stats(class: &str) -> ClassBaseStats {
     match class {
+        "Barbarian" => ClassBaseStats {
+            health: 15,
+            damage: 1,
+            speed: 6,
+            defense: 0,
+            evasion: 0,
+            glyph: '@',
+        },
         "Mage" => ClassBaseStats {
             health: 10,
             damage: 1,
             speed: 6,
             defense: -1,
+            evasion: 0,
             glyph: 'm',
         },
         "Rogue" => ClassBaseStats {
             health: 10,
             damage: 1,
-            speed: 6,
+            speed: 10,
             defense: 0,
+            evasion: 10,
             glyph: 'r',
         },
         "Amazon" => ClassBaseStats {
@@ -44,6 +58,7 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             damage: 1,
             speed: 6,
             defense: 0,
+            evasion: 0,
             glyph: 'a',
         },
         "Archer" => ClassBaseStats {
@@ -51,14 +66,16 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             damage: 1,
             speed: 6,
             defense: 0,
+            evasion: 0,
             glyph: 'B',
         },
-        // Barbarian, and a safe fallback for any unrecognized class name.
+        // Safe fallback for any unrecognized class name.
         _ => ClassBaseStats {
             health: 10,
             damage: 1,
             speed: 6,
             defense: 0,
+            evasion: 0,
             glyph: '@',
         },
     }
@@ -87,6 +104,7 @@ pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) -> Entity {
     commands.add_component(player, Speed(stats.speed));
     commands.add_component(player, Class(class.to_string()));
     commands.add_component(player, Defense(stats.defense));
+    commands.add_component(player, Evasion(stats.evasion));
     commands.flush(ecs);
     player
 }

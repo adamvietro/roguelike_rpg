@@ -5,6 +5,9 @@ Enemies will initiate a turn based RPG battle. Loot at the end will be class spe
 
 New classes
 Rogue
+Vanish - Flee and Stealth at the same time
+Flurry - Multi Hit
+Riposte - Counter attack for 2x damage
 
 
 Amazon

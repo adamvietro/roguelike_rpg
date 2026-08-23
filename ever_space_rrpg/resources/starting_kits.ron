@@ -12,10 +12,20 @@ StartingKits(
         StartingKit(
             // Mage is squishy (Defense -1, no innate weapon damage) and
             // otherwise starts completely empty-handed relying on random
-            // battle loot for any technique at all - this kit exists so a
-            // fresh Mage run is actually survivable from turn one.
+            // battle loot for any technique or weapon at all - this kit
+            // exists so a fresh Mage run is actually survivable from turn
+            // one, without guaranteeing an offensive technique (Fireball
+            // is still loot-only).
             class: "Mage",
-            items: [ "Healing Potion", "Fireball", "Invisible Cloak", "Ice Armor" ],
+            items: [ "Healing Potion", "Invisible Cloak", "Ice Armor" ],
+        ),
+        StartingKit(
+            // Rogue starts with just enough to make Stealth ambushes
+            // testable/usable from turn one - Garrote, Dodge, and a
+            // Dagger are all still left to loot/the guarded fortress
+            // room, same as Barbarian finding its Sword tier there.
+            class: "Rogue",
+            items: [ "Healing Potion", "Stealth" ],
         ),
     ],
 )

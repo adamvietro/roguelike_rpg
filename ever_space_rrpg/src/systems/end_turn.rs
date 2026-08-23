@@ -6,6 +6,7 @@ use crate::prelude::*;
 #[read_component(Player)]
 #[read_component(AmuletOfYala)]
 #[read_component(Invisible)]
+#[read_component(Stealthed)]
 pub fn end_turn(
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
@@ -33,6 +34,21 @@ pub fn end_turn(
                 commands.add_component(
                     *player,
                     Invisible {
+                        moves_remaining: status.moves_remaining - 1,
+                    },
+                );
+            }
+        }
+
+        // Same countdown for Stealth (Rogue) - see components::Stealthed.
+        let mut stealthed = <(Entity, &Stealthed)>::query().filter(component::<Player>());
+        if let Some((player, status)) = stealthed.iter(ecs).nth(0) {
+            if status.moves_remaining <= 1 {
+                commands.remove_component::<Stealthed>(*player);
+            } else {
+                commands.add_component(
+                    *player,
+                    Stealthed {
                         moves_remaining: status.moves_remaining - 1,
                     },
                 );

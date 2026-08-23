@@ -8,6 +8,7 @@ use crate::prelude::*;
 #[read_component(Player)]
 #[read_component(Name)]
 #[read_component(Invisible)]
+#[read_component(Stealthed)]
 pub fn chasing(
     #[resource] map: &Map,
     #[resource] turn_state: &mut TurnState,
@@ -15,18 +16,25 @@ pub fn chasing(
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
 ) {
-    // While Invisible, no enemy can "see" the player at all - they don't
-    // chase, don't reposition toward the player's last known tile, and
-    // (further down) can't ambush the player by wandering into their tile
-    // either. This is a full early-out, not just skipping the eventual
-    // battle trigger, since "can they see me" is the actual ask - a
-    // monster that can't see you shouldn't move toward you either.
-    let player_is_invisible = <(Entity, &Invisible)>::query()
+    // While Invisible OR Stealthed, no enemy can "see" the player at all -
+    // they don't chase, don't reposition toward the player's last known
+    // tile, and (further down) can't ambush the player by wandering into
+    // their tile either. This is a full early-out, not just skipping the
+    // eventual battle trigger, since "can they see me" is the actual ask -
+    // a monster that can't see you shouldn't move toward you either.
+    // Stealth and Invisible differ elsewhere (the PLAYER walking into an
+    // enemy while Stealthed still starts a battle, as an ambush - see
+    // systems/player_input.rs) but they're identical here: an enemy that
+    // can't detect the player can't initiate anything regardless of which
+    // status is active.
+    let player_is_hidden = <(Entity, Option<&Invisible>, Option<&Stealthed>)>::query()
         .filter(component::<Player>())
         .iter(ecs)
         .nth(0)
-        .is_some();
-    if player_is_invisible {
+        .map_or(false, |(_, invisible, stealthed)| {
+            invisible.is_some() || stealthed.is_some()
+        });
+    if player_is_hidden {
         return;
     }
 
