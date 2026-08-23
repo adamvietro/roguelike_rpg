@@ -4,10 +4,22 @@ Enemies will initiate a turn based RPG battle. Loot at the end will be class spe
 
 
 New classes
-Magic only for Mages.
-Fireball 
-Cloak - For 20 moves you cannot be attacked
-Burn
+Rogue
+Stealth (used out of combat) 20 moves to pick up items, if you run into an enemy you will go first and get 3 times dmg.
+garrote - wound for 2 dmg for next 3 turns
+Dodge - for next 3 turns in battle 70% chance to dodge attacks.
+
+Amazon
+
+
+Mage
+Ice Armor Increases Armor by 1 for 20 attacks
+
+Starting Items
+
+
+
+
 
 
 
@@ -17,6 +29,8 @@ More fluid motion - On hold
 
 Better looking battle options.
     I want a box around the abilities and I want them in the lower right
+
+Refactor main.rs
 
 
 
@@ -55,6 +69,25 @@ Flash on hit
 ## Classes
 Each class will have default abilities that will need to be always available.
 Add in items that can be won from battle that can be a single use.
+
+### Barbarian
+deathblow x2 dmg
+quick attack x2 attacks
+Rend 2 dmg for the next 3 turns
+counter attack - chance (65%) for x3 damage
+weapons is swords 3 types
+hp 15
+defense (0)
+speed (6)
+
+### Mage
+Fireball (2 dmg) 
+Invisible Cloak - For 20 moves you cannot be attacked but can pick up items (used out of combat)
+Burn - Similar to Garrote, but a small damage to begin with
+Defense is -1
+Health is 10
+Weapons is staffs 3 types
+
 
 ## Options
 Title Screen

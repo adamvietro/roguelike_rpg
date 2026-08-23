@@ -53,6 +53,11 @@ pub struct ProvidesDungeonMap;
 pub enum TechniqueEffect {
     /// Attack right now for `multiplier`x normal attack damage.
     DamageMultiplier(i32),
+    /// Attack for a fixed `amount` plus any carried weapon damage (unlike
+    /// DamageMultiplier, which scales off your normal attack rather than
+    /// adding a flat base) - e.g. Fireball: 2 base damage, more with a
+    /// better staff.
+    FlatDamage(i32),
     /// Attack `hits` times in a row, each for full normal attack damage.
     MultiHit(i32),
     /// Skip your attack this turn; the next hit the enemy lands on you has
@@ -77,6 +82,25 @@ pub enum TechniqueEffect {
 /// battle::apply_player_technique.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Technique(pub TechniqueEffect);
+
+/// Temporary out-of-combat status granted by the Invisible Cloak. While
+/// active, walking into an enemy is blocked like a wall instead of
+/// starting a battle (see systems/player_input.rs) - items can still be
+/// picked up as normal. Ticks down by one every player turn in
+/// systems/end_turn.rs, and is removed once it reaches zero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Invisible {
+    pub moves_remaining: i32,
+}
+
+/// Marks an Item entity as an Invisible Cloak - granting `moves` turns of
+/// Invisible on use (see systems/use_items.rs). Ordinary carried item, not
+/// a BattleItem - used from the dungeon-view item keys, not the battle
+/// menu, since it's explicitly an out-of-combat ability.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProvidesInvisibility {
+    pub moves: i32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovingRandomly;

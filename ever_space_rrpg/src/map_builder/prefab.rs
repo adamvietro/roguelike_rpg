@@ -34,18 +34,18 @@ const TURRET: (&str, i32, i32) = (
 
 const BUNKER: (&str, i32, i32) = (
     "
---------
----##---
---#M-#--
--#----#-
-#------#
--M-S--M-
-#------#
--#----#-
---#--#--
----##---
+----------
+----##----
+---#M-#---
+--#----#--
+-#------#-
+--M-S--M--
+-#------#-
+--#----#--
+---#--#---
+----##----
     ",
-    8,
+    10,
     10,
 );
 
@@ -126,10 +126,10 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                         mb.prefab_enemy_spawns.push(Point::new(tx, ty));
                     }
                     'S' => {
-                        // Guaranteed sword spawn - see
-                        // Template::prefab_only / spawn_prefab_sword.
+                        // Guaranteed weapon spawn (Sword or Staff) - see
+                        // Template::prefab_only / spawn_prefab_weapon.
                         mb.map.tiles[idx] = TileType::Floor;
-                        mb.prefab_sword_spawn = Some(Point::new(tx, ty));
+                        mb.prefab_weapon_spawn = Some(Point::new(tx, ty));
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor, // (16)
                     '#' => mb.map.tiles[idx] = TileType::Wall,

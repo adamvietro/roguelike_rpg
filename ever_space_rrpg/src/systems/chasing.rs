@@ -7,6 +7,7 @@ use crate::prelude::*;
 #[read_component(Health)]
 #[read_component(Player)]
 #[read_component(Name)]
+#[read_component(Invisible)]
 pub fn chasing(
     #[resource] map: &Map,
     #[resource] turn_state: &mut TurnState,
@@ -14,6 +15,21 @@ pub fn chasing(
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
 ) {
+    // While Invisible, no enemy can "see" the player at all - they don't
+    // chase, don't reposition toward the player's last known tile, and
+    // (further down) can't ambush the player by wandering into their tile
+    // either. This is a full early-out, not just skipping the eventual
+    // battle trigger, since "can they see me" is the actual ask - a
+    // monster that can't see you shouldn't move toward you either.
+    let player_is_invisible = <(Entity, &Invisible)>::query()
+        .filter(component::<Player>())
+        .iter(ecs)
+        .nth(0)
+        .is_some();
+    if player_is_invisible {
+        return;
+    }
+
     let mut movers = <(Entity, &Point, &ChasingPlayer, &FieldOfView)>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
     let mut player = <(&Point, &Player)>::query();

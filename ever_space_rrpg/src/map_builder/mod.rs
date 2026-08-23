@@ -57,12 +57,13 @@ pub struct MapBuilder {
     /// where the normal weighted pick could just as easily hand that
     /// point an item instead.
     pub prefab_enemy_spawns: Vec<Point>,
-    /// Guaranteed sword spawn point from a placed prefab's 'S' marker,
+    /// Guaranteed weapon spawn point from a placed prefab's 'S' marker,
     /// if a prefab placed successfully this level (see
     /// map_builder::prefab - placement can fail, so this may be None).
-    /// Swords no longer spawn in the general ambient pool at all - see
-    /// Template::prefab_only.
-    pub prefab_sword_spawn: Option<Point>,
+    /// Shared by Swords and Staffs (see spawn_prefab_weapon) - a level
+    /// gets one or the other here, not both. Neither family spawns in the
+    /// general ambient pool at all - see Template::prefab_only.
+    pub prefab_weapon_spawn: Option<Point>,
 }
 
 impl MapBuilder {

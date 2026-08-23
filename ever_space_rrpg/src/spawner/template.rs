@@ -38,7 +38,7 @@ pub struct Template {
     /// If true, this template never appears in the general ambient spawn
     /// pool (spawn_entities) - it's only ever placed directly at a
     /// prefab's dedicated marker point (see
-    /// map_builder::prefab and spawn_prefab_sword/spawn_prefab_enemies).
+    /// map_builder::prefab and spawn_prefab_weapon/spawn_prefab_enemies).
     /// Missing from template.ron defaults to false via serde.
     #[serde(default)]
     pub prefab_only: bool,
@@ -117,16 +117,16 @@ impl Templates {
         commands.flush(ecs);
     }
 
-    /// Spawns a guaranteed sword at `spawn_point`, if a prefab placed
+    /// Spawns a guaranteed weapon at `spawn_point`, if a prefab placed
     /// successfully this level (see map_builder::prefab /
-    /// MapBuilder::prefab_sword_spawn - placement can fail, so this may
-    /// be None). Picks randomly, weighted by frequency, among
-    /// `prefab_only` templates whose `levels` includes this dungeon
-    /// level - e.g. a Huge Sword tagged `levels: [1, 2]` simply won't be
-    /// eligible on level 0, the same way `levels` already gates the
-    /// general ambient pool. Swords no longer appear in that general pool
-    /// at all - see Template::prefab_only.
-    pub fn spawn_prefab_sword(
+    /// MapBuilder::prefab_weapon_spawn - placement can fail, so this may
+    /// be None). Picks randomly, weighted by frequency, among ALL
+    /// `prefab_only` templates whose `levels` includes this dungeon level
+    /// - Swords and Staffs share this same single guaranteed slot (a level
+    /// gets one or the other, not both), the same way `levels` already
+    /// gates the general ambient pool. Neither weapon family appears in
+    /// that general pool at all - see Template::prefab_only.
+    pub fn spawn_prefab_weapon(
         &self,
         ecs: &mut World,
         rng: &mut RandomNumberGenerator,
@@ -138,17 +138,17 @@ impl Templates {
             None => return,
         };
 
-        let mut available_swords = Vec::new();
+        let mut available_weapons = Vec::new();
         self.entities
             .iter()
             .filter(|t| t.prefab_only && t.levels.contains(&level))
             .for_each(|t| {
                 for _ in 0..t.frequency {
-                    available_swords.push(t);
+                    available_weapons.push(t);
                 }
             });
 
-        if let Some(template) = rng.random_slice_entry(&available_swords) {
+        if let Some(template) = rng.random_slice_entry(&available_weapons) {
             let mut commands = legion::systems::CommandBuffer::new(ecs);
             self.spawn_entity(&pt, template, &mut commands);
             commands.flush(ecs);
@@ -240,12 +240,9 @@ impl Templates {
         }
     }
 
-    /// Adds whichever ProvidesXxx component(s) a template's `provides` list
-    /// calls for. Shared by spawn_entity (floor spawns) and
-    /// grant_random_battle_loot (post-battle loot) so both stay in sync.
     /// Adds whichever ProvidesXxx component a template's `provides` list
     /// calls for. Only non-technique effects live here now (Healing,
-    /// MagicMap) - one-time battle techniques are handled by
+    /// MagicMap, Invisibility) - one-time battle techniques are handled by
     /// `apply_technique` instead, driven directly by `Template.technique`
     /// rather than a string tag.
     fn apply_provides(
@@ -259,6 +256,9 @@ impl Templates {
                 .for_each(|(provides, n)| match provides.as_str() {
                     "Healing" => commands.add_component(entity, ProvidesHealing { amount: *n }),
                     "MagicMap" => commands.add_component(entity, ProvidesDungeonMap {}),
+                    "Invisibility" => {
+                        commands.add_component(entity, ProvidesInvisibility { moves: *n })
+                    }
                     _ => {
                         println!("Warning: we don't know how to provide {}", provides);
                     }

@@ -166,7 +166,7 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
         name: "Barbarian",
         icon_glyph: '@',
         description: "A hardy melee fighter with devastating battle techniques: \
-                       Deathblow, Quick Attack, Counter Attack, Garrote.",
+                       Deathblow, Quick Attack, Counter Attack, Rend.",
     },
     ClassRosterEntry {
         key: VirtualKeyCode::R,
@@ -194,7 +194,9 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
         key_label: "M",
         name: "Mage",
         icon_glyph: 'm',
-        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+        description: "A fragile spellcaster wielding staffs (Defense -1). \
+                       Battle techniques: Fireball, Burn. Also carries the \
+                       out-of-combat Invisible Cloak.",
     },
 ];
 
@@ -240,7 +242,7 @@ impl State {
         map_builder.map.tiles[exit_idx] = TileType::Exit;
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
         spawn_prefab_enemies(&mut self.ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
-        spawn_prefab_sword(&mut self.ecs, &mut rng, 0, map_builder.prefab_sword_spawn);
+        spawn_prefab_weapon(&mut self.ecs, &mut rng, 0, map_builder.prefab_weapon_spawn);
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
@@ -464,11 +466,11 @@ impl State {
             map_level as usize,
             &map_builder.prefab_enemy_spawns,
         );
-        spawn_prefab_sword(
+        spawn_prefab_weapon(
             &mut self.ecs,
             &mut rng,
             map_level as usize,
-            map_builder.prefab_sword_spawn,
+            map_builder.prefab_weapon_spawn,
         );
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
@@ -623,10 +625,11 @@ impl State {
         }
 
         // --- Initiative: decided once at the start of each round, from
-        // Speed. Garrote (if active) ticks first, before initiative is
-        // even decided - it's a lingering wound, not an action. If the
-        // enemy is faster, they attack immediately here - no menu shown -
-        // before the player ever gets a choice this round.
+        // Speed. Any active damage-over-time effect (Rend, Burn, etc.)
+        // ticks first, before initiative is even decided - it's a
+        // lingering wound, not an action. If the enemy is faster, they
+        // attack immediately here - no menu shown - before the player
+        // ever gets a choice this round.
         if battle.awaiting_order_decision {
             let dot_message = tick_dot(&mut self.ecs, &mut battle);
 

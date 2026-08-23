@@ -13,7 +13,7 @@ impl MapArchitect for CellularAutomataArchitect {
             amulet_start: Point::zero(),
             theme: super::themes::DungeonTheme::new(),
             prefab_enemy_spawns: Vec::new(),
-            prefab_sword_spawn: None,
+            prefab_weapon_spawn: None,
         };
         self.random_noise_map(rng, &mut mb.map);
         for _ in 0..10 {

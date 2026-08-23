@@ -898,3 +898,35 @@ Now clear the new console each tick:Now add the background-rendering schedule in
 
 One thing I decided without asking (small): the title-screen monsters are static, not wandering — you didn't get to that question. Easy to add if you want them animated later.
 
+## Mage Class
+Now `components.rs` — add `Invisible`, `ProvidesInvisibility`, and the `FlatDamage` technique variant:Now `battle.rs` — add the `FlatDamage` match arm to `apply_player_technique`:Now `spawner/template.rs` — wire in `ProvidesInvisibility` and rename the sword-specific machinery to be weapon-generic:Also fix the stale `spawn_prefab_sword` reference in the `prefab_only` doc comment:Now `spawner/mod.rs` — rename the wrapper, add the per-class base stats table, and use it in `spawn_player`:Now update `main.rs` call sites (`spawn_prefab_sword` → `spawn_prefab_weapon`, `prefab_sword_spawn` → `prefab_weapon_spawn`) and add `Invisible` end-turn decrement wiring:Now the map_builder side — rename the struct field and update every architect that initializes it, plus `prefab.rs`'s marker handling:Now update the doc comments in `prefab.rs` and `map_builder/mod.rs` that still say "sword":Now `use_items.rs` — wire in the Invisible Cloak effect:Now `end_turn.rs` — tick down `Invisible` once per completed player turn:Now `resources/template.ron` — rename Garrote→Rend, add Fireball/Burn techniques, the Invisible Cloak item, and 3 Staff tiers:Let me fix two glyph collisions I introduced — Wooden Staff's `|` collides with the Amulet of Yala, and Arcane Staff's `!` collides with the Healing Potion:Let's do a final sweep, then update the Mage's description on the class-select screen since it's no longer a placeholder:Now update the Mage's class-select description — it's no longer a bare placeholder:Now let's tidy the two remaining "Garrote" mentions in `battle.rs` for accuracy:Now let's do a comprehensive final sanity sweep across the whole project:Now let's package everything for delivery — 10 files touched in total:That's a big batch — 14 files, all **modified** (none new/deleted). Here's the map:
+
+| Downloaded as         | Save to                       |
+| --------------------- | ----------------------------- |
+| `template.ron`        | `resources/template.ron`      |
+| `components.rs`       | `src/components.rs`           |
+| `battle.rs`           | `src/battle.rs`               |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`          |
+| `spawner_template.rs` | `src/spawner/template.rs`     |
+| `player_input.rs`     | `src/systems/player_input.rs` |
+| `use_items.rs`        | `src/systems/use_items.rs`    |
+| `end_turn.rs`         | `src/systems/end_turn.rs`     |
+| `main.rs`             | `src/main.rs`                 |
+| `map_builder_mod.rs`  | `src/map_builder/mod.rs`      |
+| `prefab.rs`           | `src/map_builder/prefab.rs`   |
+| `empty.rs`            | `src/map_builder/empty.rs`    |
+| `drunkard.rs`         | `src/map_builder/drunkard.rs` |
+| `rooms.rs`            | `src/map_builder/rooms.rs`    |
+| `automata.rs`         | `src/map_builder/automata.rs` |
+
+**What changed, by request:**
+
+- **Rend replaces Garrote** — pure rename in `template.ron`. No code changes needed since the tick/apply messages already generate themselves from the item's own `Name`.
+- **Fireball** needed a new effect shape, since none of the existing ones express "flat base + staff damage." Added `TechniqueEffect::FlatDamage(i32)` (new enum variant + one match arm in `apply_player_technique`) — `2` base, plus whatever's in `carried_weapon_damage`, same additive pattern the Barbarian's sword already uses.
+- **Burn** needed zero new code — it's the existing `DamageOverTime` effect with smaller numbers (1 damage/3 turns, my default; trivial to retune in `template.ron` alone).
+- **Base stats** are no longer one-size-fits-all: `spawner/mod.rs` now has a `class_base_stats()` table. Mage gets Health 10, Defense −1 (so it takes *more* damage — `apply_damage` subtracts Defense from incoming damage, and a negative value adds to it). Damage/Speed weren't specified for Mage, so I defaulted those to match Barbarian (1 and 6) — flag if you want them different.
+- **3 Staff tiers** (Wooden/Silver/Arcane, 1/2/3 damage) are `prefab_only` items exactly like the Swords, sharing the *same* single guaranteed fortress-treasure slot — a level's guaranteed weapon is randomly a Sword or a Staff, not both, since `spawn_prefab_sword`'s eligible-item pool was already name-agnostic (filtered only by `prefab_only` + `levels`). I renamed it to `spawn_prefab_weapon` throughout (map_builder, spawner, main.rs) since it's no longer sword-specific — that rename touched the map architect files even though their actual logic didn't change, just the field name they initialize.
+- **Invisible Cloak**: new `Invisible { moves_remaining }` status component + `ProvidesInvisibility` item component, consumed like any other item via `use_items.rs`. It ticks down once per completed player turn in `end_turn.rs`, and `player_input.rs` now checks it before triggering a battle — if you're Invisible and walk into an enemy, it's blocked exactly like a wall (no `WantsToMove` queued, no battle), consuming the turn the same way a real wall-bump already does.
+
+
+

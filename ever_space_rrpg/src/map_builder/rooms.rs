@@ -13,7 +13,7 @@ impl MapArchitect for RoomsArchitect {
             amulet_start: Point::zero(),
             theme: super::themes::DungeonTheme::new(),
             prefab_enemy_spawns: Vec::new(),
-            prefab_sword_spawn: None,
+            prefab_weapon_spawn: None,
         };
 
         mb.fill(TileType::Wall);

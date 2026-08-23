@@ -236,7 +236,7 @@ pub struct Battle {
     /// constant, so different classes' counter-style techniques can differ.
     pub countering: Option<CounterState>,
     /// A damage-over-time effect currently active on the enemy (e.g. from
-    /// a Garrote-shaped technique), ticked once per round in `tick_dot`.
+    /// a Rend-shaped technique), ticked once per round in `tick_dot`.
     /// None when inactive.
     pub enemy_dot: Option<DotState>,
     pub fled: bool,
@@ -420,8 +420,8 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
 /// If a damage-over-time effect is active on the enemy, ticks it down by
 /// one and applies its damage. Called once at the start of each round.
 /// Returns a message describing the tick if it happened, or None if no
-/// effect is active. Generic over whichever technique applied it (Garrote
-/// today, potentially a Mage DoT spell later) - see Battle::enemy_dot.
+/// effect is active. Generic over whichever technique applied it (Rend,
+/// Burn, or any future one) - see Battle::enemy_dot.
 pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
     let (damage, label, turns_remaining) = match &battle.enemy_dot {
         Some(dot) => (dot.damage, dot.label.clone(), dot.turns_remaining),
@@ -480,6 +480,16 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
             format!(
                 "{}! You strike the {} for {} damage!",
+                name, battle.enemy_name, dmg
+            )
+        }
+        TechniqueEffect::FlatDamage(amount) => {
+            let dmg = amount + carried_weapon_damage(ecs, battle.player);
+            apply_damage(ecs, battle.enemy, dmg);
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+            format!(
+                "{}! You blast the {} for {} damage!",
                 name, battle.enemy_name, dmg
             )
         }

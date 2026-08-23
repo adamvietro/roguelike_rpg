@@ -10,6 +10,7 @@ use crate::prelude::*;
 #[read_component(Carried)]
 #[read_component(Weapon)]
 #[read_component(BattleItem)]
+#[read_component(Invisible)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -90,26 +91,40 @@ pub fn player_input(
                 .map(|(entity, _)| *entity);
 
             if let Some(enemy_entity) = attacked_enemy {
-                let enemy_name = ecs
-                    .entry_ref(enemy_entity)
-                    .ok()
-                    .and_then(|e| e.get_component::<Name>().ok().cloned())
-                    .map(|n| n.0)
-                    .unwrap_or_else(|| "the enemy".to_string());
+                // While Invisible (see components::Invisible / the
+                // Invisible Cloak item), walking into an enemy is blocked
+                // like a wall instead of starting a battle - no
+                // WantsToMove is queued either, so the player doesn't step
+                // onto that tile. The turn still passes via the
+                // unconditional TurnState::PlayerTurn below, same as
+                // bumping a real wall does (movement.rs silently drops an
+                // invalid destination but still consumes the move).
+                let player_is_invisible = <(Entity, &Invisible)>::query()
+                    .iter(ecs)
+                    .any(|(e, _)| *e == player_entity);
 
-                *battle = Some(Battle::new(player_entity, enemy_entity, enemy_name));
-                *turn_state = TurnState::InBattle;
-                return;
+                if !player_is_invisible {
+                    let enemy_name = ecs
+                        .entry_ref(enemy_entity)
+                        .ok()
+                        .and_then(|e| e.get_component::<Name>().ok().cloned())
+                        .map(|n| n.0)
+                        .unwrap_or_else(|| "the enemy".to_string());
+
+                    *battle = Some(Battle::new(player_entity, enemy_entity, enemy_name));
+                    *turn_state = TurnState::InBattle;
+                    return;
+                }
+            } else {
+                // did_something = true;
+                commands.push((
+                    (),
+                    WantsToMove {
+                        entity: player_entity,
+                        destination,
+                    },
+                ));
             }
-
-            // did_something = true;
-            commands.push((
-                (),
-                WantsToMove {
-                    entity: player_entity,
-                    destination,
-                },
-            ));
         };
         *turn_state = TurnState::PlayerTurn;
     }

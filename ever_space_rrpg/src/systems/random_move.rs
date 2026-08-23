@@ -6,12 +6,23 @@ use crate::prelude::*;
 #[read_component(Health)]
 #[read_component(Player)]
 #[read_component(Name)]
+#[read_component(Invisible)]
 pub fn random_move(
     #[resource] turn_state: &mut TurnState,
     #[resource] battle: &mut Option<Battle>,
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
 ) {
+    // While Invisible, a wandering monster that happens to step onto the
+    // player's tile can't start a battle either - see chasing.rs for the
+    // (more common) chase-based case. Movement onto that tile is still
+    // blocked below (attacked stays true), same as bumping anything else.
+    let player_is_invisible = <(Entity, &Invisible)>::query()
+        .filter(component::<Player>())
+        .iter(ecs)
+        .nth(0)
+        .is_some();
+
     let mut movers = <(Entity, &Point, &MovingRandomly)>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
     movers.iter(ecs).for_each(|(entity, pos, _)| {
@@ -33,11 +44,12 @@ pub fn random_move(
             .iter(ecs)
             .filter(|(_, target_pos, _)| **target_pos == destination)
             .for_each(|(victim, _, _)| {
-                if ecs
-                    .entry_ref(*victim)
-                    .unwrap()
-                    .get_component::<Player>()
-                    .is_ok()
+                if !player_is_invisible
+                    && ecs
+                        .entry_ref(*victim)
+                        .unwrap()
+                        .get_component::<Player>()
+                        .is_ok()
                 {
                     let enemy_name = ecs
                         .entry_ref(*entity)
