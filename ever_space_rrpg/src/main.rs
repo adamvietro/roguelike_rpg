@@ -146,24 +146,10 @@ struct State {
 
 impl State {
     fn new() -> Self {
-        let mut ecs = World::default();
         let mut resources = Resources::default();
-        let mut rng = RandomNumberGenerator::new();
-        let mut map_builder = MapBuilder::new(&mut rng);
-        spawn_player(&mut ecs, map_builder.player_start);
-        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
-        map_builder.map.tiles[exit_idx] = TileType::Exit;
-        spawn_level(&mut ecs, &mut rng, 0, &map_builder.monster_spawns);
-        spawn_prefab_enemies(&mut ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
-        spawn_prefab_sword(&mut ecs, &mut rng, 0, map_builder.prefab_sword_spawn);
-        resources.insert(map_builder.map);
-        resources.insert(Camera::new(map_builder.player_start));
-        resources.insert(TurnState::AwaitingInput);
-        resources.insert(map_builder.theme);
-        resources.insert(None::<Battle>);
-        resources.insert(None::<BattleVictory>);
+        resources.insert(TurnState::TitleScreen);
         Self {
-            ecs,
+            ecs: World::default(),
             resources,
             input_systems: build_input_scheduler(),
             player_systems: build_player_scheduler(),
@@ -171,12 +157,17 @@ impl State {
         }
     }
 
-    fn reset_game_state(&mut self) {
+    /// Builds a fresh game world for a new run, with the player spawned as
+    /// `class` - called once when leaving ClassSelect, and again any time
+    /// the player returns to the title screen and picks a class to start
+    /// over. Replaces the old reset_game_state, which always hardcoded
+    /// "Barbarian" at spawn_player instead of taking a chosen class.
+    fn start_game(&mut self, class: &str) {
         self.ecs = World::default();
         self.resources = Resources::default();
         let mut rng = RandomNumberGenerator::new();
         let mut map_builder = MapBuilder::new(&mut rng);
-        spawn_player(&mut self.ecs, map_builder.player_start);
+        spawn_player(&mut self.ecs, map_builder.player_start, class);
         let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
         map_builder.map.tiles[exit_idx] = TileType::Exit;
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
@@ -188,6 +179,71 @@ impl State {
         self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
+    }
+
+    /// Tears down the current run (if any) and returns to the title
+    /// screen - called when the player dismisses the GameOver or Victory
+    /// screen, instead of immediately starting a new run with whatever
+    /// class they last had. ClassSelect (via start_game) is now the only
+    /// place a run actually begins.
+    fn return_to_title(&mut self) {
+        self.ecs = World::default();
+        self.resources = Resources::default();
+        self.resources.insert(TurnState::TitleScreen);
+    }
+
+    fn title_screen(&mut self, ctx: &mut BTerm) {
+        ctx.set_active_console(2);
+        ctx.print_color_centered(15, YELLOW, BLACK, "EVER SPACE RRPG");
+        ctx.print_color_centered(
+            18,
+            WHITE,
+            BLACK,
+            "A roguelike adventure into the dungeons below.",
+        );
+        ctx.print_color_centered(30, GREEN, BLACK, "Press any key to begin");
+
+        if ctx.key.is_some() {
+            self.resources.insert(TurnState::ClassSelect);
+        }
+    }
+
+    /// Lists every playable class and lets the player pick one with a
+    /// number key, then calls start_game with that choice. New classes go
+    /// here as a new numbered line + Key match arm - nothing else in this
+    /// screen needs to change.
+    fn class_select(&mut self, ctx: &mut BTerm) {
+        ctx.set_active_console(2);
+        ctx.print_color_centered(10, YELLOW, BLACK, "Choose Your Class");
+
+        ctx.print_color_centered(14, GREEN, BLACK, "1) Barbarian");
+        ctx.print_color_centered(
+            15,
+            WHITE,
+            BLACK,
+            "A hardy melee fighter. Learns devastating techniques in battle:",
+        );
+        ctx.print_color_centered(
+            16,
+            WHITE,
+            BLACK,
+            "Deathblow, Quick Attack, Counter Attack, Garrote.",
+        );
+
+        ctx.print_color_centered(19, GREEN, BLACK, "2) Mage");
+        ctx.print_color_centered(
+            20,
+            WHITE,
+            BLACK,
+            "(Placeholder for now - plays with only Attack/Defend/Flee until",
+        );
+        ctx.print_color_centered(21, WHITE, BLACK, "spell techniques are added.)");
+
+        match ctx.key {
+            Some(VirtualKeyCode::Key1) => self.start_game("Barbarian"),
+            Some(VirtualKeyCode::Key2) => self.start_game("Mage"),
+            _ => {}
+        }
     }
 
     fn advance_level(&mut self) {
@@ -757,10 +813,10 @@ impl State {
             BLACK,
             "Don't worry, you can always try again with a new hero.",
         );
-        ctx.print_color_centered(9, GREEN, BLACK, "Press 1 to play again.");
+        ctx.print_color_centered(9, GREEN, BLACK, "Press 1 to return to the title screen.");
 
         if let Some(VirtualKeyCode::Key1) = ctx.key {
-            self.reset_game_state();
+            self.return_to_title();
         }
     }
 
@@ -779,9 +835,9 @@ impl State {
             BLACK,
             "Your town is saved, and you can return to your normal life.",
         );
-        ctx.print_color_centered(7, GREEN, BLACK, "Press 1 to play again.");
+        ctx.print_color_centered(7, GREEN, BLACK, "Press 1 to return to the title screen.");
         if let Some(VirtualKeyCode::Key1) = ctx.key {
-            self.reset_game_state();
+            self.return_to_title();
         }
     }
 }
@@ -808,6 +864,12 @@ impl GameState for State {
         ctx.set_active_console(0);
         let current_state = self.resources.get::<TurnState>().unwrap().clone();
         match current_state {
+            TurnState::TitleScreen => {
+                self.title_screen(ctx);
+            }
+            TurnState::ClassSelect => {
+                self.class_select(ctx);
+            }
             TurnState::AwaitingInput => self
                 .input_systems
                 .execute(&mut self.ecs, &mut self.resources),

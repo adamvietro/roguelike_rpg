@@ -850,3 +850,23 @@ One thing worth testing specifically: I put the title text at row 15/18/30 and t
 
 Next up: giving the Mage actual spell techniques and probably differentiating its base stats (lower HP/damage, higher speed, or whatever direction you want) from the Barbarian — let me know when you're ready for that.
 
+## Pause Screen
+Now `player_input.rs` — Escape triggers pause, checked before any movement/battle logic so it never fires mid-battle (battle uses its own key handling in `battle_tick`, not this system at all):Now add a dedicated map-only render schedule in `systems/mod.rs`:Now wire it into `main.rs` — add the schedule field, a `paused_tick` method, and the dispatch arm:Now add the `paused_tick` method, right after `class_select`:Now the dispatcher:Everything is wired consistently. Let's do a final structural check of `main.rs` and `systems/mod.rs` for brace/method sanity:This all lines up correctly. Delivering the four changed files:**Four files, all modified:**
+
+| Downloaded as     | Save to                                                           |
+| ----------------- | ----------------------------------------------------------------- |
+| `main.rs`         | `src/main.rs` (**replace**)                                       |
+| `turn_state.rs`   | `src/turn_state.rs` (**replace**)                                 |
+| `systems_mod.rs`  | `src/systems/mod.rs` (**replace** — renamed to avoid a collision) |
+| `player_input.rs` | `src/systems/player_input.rs` (**replace**)                       |
+
+**How it works:**
+
+- **Escape pauses.** Checked first in `player_input.rs`, before any movement/attack logic, and returns immediately — sets `TurnState::Paused`. This system only ever runs while `TurnState::AwaitingInput` is active (dungeon exploration waiting on a keypress), so pausing mid-battle isn't reachable at all — `battle_tick` has its own completely separate key handling and never touches this code path. No extra guard needed for "can't pause in battle."
+- **Map stays visible, no black screen.** A new `build_pause_scheduler()` runs *only* `map_render_system` — not `entity_render`, `hud`, `fov`, or anything else. Since every console gets cleared each tick regardless of state, the pause tick has to actively repaint the map (console 0) itself, but deliberately skips the entity pass (console 1), so monsters/items/the player glyph disappear and the map terrain stays exactly as it was.
+- **Pause menu:** text overlay on console 2 — `Esc` resumes (back to `AwaitingInput`), `Q` quits to the title screen (via the existing `return_to_title`, tearing down the run).
+
+One thing worth testing: I didn't add a pause hint anywhere in the regular HUD (e.g. "Esc: Pause"), so it's currently a hidden keybind — let me know if you want that surfaced somewhere.
+
+## Mage Class
+
