@@ -15,9 +15,12 @@ Make the player or the Enemy stunned after a flee
 
 More fluid motion - On hold
 
+Battle has a more timed feel where it automatically ticks similar to FF7 
 
 
 Refactor main.rs
+
+Sounds and Music
 
 
 
@@ -40,6 +43,11 @@ Battle Screen
 Background for the battle system based off the theme of the map.
 Better looking battle options.
     I want a box around the abilities and I want them in the lower right
+
+Floating attack values after an attack
+battle messages in a list
+Move the action box up
+battle messages damage centered right and message centered left
 
 
 ### Abilities
@@ -84,6 +92,7 @@ Ice Armor Increases Armor by 1 for 20 attacks
 Title Screen
 Start Screen for the game where you can pick a class.
 Pause screen when pressing esc
+esc on the title screen to quit the game
 
 ## Map
 Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.

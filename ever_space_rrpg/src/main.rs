@@ -66,6 +66,31 @@ fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) {
     batch.set(Point::new(col, row), render.color, render.glyph);
 }
 
+/// Greedily wraps `text` into lines no longer than `width` characters,
+/// breaking only at word boundaries (never mid-word). Used for the
+/// class-select descriptions, which vary a lot in length - some are short
+/// placeholders, others (Mage's) are long enough to run off the screen
+/// printed as a single line - see class_select.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(current);
+            current = word.to_string();
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 /// Draws a hollow rectangular border - plain '-'/'|'/'+' characters, built
 /// from the same DrawBatch::set + to_cp437 primitives already proven
 /// throughout this file (map/portrait/arena rendering), rather than
@@ -200,34 +225,34 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
                        Deathblow, Quick Attack, Counter Attack, Rend.",
     },
     ClassRosterEntry {
-        key: VirtualKeyCode::R,
-        key_label: "R",
+        key: VirtualKeyCode::Key2,
+        key_label: "2",
         name: "Rogue",
         icon_glyph: 'r',
         description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
     },
     ClassRosterEntry {
-        key: VirtualKeyCode::A,
-        key_label: "A",
+        key: VirtualKeyCode::Key3,
+        key_label: "3",
         name: "Amazon",
         icon_glyph: 'a',
         description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
     },
     ClassRosterEntry {
-        key: VirtualKeyCode::B,
-        key_label: "B",
+        key: VirtualKeyCode::Key4,
+        key_label: "4",
         name: "Archer",
-        icon_glyph: 'b',
+        icon_glyph: 'B',
         description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
     },
     ClassRosterEntry {
-        key: VirtualKeyCode::M,
-        key_label: "M",
+        key: VirtualKeyCode::Key5,
+        key_label: "5",
         name: "Mage",
         icon_glyph: 'm',
         description: "A fragile spellcaster wielding staffs (Defense -1). \
                        Battle techniques: Fireball, Burn. Also carries the \
-                       out-of-combat Invisible Cloak.",
+                       out-of-combat Invisible Cloak and Ice Armor.",
     },
 ];
 
@@ -360,9 +385,14 @@ impl State {
             "A roguelike adventure into the dungeons below.",
         );
         ctx.print_color_centered(90, GREEN, BLACK, "Press any key to begin");
+        ctx.print_color_centered(92, DARK_GRAY, BLACK, "(Esc to quit)");
 
-        if ctx.key.is_some() {
-            self.resources.insert(TurnState::ClassSelect);
+        if let Some(key) = ctx.key {
+            if key == VirtualKeyCode::Escape {
+                ctx.quitting = true;
+            } else {
+                self.resources.insert(TurnState::ClassSelect);
+            }
         }
     }
 
@@ -386,7 +416,17 @@ impl State {
             let i = i as i32;
             // BIG_TEXT_CONSOLE is 25 rows tall; one ~5-row band per class,
             // matching console 3's 5 total rows (one icon row per class).
-            let headline_row = i * 5 + 3;
+            // The headline sits near the TOP of its band (row 1 of 5, not
+            // row 3) - it and the icon are side-by-side, not stacked (the
+            // icon starts at column 0, headline/description start past
+            // column 9), so there's no need to push the headline down to
+            // clear the icon vertically. That leaves most of the band's
+            // height free for the description below it - previously the
+            // headline sat most of the way down the band, leaving so
+            // little room the description overlapped it, and the last
+            // class's description ran off the bottom of the screen
+            // entirely with nowhere left to go.
+            let headline_row = i * 5 + 1;
             ctx.print_color(
                 9,
                 headline_row,
@@ -395,11 +435,31 @@ impl State {
                 &format!("{}) {}", entry.key_label, entry.name.to_uppercase()),
             );
 
-            // Console 2 is 100 rows tall (4x BIG_TEXT_CONSOLE's 25), so its
-            // row number for "just below this headline" is the headline's
-            // row scaled by that same 4x, plus a small offset to clear it.
-            ctx.set_active_console(2);
-            ctx.print_color(36, headline_row * 4 + 4, WHITE, BLACK, entry.description);
+            // Descriptions render on console 4 (the HUD console, ~12px
+            // cells - bigger than console 2's 8px fine text, smaller than
+            // the headline's 32px) and wrap across multiple lines instead
+            // of running off the right edge - Mage's description in
+            // particular is long enough to overflow a single line.
+            //
+            // Console 4 (107x67) and console 5 (40x25, where headline_row
+            // lives) cover the same physical 1280x800 window but at
+            // different row counts, so converting the headline's pixel
+            // bottom edge - not just its row index - into a console-4 row
+            // is what actually guarantees no overlap: (headline_row + 1)
+            // rows of 32px each, converted to console 4's ~11.94px rows,
+            // rounded UP so the description never starts a fraction of a
+            // row too early.
+            const DESC_X: i32 = 24;
+            const DESC_WRAP_WIDTH: usize = 65;
+            let headline_bottom_px = (headline_row + 1) * 32;
+            let desc_row_start = (headline_bottom_px * 67 + 799) / 800;
+            ctx.set_active_console(4);
+            for (line_i, line) in wrap_text(entry.description, DESC_WRAP_WIDTH)
+                .iter()
+                .enumerate()
+            {
+                ctx.print_color(DESC_X, desc_row_start + line_i as i32, WHITE, BLACK, line);
+            }
             ctx.set_active_console(5);
 
             draw_portrait(
@@ -407,7 +467,7 @@ impl State {
                 0,
                 i,
                 Render {
-                    color: ColorPair::new(YELLOW, BLACK),
+                    color: ColorPair::new(WHITE, BLACK),
                     glyph: to_cp437(entry.icon_glyph),
                 },
             );
@@ -664,6 +724,21 @@ impl State {
             }
         }
 
+        // Tick down any active floating damage number (see
+        // Battle::enemy_damage_popup/player_damage_popup) the same way.
+        if let Some(popup) = &mut battle.enemy_damage_popup {
+            popup.remaining_ms -= ctx.frame_time_ms;
+            if popup.remaining_ms <= 0.0 {
+                battle.enemy_damage_popup = None;
+            }
+        }
+        if let Some(popup) = &mut battle.player_damage_popup {
+            popup.remaining_ms -= ctx.frame_time_ms;
+            if popup.remaining_ms <= 0.0 {
+                battle.player_damage_popup = None;
+            }
+        }
+
         // --- Initiative: decided once at the start of each round, from
         // Speed. Any active damage-over-time effect (Rend, Burn, etc.)
         // ticks first, before initiative is even decided - it's a
@@ -700,16 +775,13 @@ impl State {
             battle.awaiting_order_decision = false;
 
             if battle.first_actor == Combatant::Enemy {
-                let attack_message = resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.message = match dot_message {
-                    Some(d) => format!("{} Too fast to react! {}", d, attack_message),
-                    None => format!("Too fast to react! {}", attack_message),
-                };
-                battle.turn = BattleTurn::FirstResult;
-            } else {
-                // Player is first_actor - PlayerMenu renders this same
-                // tick, so surface the damage-over-time tick there instead.
-                battle.message = dot_message.unwrap_or_default();
+                if let Some(dot_message) = dot_message {
+                    battle.push_log(dot_message);
+                }
+                resolve_enemy_attack(&mut self.ecs, &mut battle);
+                battle.enter_result(BattleTurn::FirstResult);
+            } else if let Some(dot_message) = dot_message {
+                battle.push_log(dot_message);
             }
         }
 
@@ -756,6 +828,97 @@ impl State {
                 player_max
             ),
         );
+
+        // --- Active-status lines: previously Defending, Ice Armor, an
+        // active counter, and enemy damage-over-time all existed as real
+        // state with zero visual presence. One combined line per
+        // combatant, shown whenever any of that combatant's statuses are
+        // active. Enemy's goes below its HP bar (clear of the portrait,
+        // which ends at pixel y=320 / row 40). Player's goes ABOVE its
+        // name/HP block instead of below: the player portrait starts at
+        // pixel y=480 / row 60, so a status line at row 60 would sit
+        // directly under the portrait on console 3 (registered after
+        // console 2) and never actually be visible - row 57 keeps clear.
+        if let Some(dot) = &battle.enemy_dot {
+            ctx.print_color(
+                96,
+                43,
+                RED,
+                BLACK,
+                &format!("{} ({} turns left)", dot.label, dot.turns_remaining),
+            );
+        }
+
+        let mut player_statuses = Vec::new();
+        if battle.player_defending {
+            player_statuses.push("Defending".to_string());
+        }
+        if let Some(armor) = entity_ice_armor(&self.ecs, battle.player) {
+            player_statuses.push(format!("Ice Armor ({} left)", armor.attacks_remaining));
+        }
+        if battle.countering.is_some() {
+            player_statuses.push("Countering".to_string());
+        }
+        if !player_statuses.is_empty() {
+            ctx.print_color(32, 57, CYAN, BLACK, &player_statuses.join(" | "));
+        }
+
+        // --- Battle log: up to MAX_LOG_LINES most-recent lines, in a
+        // bordered box centered above the player (not the whole screen) -
+        // the player portrait spans console-2 columns 32-64, centered on
+        // column 48, so the box is centered there too. Sits in the gap
+        // between the enemy's text block (ends row 43) and the player's
+        // status/name/HP block (starts row 57), with a line of padding on
+        // both sides.
+        const MSG_BOX_X: i32 = 36;
+        const MSG_BOX_Y: i32 = 45;
+        const MSG_BOX_WIDTH: i32 = 24;
+        const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 2;
+
+        let mut log_batch = DrawBatch::new();
+        log_batch.target(2);
+        draw_hollow_box(
+            &mut log_batch,
+            MSG_BOX_X,
+            MSG_BOX_Y,
+            MSG_BOX_WIDTH,
+            MSG_BOX_HEIGHT,
+            ColorPair::new(WHITE, BLACK),
+        );
+        log_batch.submit(0).expect("Batch error");
+
+        for (i, line) in battle.log.iter().enumerate() {
+            ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 1 + i as i32, WHITE, BLACK, line);
+        }
+
+        // --- Floating damage numbers: bigger (console 5's 32px cells,
+        // same "big text" console used for title/class-select screens),
+        // and centered directly over each portrait now rather than off to
+        // the side - big enough now to read clearly on top of the sprite
+        // instead of needing to dodge it. Console 5 is registered last, so
+        // it renders above the portraits, and every console gets
+        // ctx.cls()'d at the top of every frame (see State::tick), so
+        // nothing lingers once a popup's timer expires.
+        //
+        // Both the portrait console (5x5) and this one (40x25) cover the
+        // same physical 1280x800 window. Enemy portrait spans columns
+        // 24-32 (center 28), rows 5-10 (center 7). Player portrait spans
+        // columns 8-16 (center 12), rows 15-20 (center 17). print_color
+        // draws left-to-right from the given column, so the start column
+        // is nudged left by half the number's length to actually center
+        // it rather than just its left edge.
+        ctx.set_active_console(5);
+        if let Some(popup) = &battle.enemy_damage_popup {
+            let text = format!("-{}", popup.amount);
+            let start_col = 28 - (text.chars().count() as i32) / 2;
+            ctx.print_color(start_col, 7, RED, BLACK, &text);
+        }
+        if let Some(popup) = &battle.player_damage_popup {
+            let text = format!("-{}", popup.amount);
+            let start_col = 12 - (text.chars().count() as i32) / 2;
+            ctx.print_color(start_col, 17, RED, BLACK, &text);
+        }
+        ctx.set_active_console(2);
 
         // --- Actions box, on the HUD console (107x67 grid, ~12px cells -
         // the same "1.5x" size used for the dungeon HUD) rather than the
@@ -828,10 +991,6 @@ impl State {
 
         match battle.turn {
             BattleTurn::PlayerMenu => {
-                if !battle.message.is_empty() {
-                    ctx.print_color_centered(45, YELLOW, BLACK, &battle.message);
-                }
-
                 if let Some(key) = ctx.key {
                     let chosen = number_key_index(key)
                         .and_then(|i| actions.get(i))
@@ -845,45 +1004,50 @@ impl State {
                             BattleAction::Attack => {
                                 let dmg = player_attack_damage(&self.ecs, battle.player);
                                 let dmg = apply_damage(&mut self.ecs, battle.enemy, dmg);
+                                battle.show_enemy_damage(dmg);
                                 battle.player_flash =
                                     Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
                                 battle.enemy_flash =
                                     Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-                                battle.message = format!(
-                                    "You hit the {} for {} damage!",
-                                    battle.enemy_name, dmg
-                                );
+                                battle.push_log(if dmg == 0 {
+                                    "Dodge attack.".to_string()
+                                } else {
+                                    format!("Deal {} damage.", dmg)
+                                });
                             }
                             BattleAction::Defend => {
                                 battle.player_defending = true;
-                                battle.message = "You brace yourself to defend.".to_string();
+                                battle.push_log("Defend.".to_string());
                             }
                             BattleAction::Flee => {
                                 battle.fled = true;
-                                battle.message =
-                                    format!("You flee from the {}!", battle.enemy_name);
+                                battle.push_log("Flee.".to_string());
                             }
                             BattleAction::Technique(item) => {
-                                battle.message =
+                                let result =
                                     apply_player_technique(&mut self.ecs, &mut battle, item);
+                                battle.push_log(result);
                             }
                         }
                         // The player is first_actor at the start of a round
                         // they act in unprompted; if the enemy already
                         // opened the round (first_actor == Enemy), this
                         // menu is the player's second action instead.
-                        battle.turn = if battle.first_actor == Combatant::Player {
+                        battle.enter_result(if battle.first_actor == Combatant::Player {
                             BattleTurn::FirstResult
                         } else {
                             BattleTurn::SecondResult
-                        };
+                        });
                     }
                 }
             }
             BattleTurn::FirstResult => {
-                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
-                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
-                if ctx.key.is_some() {
+                // Auto-advances once result_timer_ms runs out (see
+                // Battle::enter_result/RESULT_AUTO_ADVANCE_MS) - a keypress
+                // still skips ahead immediately, it just isn't required.
+                battle.result_timer_ms -= ctx.frame_time_ms;
+                ctx.print_color_centered(51, YELLOW, BLACK, "(press any key to skip ahead)");
+                if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
                     if battle.fled {
                         self.resources.insert(None::<Battle>);
                         self.resources.insert(TurnState::AwaitingInput);
@@ -915,8 +1079,8 @@ impl State {
                                 self.resources.insert(TurnState::BattleVictory);
                                 return;
                             }
-                            battle.message = resolve_enemy_attack(&mut self.ecs, &mut battle);
-                            battle.turn = BattleTurn::SecondResult;
+                            resolve_enemy_attack(&mut self.ecs, &mut battle);
+                            battle.enter_result(BattleTurn::SecondResult);
                         }
                         Combatant::Enemy => {
                             // Enemy went first (they're faster) and already
@@ -956,15 +1120,14 @@ impl State {
                             }
 
                             battle.turn = BattleTurn::PlayerMenu;
-                            battle.message.clear();
                         }
                     }
                 }
             }
             BattleTurn::SecondResult => {
-                ctx.print_color_centered(48, WHITE, BLACK, &battle.message);
-                ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
-                if ctx.key.is_some() {
+                battle.result_timer_ms -= ctx.frame_time_ms;
+                ctx.print_color_centered(51, YELLOW, BLACK, "(press any key to skip ahead)");
+                if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
                     if battle.fled {
                         self.resources.insert(None::<Battle>);
                         self.resources.insert(TurnState::AwaitingInput);
@@ -1003,7 +1166,6 @@ impl State {
 
                     battle.turn = BattleTurn::PlayerMenu;
                     battle.awaiting_order_decision = true;
-                    battle.message.clear();
                 }
             }
         }

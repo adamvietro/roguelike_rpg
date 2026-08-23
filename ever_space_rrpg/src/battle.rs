@@ -254,7 +254,13 @@ pub struct Battle {
     /// None when inactive.
     pub enemy_dot: Option<DotState>,
     pub fled: bool,
-    pub message: String,
+    /// Scrolling battle log, most recent entry last - replaces the old
+    /// single `message: String` so earlier lines (e.g. a DoT tick right
+    /// before an attack) stay readable instead of being overwritten the
+    /// instant the next action resolves. Bounded to MAX_LOG_LINES by
+    /// push_log; main.rs renders the tail of this Vec every battle_tick
+    /// frame instead of a single centered line.
+    pub log: Vec<String>,
     /// A brief post-action color flash for each portrait - which kind
     /// (Attacking/Hit, picking the tint color) and how many milliseconds
     /// are left, ticked down each frame in battle_tick using
@@ -264,6 +270,18 @@ pub struct Battle {
     /// (see flash_tint in main.rs).
     pub enemy_flash: Option<(FlashKind, f32)>,
     pub player_flash: Option<(FlashKind, f32)>,
+    /// A briefly-shown floating damage number over each portrait - set by
+    /// show_enemy_damage/show_player_damage right after apply_damage
+    /// returns the real (post-Defense) amount, and ticked down each frame
+    /// in battle_tick the same way as enemy_flash/player_flash.
+    pub enemy_damage_popup: Option<DamagePopup>,
+    pub player_damage_popup: Option<DamagePopup>,
+    /// Counts down while `turn` is FirstResult/SecondResult - once it hits
+    /// zero, battle_tick advances automatically instead of waiting for a
+    /// keypress (a keypress still skips ahead immediately, it just isn't
+    /// required anymore). Set via enter_result whenever the turn changes
+    /// to one of those two states.
+    pub result_timer_ms: f32,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -289,10 +307,54 @@ impl Battle {
             countering: None,
             enemy_dot: None,
             fled: false,
-            message: String::new(),
+            log: Vec::new(),
             enemy_flash: None,
             player_flash: None,
+            enemy_damage_popup: None,
+            player_damage_popup: None,
+            result_timer_ms: 0.0,
         }
+    }
+
+    /// Switches to FirstResult or SecondResult and (re)arms the
+    /// auto-advance timer. Use this instead of assigning `self.turn`
+    /// directly for those two states, so the timer can never be left
+    /// stale from a previous result screen.
+    pub fn enter_result(&mut self, turn: BattleTurn) {
+        self.turn = turn;
+        self.result_timer_ms = RESULT_AUTO_ADVANCE_MS;
+    }
+
+    /// Appends a line to the battle log, dropping the oldest line once past
+    /// MAX_LOG_LINES. Skips genuinely empty strings so a DoT tick that had
+    /// nothing to report (see tick_dot's None case) doesn't leave a blank
+    /// entry in the log.
+    pub fn push_log(&mut self, line: String) {
+        if line.is_empty() {
+            return;
+        }
+        self.log.push(line);
+        if self.log.len() > MAX_LOG_LINES {
+            self.log.remove(0);
+        }
+    }
+
+    /// Arms a floating damage number over the enemy's portrait - call with
+    /// the real (post-Defense) amount apply_damage returned.
+    pub fn show_enemy_damage(&mut self, amount: i32) {
+        self.enemy_damage_popup = Some(DamagePopup {
+            amount,
+            remaining_ms: DAMAGE_POPUP_DURATION_MS,
+        });
+    }
+
+    /// Arms a floating damage number over the player's portrait - call with
+    /// the real (post-Defense) amount apply_damage returned.
+    pub fn show_player_damage(&mut self, amount: i32) {
+        self.player_damage_popup = Some(DamagePopup {
+            amount,
+            remaining_ms: DAMAGE_POPUP_DURATION_MS,
+        });
     }
 }
 
@@ -316,6 +378,26 @@ pub struct DotState {
 /// How long a portrait's post-action color flash lasts, in milliseconds.
 /// See Battle::enemy_flash/player_flash and flash_tint in main.rs.
 pub const PORTRAIT_FLASH_DURATION_MS: f32 = 150.0;
+
+/// A floating damage number shown briefly over a portrait - see
+/// Battle::enemy_damage_popup/player_damage_popup.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DamagePopup {
+    pub amount: i32,
+    pub remaining_ms: f32,
+}
+
+/// How long a floating damage number stays on screen, in milliseconds.
+pub const DAMAGE_POPUP_DURATION_MS: f32 = 700.0;
+
+/// Battle::log is trimmed to this many most-recent lines - see push_log.
+pub const MAX_LOG_LINES: usize = 4;
+
+/// How long FirstResult/SecondResult sit on screen before battle_tick
+/// advances automatically - see Battle::result_timer_ms/enter_result. A
+/// keypress still skips ahead immediately; this is just the natural pace
+/// when the player doesn't bother pressing anything.
+pub const RESULT_AUTO_ADVANCE_MS: f32 = 1100.0;
 
 /// What to show on the post-battle victory screen (TurnState::BattleVictory)
 /// - set right when an enemy dies in battle_tick, read once by
@@ -402,8 +484,12 @@ pub fn player_attack_damage(ecs: &World, player: Entity) -> i32 {
 /// (Defend only blocks the next hit taken, from whichever side lands it).
 /// If Counter Attack is armed, rolls it here too, since this is the single
 /// place every enemy attack against the player passes through regardless
-/// of initiative order. Returns the message to show for this action.
-pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
+/// of initiative order. Pushes its own log line(s) directly (main hit, and
+/// a separate counter line if one fires) rather than returning a string -
+/// the terse log format doesn't try to narrate cause (Defend vs Ice Armor
+/// vs neither all just reduce the same final number), so there's nothing
+/// left for a caller to do with a returned message.
+pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
     let mut dmg = entity_damage(ecs, battle.enemy);
     if battle.player_defending && dmg > 0 {
         dmg = (dmg / 2).max(1);
@@ -414,29 +500,19 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
     // player rather than per-Battle state, so it's looked up here instead
     // of read from `battle` directly - see components::IceArmored.
     let ice_armor = entity_ice_armor(ecs, battle.player);
-    let mut ice_absorbed = false;
     if let Some(armor) = &ice_armor {
-        let before = dmg;
         dmg = (dmg - armor.defense_bonus).max(0);
-        ice_absorbed = before > dmg;
     }
 
     let dmg = apply_damage(ecs, battle.player, dmg);
+    battle.show_player_damage(dmg);
     battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
     battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-    let mut message = if battle.player_defending {
-        format!(
-            "The {} attacks - you block some of it! ({} damage)",
-            battle.enemy_name, dmg
-        )
-    } else if ice_absorbed {
-        format!(
-            "The {} attacks - your icy armor absorbs some of it! ({} damage)",
-            battle.enemy_name, dmg
-        )
+    battle.push_log(if dmg == 0 {
+        "Dodge attack.".to_string()
     } else {
-        format!("The {} attacks you for {} damage!", battle.enemy_name, dmg)
-    };
+        format!("Take {} damage.", dmg)
+    });
     battle.player_defending = false;
 
     // Ice Armor wears down by one attack actually absorbed, same "attacks"
@@ -463,19 +539,23 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) -> String {
         if rng.range(0, 100) < counter.chance_percent {
             let counter_dmg = player_attack_damage(ecs, battle.player) * counter.multiplier;
             let counter_dmg = apply_damage(ecs, battle.enemy, counter_dmg);
+            battle.show_enemy_damage(counter_dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            message = format!("{} You counter for {} damage!", message, counter_dmg);
+            battle.push_log(if counter_dmg == 0 {
+                "Dodge attack.".to_string()
+            } else {
+                format!("Deal {} damage.", counter_dmg)
+            });
         } else {
-            message = format!("{} Your counter-attack missed!", message);
+            battle.push_log("Miss counter.".to_string());
         }
     }
-
-    message
 }
 
 /// An entity's active IceArmored bonus, if any - see resolve_enemy_attack.
-fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
+/// Public so main.rs can also show it as an active-status line in battle.
+pub fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
     <(Entity, &IceArmored)>::query()
         .iter(ecs)
         .find(|(e, _)| **e == entity)
@@ -488,8 +568,8 @@ fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
 /// effect is active. Generic over whichever technique applied it (Rend,
 /// Burn, or any future one) - see Battle::enemy_dot.
 pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
-    let (damage, label, turns_remaining) = match &battle.enemy_dot {
-        Some(dot) => (dot.damage, dot.label.clone(), dot.turns_remaining),
+    let (damage, turns_remaining) = match &battle.enemy_dot {
+        Some(dot) => (dot.damage, dot.turns_remaining),
         None => return None,
     };
     if turns_remaining <= 0 {
@@ -497,6 +577,7 @@ pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
         return None;
     }
     let damage = apply_damage(ecs, battle.enemy, damage);
+    battle.show_enemy_damage(damage);
     battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
     let remaining = turns_remaining - 1;
     if remaining <= 0 {
@@ -504,10 +585,11 @@ pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
     } else if let Some(dot) = &mut battle.enemy_dot {
         dot.turns_remaining = remaining;
     }
-    Some(format!(
-        "The {} bites - {} takes {} damage!",
-        label, battle.enemy_name, damage
-    ))
+    Some(if damage == 0 {
+        "Dodge attack.".to_string()
+    } else {
+        format!("Deal {} damage.", damage)
+    })
 }
 
 /// Restores `amount` HP to an entity, clamped to its max. Used by the
@@ -541,22 +623,26 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
         TechniqueEffect::DamageMultiplier(multiplier) => {
             let dmg = player_attack_damage(ecs, battle.player) * multiplier;
             let dmg = apply_damage(ecs, battle.enemy, dmg);
+            battle.show_enemy_damage(dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            format!(
-                "{}! You strike the {} for {} damage!",
-                name, battle.enemy_name, dmg
-            )
+            if dmg == 0 {
+                "Dodge attack.".to_string()
+            } else {
+                format!("Deal {} damage.", dmg)
+            }
         }
         TechniqueEffect::FlatDamage(amount) => {
             let dmg = amount + carried_weapon_damage(ecs, battle.player);
             let dmg = apply_damage(ecs, battle.enemy, dmg);
+            battle.show_enemy_damage(dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            format!(
-                "{}! You blast the {} for {} damage!",
-                name, battle.enemy_name, dmg
-            )
+            if dmg == 0 {
+                "Dodge attack.".to_string()
+            } else {
+                format!("Deal {} damage.", dmg)
+            }
         }
         TechniqueEffect::MultiHit(hits) => {
             let raw = player_attack_damage(ecs, battle.player);
@@ -564,12 +650,17 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             for _ in 0..hits {
                 dmg = apply_damage(ecs, battle.enemy, raw);
             }
+            // Only the last hit's damage gets a popup/log line - showing
+            // every hit would need a queue of popups rather than one slot,
+            // which is more than this technique needs right now.
+            battle.show_enemy_damage(dmg);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
             battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            format!(
-                "{}! You strike the {} {} times for {} damage each!",
-                name, battle.enemy_name, hits, dmg
-            )
+            if dmg == 0 {
+                "Dodge attack.".to_string()
+            } else {
+                format!("Deal {} damage.", dmg)
+            }
         }
         TechniqueEffect::Counter {
             chance_percent,
@@ -579,7 +670,7 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
                 chance_percent,
                 multiplier,
             });
-            format!("You ready a {}...", name.to_lowercase())
+            "Ready counter.".to_string()
         }
         TechniqueEffect::DamageOverTime { damage, turns } => {
             battle.enemy_dot = Some(DotState {
@@ -587,15 +678,12 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
                 turns_remaining: turns,
                 label: name.to_lowercase(),
             });
-            format!(
-                "You use {} on the {} - it will wound them over time!",
-                name, battle.enemy_name
-            )
+            "Apply bleed.".to_string()
         }
         TechniqueEffect::Heal { amount } => {
             heal_entity(ecs, battle.player, amount);
             battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            format!("{}! You recover {} HP!", name, amount)
+            format!("Heal {} HP.", amount)
         }
     }
 }
