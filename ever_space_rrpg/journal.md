@@ -1,7 +1,28 @@
 # Getting Started
 Right now I will be taking the code that I made while working through the Hands on Rust book. I created a new project with Claude and it has a full set of instructions.
 
-```cargo build --release --target x86_64-pc-windows-gnu```
+
+
+```bash
+cargo clean --release --target x86_64-pc-windows-gnu
+cargo build --release --target x86_64-pc-windows-gnu
+```
+Then copy the exe to a windows folder and then make sure to have the latest resources as a folder withing the same folder
+
+```cargo build --release```
+Then copy the file to an other folder /game_files as well as the latest version of the resources
+``` bash
+cp ever_space_rrpg/target//release/ever_space_rrpg game_files/
+cp ever_space_rrpg/resources game_files/ -r
+```
+
+You can run the file with 
+```bash
+cd /gamefiles
+./ever_space_rrpg
+```
+
+
 <br />
 
 ---
@@ -992,3 +1013,19 @@ You're right — I hadn't finished the implementation yet, so there was nothing 
 
 One thing worth testing: since Ice Armor left the technique system, Mage's in-battle roster is now just Attack/Defend/Fireball/Burn/Flee — smaller box automatically. Let me know if the grey/locked look reads clearly once you see it running.
 
+
+# Better Battles
+Now let's look at the actual menu box drawing code (the `BattleTurn::PlayerMenu` block around line 761-800):Found it. The box is anchored to the very bottom of the HUD console (`box_y = HUD_ROWS - box_height`) regardless of where the player portrait actually sits — it was never actually positioned relative to the portrait, just clear of its right edge horizontally. Let me work out the right numbers.The player portrait (row 3 of the 5-row portrait console) occupies roughly HUD rows 40–54. Right now the box sits at `HUD_ROWS - box_height` (bottom-anchored, e.g. row ~58 for a typical box), which puts it well below the portrait instead of beside it.
+
+I'll top-align the box with the portrait's row instead — this is a small, contained change in `main.rs`, no other files touched.Now let me sanity-check the rest of the file to confirm nothing else references `box_y`/`BOX_X` assuming the old bottom-anchored position:All uses derive from `box_y`, so they'll move together automatically — no other spot to fix.**1 file — modified: `src/main.rs`**
+
+**What changed:** The actions box was bottom-anchored (`box_y = HUD_ROWS - box_height`), which put it near the bottom of the screen no matter where the portrait was. It's now top-aligned with the player portrait's row: since the portrait console (5 rows) and HUD console (67 rows) both span the same 1280×800 window, the portrait's row 3 works out to HUD row ~40, so the box now starts there instead. Horizontal position (`BOX_X = 44`, already clearing the portrait's right edge) is untouched. Added a `.min(HUD_ROWS - box_height)` clamp so a longer action list (more techniques than fit below row 40) can't push the box off the bottom of the screen.
+
+Save this over `src/main.rs` and rebuild. Let me know how it looks once you see it running — "right next to" could also mean vertically centered on the portrait rather than top-aligned, so easy to nudge if row 40 isn't quite it.
+
+## Persistent Abilities
+Now let's do a sanity sweep to make sure nothing else broke — check brace balance and confirm `actions` isn't redeclared anywhere else in scope.Good — the paren imbalance pre-exists in the original file too (it's just prose in comments), so my edit didn't introduce it. Let's view the final edited section end-to-end to eyeball correctness:This reads correctly. One thing worth flagging: this box is now also visible during `FirstResult`/`SecondResult`, where `if let Some(key) = ctx.key` in those arms still advances the result screen on *any* key — including 1–9, which now visibly correspond to actions in the box. That was already true before (any key advances), just less noticeable since the box wasn't on screen then. Not a bug, but worth knowing since it might look like "pressing 2 selected Defend" when it just dismissed the result message.**1 file — modified: `src/main.rs`**
+
+**What changed:** Moved the actions box drawing (border + labels) out of the `BattleTurn::PlayerMenu` match arm and up to run unconditionally every `battle_tick` frame, right after the name/HP text. It now renders during `PlayerMenu`, `FirstResult`, and `SecondResult` alike, instead of vanishing while a result message is on screen. The `actions` list is computed once at that same spot, since both the box's labels and `PlayerMenu`'s key-selection logic need it — no duplicate computation. Only the message text and input-handling logic stayed inside the `PlayerMenu` arm.
+
+One thing to watch for when you test it: any key already dismisses the `FirstResult`/`SecondResult` screens, and now the action box (with its 1–9 labels) is visible while that's true. It's not new behavior, just newly visible — pressing "2" during a result screen just advances it, it doesn't secretly select Defend. Flag it if that reads as confusing in practice and we can grey the box out or hide the numbers during result screens.

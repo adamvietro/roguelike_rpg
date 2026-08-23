@@ -757,66 +757,80 @@ impl State {
             ),
         );
 
+        // --- Actions box, on the HUD console (107x67 grid, ~12px cells -
+        // the same "1.5x" size used for the dungeon HUD) rather than the
+        // fine-text console (8px, too small) or the big-text title console
+        // (32px, too big) - a middle ground per your feedback. BOX_X=44 is
+        // deliberate: the player portrait is drawn at column 1 of the
+        // 5-column portrait console (256-512px), and 44*~12=528px clears
+        // that portrait's right edge (512px) with a little margin, at any
+        // box height, since only the box's top edge moves with action
+        // count.
+        //
+        // BOX_Y aligns the box's top edge with the player portrait's top
+        // edge instead of bottom-anchoring to the HUD console. The player
+        // portrait sits at row 3 of the 5-row portrait console (both
+        // consoles cover the same physical 1280x800 window): row 3 starts
+        // at 3 * (800/5) = 480px down, which lands at HUD row
+        // 480 / (800/67) = ~40 on the HUD console's finer grid.
+        //
+        // Drawn here, before the match on battle.turn, so it's visible on
+        // every battle_tick frame - PlayerMenu, FirstResult, and
+        // SecondResult alike - rather than disappearing while a result
+        // message is on screen. `actions` is computed here too since both
+        // the box's labels and PlayerMenu's key-selection logic below need
+        // the same list.
+        let actions = available_actions(&self.ecs, battle.player);
+
+        const BOX_X: i32 = 44;
+        const BOX_WIDTH: i32 = 26;
+        const BOX_Y: i32 = 40;
+        let box_height = actions.len() as i32 + 4;
+        // Clamp so a tall action list (more techniques than fit below row
+        // 40) never runs off the bottom of the console.
+        let box_y = BOX_Y.min(HUD_ROWS - box_height);
+
+        let mut menu_batch = DrawBatch::new();
+        menu_batch.target(4);
+        draw_hollow_box(
+            &mut menu_batch,
+            BOX_X,
+            box_y,
+            BOX_WIDTH,
+            box_height,
+            ColorPair::new(GREEN, BLACK),
+        );
+        menu_batch.submit(0).expect("Batch error");
+
+        ctx.set_active_console(4);
+        ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
+        for (i, entry) in actions.iter().enumerate() {
+            // Every action this class could ever have is always listed
+            // (see battle::available_actions) - one not currently owned
+            // shows greyed out and isn't selectable, rather than
+            // disappearing from the menu entirely, so the list stays a
+            // stable reference of what the class can eventually do.
+            let (label, color) = if entry.action.is_some() {
+                let label = match entry.count {
+                    Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
+                    None => format!("{}) {}", i + 1, entry.label),
+                };
+                (label, GREEN)
+            } else {
+                (format!("{}) {} (locked)", i + 1, entry.label), DARK_GRAY)
+            };
+            ctx.print_color(BOX_X + 1, box_y + 3 + i as i32, color, BLACK, &label);
+        }
+        // Restore console 2 - the enemy/player name+HP text above and
+        // every match arm below assume it's active (it's set once, above
+        // the whole match block, not re-set per arm).
+        ctx.set_active_console(2);
+
         match battle.turn {
             BattleTurn::PlayerMenu => {
                 if !battle.message.is_empty() {
                     ctx.print_color_centered(45, YELLOW, BLACK, &battle.message);
                 }
-
-                let actions = available_actions(&self.ecs, battle.player);
-
-                // --- Bottom-right actions box, on the HUD console (107x67
-                // grid, ~12px cells - the same "1.5x" size used for the
-                // dungeon HUD) rather than the fine-text console (8px, too
-                // small) or the big-text title console (32px, too big) -
-                // a middle ground per your feedback. BOX_X=44 is
-                // deliberate: the player portrait is drawn at column 1 of
-                // the 5-column portrait console (256-512px), and
-                // 44*~12=528px clears that portrait's right edge (512px)
-                // with a little margin, at any box height, since only the
-                // box's top edge moves with action count.
-                const BOX_X: i32 = 44;
-                const BOX_WIDTH: i32 = 26;
-                let box_height = actions.len() as i32 + 4;
-                let box_y = HUD_ROWS - box_height;
-
-                let mut menu_batch = DrawBatch::new();
-                menu_batch.target(4);
-                draw_hollow_box(
-                    &mut menu_batch,
-                    BOX_X,
-                    box_y,
-                    BOX_WIDTH,
-                    box_height,
-                    ColorPair::new(GREEN, BLACK),
-                );
-                menu_batch.submit(0).expect("Batch error");
-
-                ctx.set_active_console(4);
-                ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
-                for (i, entry) in actions.iter().enumerate() {
-                    // Every action this class could ever have is always
-                    // listed (see battle::available_actions) - one not
-                    // currently owned shows greyed out and isn't
-                    // selectable, rather than disappearing from the menu
-                    // entirely, so the list stays a stable reference of
-                    // what the class can eventually do.
-                    let (label, color) = if entry.action.is_some() {
-                        let label = match entry.count {
-                            Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
-                            None => format!("{}) {}", i + 1, entry.label),
-                        };
-                        (label, GREEN)
-                    } else {
-                        (format!("{}) {} (locked)", i + 1, entry.label), DARK_GRAY)
-                    };
-                    ctx.print_color(BOX_X + 1, box_y + 3 + i as i32, color, BLACK, &label);
-                }
-                // Restore console 2 - the enemy/player name+HP text above
-                // and the FirstResult/SecondResult arms below all assume
-                // it's active (it's set once, above the whole match block,
-                // not re-set per arm).
-                ctx.set_active_console(2);
 
                 if let Some(key) = ctx.key {
                     let chosen = number_key_index(key)

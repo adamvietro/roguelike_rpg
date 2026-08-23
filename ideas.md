@@ -11,24 +11,11 @@ Dodge - for next 3 turns in battle 70% chance to dodge attacks.
 
 Amazon
 
-
-Mage
-Ice Armor Increases Armor by 1 for 20 attacks
-
-Starting Items
-
-
-
-
-
-
-
 Make the player or the Enemy stunned after a flee
 
 More fluid motion - On hold
 
-Better looking battle options.
-    I want a box around the abilities and I want them in the lower right
+
 
 Refactor main.rs
 
@@ -51,6 +38,9 @@ Add a 0 command for the item use
 Have a Battle Victory Screen to show the items that you won.
 Battle Screen
 Background for the battle system based off the theme of the map.
+Better looking battle options.
+    I want a box around the abilities and I want them in the lower right
+
 
 ### Abilities
 Attack
@@ -87,6 +77,7 @@ Burn - Similar to Garrote, but a small damage to begin with
 Defense is -1
 Health is 10
 Weapons is staffs 3 types
+Ice Armor Increases Armor by 1 for 20 attacks
 
 
 ## Options
@@ -97,5 +88,8 @@ Pause screen when pressing esc
 ## Map
 Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.
 More Prefabs
+
+## Balance
+Starting Items
 
 
