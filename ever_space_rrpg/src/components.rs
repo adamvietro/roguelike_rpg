@@ -209,7 +209,7 @@ pub struct Carried(pub Entity);
 /// same list in both places keeps the displayed numbering and the actual
 /// key-to-item mapping from ever drifting apart.
 pub fn usable_carried_items(ecs: &SubWorld, wielder: Entity) -> Vec<Entity> {
-    <(Entity, &Item, &Carried)>::query()
+    let mut items: Vec<Entity> = <(Entity, &Item, &Carried)>::query()
         .iter(ecs)
         .filter(|(_, _, carried)| carried.0 == wielder)
         .map(|(e, _, _)| *e)
@@ -217,7 +217,85 @@ pub fn usable_carried_items(ecs: &SubWorld, wielder: Entity) -> Vec<Entity> {
             let entry = ecs.entry_ref(*e).unwrap();
             entry.get_component::<Weapon>().is_err() && entry.get_component::<BattleItem>().is_err()
         })
-        .collect()
+        .collect();
+
+    // Fixed hotkey slots: Healing Potion always lands on key 1 (when
+    // carried), Dungeon Map always lands on key 2, and every other
+    // out-of-combat item (Invisible Cloak, Ice Armor, future class
+    // items, etc.) fills key 3+ - in whatever order they were picked up,
+    // since sort_by_key is stable. Without this, "1" would be whatever
+    // happened to iterate first in the ECS, which has no relationship to
+    // item type and would shift around depending on pickup order.
+    items.sort_by_key(|e| item_hotkey_priority(ecs, *e));
+    items
+}
+
+/// Groups usable_carried_items by item name, stacking identical copies
+/// (e.g. two Healing Potions become one "Healing Potion" entry with a
+/// count of 2) instead of one line/hotkey slot per physical copy. Number
+/// keys and the HUD's item list both key off position in THIS list now -
+/// see systems/player_input.rs::use_item and systems/hud.rs. Keeps one
+/// representative entity per group (the first copy encountered); pressing
+/// that slot's number key consumes just that one entity, so a stack of 2
+/// potions correctly becomes a stack of 1 after using one, not both.
+/// Group order still follows usable_carried_items' hotkey priority
+/// (potion first, map second, everything else after) - same pattern
+/// systems/hud.rs already uses for grouping the battle-items panel.
+pub fn usable_item_groups(ecs: &SubWorld, wielder: Entity) -> Vec<(String, i32, Entity)> {
+    let mut groups: Vec<(String, i32, Entity)> = Vec::new();
+    for item in usable_carried_items(ecs, wielder) {
+        let name = match ecs
+            .entry_ref(item)
+            .ok()
+            .and_then(|entry| entry.get_component::<Name>().ok().map(|n| n.0.clone()))
+        {
+            Some(n) => n,
+            None => continue,
+        };
+        match groups.iter_mut().find(|(existing, _, _)| *existing == name) {
+            Some(group) => group.1 += 1,
+            None => groups.push((name, 1, item)),
+        }
+    }
+    groups
+}
+
+/// Fixed-identity hotkey slots: index 0 is ALWAYS the Healing Potion slot
+/// and index 1 is ALWAYS the Dungeon Map slot - `None` when not carried,
+/// rather than usable_item_groups' behavior of letting the next item
+/// quietly slide up to fill the gap (so key 2 stops being "whatever's
+/// second" and starts being "the map, or nothing"). Every other item
+/// group follows at index 2+, in usable_item_groups' order. main.rs and
+/// hud.rs both index off THIS list now for number keys 1-9.
+pub fn usable_item_slots(ecs: &SubWorld, wielder: Entity) -> Vec<Option<(String, i32, Entity)>> {
+    let mut potion = None;
+    let mut map = None;
+    let mut rest = Vec::new();
+    for group in usable_item_groups(ecs, wielder) {
+        match group.0.as_str() {
+            "Healing Potion" => potion = Some(group),
+            "Dungeon Map" => map = Some(group),
+            _ => rest.push(Some(group)),
+        }
+    }
+    let mut slots = vec![potion, map];
+    slots.extend(rest);
+    slots
+}
+
+/// Sort key used by usable_carried_items - see its comment for the slot
+/// assignment. Falls back to the "other items" bucket if the entity has
+/// no Name for some reason, rather than panicking.
+fn item_hotkey_priority(ecs: &SubWorld, item: Entity) -> i32 {
+    let name = ecs
+        .entry_ref(item)
+        .ok()
+        .and_then(|entry| entry.get_component::<Name>().ok().map(|n| n.0.clone()));
+    match name.as_deref() {
+        Some("Healing Potion") => 0,
+        Some("Dungeon Map") => 1,
+        _ => 2,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

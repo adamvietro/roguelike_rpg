@@ -44,21 +44,25 @@ pub fn hud(ecs: &SubWorld, #[resource] hud_mouse_pos: &HudMousePos) {
         ColorPair::new(YELLOW, BLACK),
     );
 
-    // Items carried, usable via number keys - left side. Draws from the
-    // same usable_carried_items list player_input's use_item consumes, so
-    // the displayed numbering always matches what pressing that number
-    // actually activates (weapons and battle attacks are excluded - they
-    // get their own panels below/right instead).
-    let mut y = 3;
-    for item in usable_carried_items(ecs, player) {
-        if let Ok(entry) = ecs.entry_ref(item) {
-            if let Ok(name) = entry.get_component::<Name>() {
-                draw_batch.print(Point::new(3, y), format!("{} : {}", y - 2, &name.0));
-                y += 1;
-            }
+    // Items carried, usable via number keys - left side. Draws from
+    // usable_item_slots, the same fixed-identity list player_input's
+    // use_item indexes into, so a displayed number always matches what
+    // pressing that number actually activates - key 1 is always the
+    // potion slot and key 2 is always the map slot, even when empty (an
+    // empty slot just isn't drawn, so the list has no blank line, but the
+    // number shown for anything after it is still its true slot number,
+    // not a compacted count).
+    let mut row = 3;
+    for (i, slot) in usable_item_slots(ecs, player).iter().enumerate() {
+        if let Some((name, count, _entity)) = slot {
+            draw_batch.print(
+                Point::new(3, row),
+                format!("{} : {} x{}", i + 1, name, count),
+            );
+            row += 1;
         }
     }
-    if y > 3 {
+    if row > 3 {
         draw_batch.print_color(
             Point::new(3, 2),
             "Items carried",

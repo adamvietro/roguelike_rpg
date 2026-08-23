@@ -136,7 +136,14 @@ fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point
         .find_map(|(entity, _player)| Some(*entity))
         .unwrap();
 
-    let item_entity = usable_carried_items(ecs, player_entity).get(n).copied();
+    // usable_item_slots reserves key 1 for the potion slot and key 2 for
+    // the map slot by fixed identity - if either isn't carried, that slot
+    // is None and this key does nothing, rather than the next item
+    // sliding up to take its place.
+    let item_entity = usable_item_slots(ecs, player_entity)
+        .get(n)
+        .and_then(|slot| slot.as_ref())
+        .map(|(_, _, entity)| *entity);
 
     if let Some(item_entity) = item_entity {
         commands.push((

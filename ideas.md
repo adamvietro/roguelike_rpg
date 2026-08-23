@@ -22,9 +22,6 @@ Refactor main.rs
 
 Sounds and Music
 
-
-
-
 <br />
 
 ---
@@ -36,6 +33,8 @@ Sounds and Music
 Better UI for attacks
 HUD Battle Item Tool Tip.
 Add a 0 command for the item use
+Hotkeys for abilities 
+Different colors for active states of the player
 
 ## Battle Arena
 Have a Battle Victory Screen to show the items that you won.
@@ -86,6 +85,9 @@ Defense is -1
 Health is 10
 Weapons is staffs 3 types
 Ice Armor Increases Armor by 1 for 20 attacks
+
+### Rogue
+
 
 
 ## Options
