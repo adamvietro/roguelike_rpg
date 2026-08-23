@@ -868,5 +868,33 @@ Now `player_input.rs` — Escape triggers pause, checked before any movement/bat
 
 One thing worth testing: I didn't add a pause hint anywhere in the regular HUD (e.g. "Esc: Pause"), so it's currently a hidden keybind — let me know if you want that surfaced somewhere.
 
-## Mage Class
+## Better Character Select and Title Screen
+Now clear the new console each tick:Now add the background-rendering schedule in `systems/mod.rs`:Now update the `State` struct and its constructors/screens in `main.rs`. First the struct and `new()`:Now add `spawn_title_background`, update `return_to_title`, and rewrite `title_screen`/`class_select`:Let me fix a bug in that loop — I referenced `row` inconsistently between the two consoles' different row scales. Let me redo it cleanly:Now let's add the `CLASS_ROSTER` data table that drives both the class-select screen and `start_game` dispatch:Now let's view the rest of `class_select` to confirm the loop closes correctly and the key-handling block is right:This is all correctly structured. Now let's double-check `spawn_player` is unaffected (still needs `class: &str` param — already done) and verify no leftover references to old class strings, then check `game_over`/`victory`/dispatcher are unaffected:All method boundaries look correct. Let's do a final full-project sanity grep and check `main()`'s console builder chain once more:I realize I introduced a compile risk: I don't have bracket-lib's source available to confirm `set_active_console`'s exact parameter type, and typing `BIG_TEXT_CONSOLE` as `usize` could mismatch it. Since every other console reference in this file already uses a plain untyped integer literal (letting inference handle it), let me match that pattern instead of risking a type error:Now replace all the `BIG_TEXT_CONSOLE` call-site references with the plain literal `5`:Good — all executable references are now the plain literal `5`; the only remaining hits are in comments, which is fine. Let's verify the tick-clear line and check the whole file compiles logically once more:All consistent — the tick-clear at line 1026, and the three uses in `title_screen`/`class_select`. Let's do one last full sanity pass and package the files:Balanced. Let's package everything for delivery:Good — Barbarian stays, `@` glyph and all. Here's what's built:
+
+**Two files, both modified:**
+
+| Downloaded as    | Save to                            |
+| ---------------- | ---------------------------------- |
+| `main.rs`        | `src/main.rs` (**replace**)        |
+| `systems_mod.rs` | `src/systems/mod.rs` (**replace**) |
+
+**Roster is now 5 classes**, all driven by one `CLASS_ROSTER` table in `main.rs` (adding a class later is just one more entry there):
+
+| Key | Class     | Icon | Status                                |
+| --- | --------- | ---- | ------------------------------------- |
+| `1` | Barbarian | `@`  | Fully implemented (unchanged)         |
+| `R` | Rogue     | `r`  | Placeholder — Attack/Defend/Flee only |
+| `A` | Amazon    | `a`  | Placeholder                           |
+| `B` | Archer    | `b`  | Placeholder                           |
+| `M` | Mage      | `m`  | Placeholder                           |
+
+**Bigger text:** added a 6th console reusing the dungeon view's own 40×25 grid on the small-text font instead of the dungeon font — same physical window, so cells land at 32×32px, 4x console 2's normal 8px text. Both title and class-select headlines use it; descriptions stay on the normal fine-text console since they're longer.
+
+**The background map:** a new `spawn_title_background()` generates a real random level (map + monsters, same generator as a real run), marks every tile `revealed`, and spawns an invisible "anchor" entity (Player + FieldOfView, no Render component so it never draws a `@`) whose visible-tiles set is pre-filled with the *entire* map — so everything renders at full brightness, monsters included, with no real player or turn logic running. It's built once at startup and again every time you land back on the title screen (`return_to_title`), but **not** rebuilt between the title screen and class select — they share the exact same map, exactly as you asked. `start_game` wipes it outright (`ecs = World::default()`) the moment a real run begins.
+
+**Class-select icons:** reused the existing `draw_portrait` helper (the same one that blows up a glyph for battle portraits) on console 3, one letter per class in a column. This is a placeholder that'll swap cleanly for real sprites later — once you upload the sheet, it's a matter of pointing at a different font/tile-index instead of `to_cp437(letter)`.
+
+**Honest flag on layout:** I had to hand-compute pixel alignment across three different consoles (big text at 32px cells, description text at 8px cells, icons at 256×160px cells) with no way to render and check it myself. The math should be *close*, but I'd bet money the spacing needs a nudge once you actually see it — the easiest numbers to tweak are `headline_row` in `class_select` (currently `i * 5 + 3`) and the icon's `col`/`row` in the `draw_portrait` call.
+
+One thing I decided without asking (small): the title-screen monsters are static, not wandering — you didn't get to that question. Easy to add if you want them animated later.
 

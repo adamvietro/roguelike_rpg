@@ -21,6 +21,16 @@ pub fn player_input(
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
 
     if let Some(key) = *key {
+        // Checked first and returns immediately - Escape never falls
+        // through to the movement/attack logic below, and this system
+        // only ever runs during TurnState::AwaitingInput (dungeon
+        // exploration), so pausing mid-battle isn't reachable: battle_tick
+        // handles its own keys entirely separately and never calls this.
+        if key == VirtualKeyCode::Escape {
+            *turn_state = TurnState::Paused;
+            return;
+        }
+
         let delta = match key {
             VirtualKeyCode::Left => Point::new(-1, 0),
             VirtualKeyCode::Right => Point::new(1, 0),

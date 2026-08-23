@@ -29,6 +29,16 @@ mod prelude {
     // so exploration-view text reads bigger without touching battle UI.
     pub const HUD_COLS: i32 = 107;
     pub const HUD_ROWS: i32 = 67;
+    // Console indices, in BTermBuilder registration order (see main()):
+    // 0 dungeon tiles+bg, 1 dungeon entities, 2 fine 8px text (battle/
+    // game-over/victory/pause), 3 battle portraits, 4 HUD, 5 big title/
+    // class-select text below (console 5 - referenced as a plain literal
+    // at call sites, matching how every other console index in this file
+    // is already written, since set_active_console's exact parameter type
+    // isn't confirmed here). Big text console: same physical 1280x800
+    // window, DISPLAY_WIDTH x DISPLAY_HEIGHT cols/rows (the dungeon view's
+    // own grid) on the small text font instead of the dungeon font - lands
+    // at 32x32px cells, 4x console 2's 8px text.
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -136,25 +146,83 @@ fn vignette(base: RGB, x: i32, y: i32, w: i32, h: i32) -> RGB {
     )
 }
 
+/// One playable class's class-select entry: which key picks it, what its
+/// button reads, the exact string passed to spawn_player/Class (must match
+/// any `class:` tags in template.ron for techniques to gate correctly),
+/// its placeholder letter-glyph icon, and its description. Adding a class
+/// is one more entry here - class_select() needs no other changes.
+struct ClassRosterEntry {
+    key: VirtualKeyCode,
+    key_label: &'static str,
+    name: &'static str,
+    icon_glyph: char,
+    description: &'static str,
+}
+
+const CLASS_ROSTER: [ClassRosterEntry; 5] = [
+    ClassRosterEntry {
+        key: VirtualKeyCode::Key1,
+        key_label: "1",
+        name: "Barbarian",
+        icon_glyph: '@',
+        description: "A hardy melee fighter with devastating battle techniques: \
+                       Deathblow, Quick Attack, Counter Attack, Garrote.",
+    },
+    ClassRosterEntry {
+        key: VirtualKeyCode::R,
+        key_label: "R",
+        name: "Rogue",
+        icon_glyph: 'r',
+        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+    },
+    ClassRosterEntry {
+        key: VirtualKeyCode::A,
+        key_label: "A",
+        name: "Amazon",
+        icon_glyph: 'a',
+        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+    },
+    ClassRosterEntry {
+        key: VirtualKeyCode::B,
+        key_label: "B",
+        name: "Archer",
+        icon_glyph: 'b',
+        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+    },
+    ClassRosterEntry {
+        key: VirtualKeyCode::M,
+        key_label: "M",
+        name: "Mage",
+        icon_glyph: 'm',
+        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+    },
+];
+
 struct State {
     ecs: World,
     resources: Resources,
     input_systems: Schedule,
     player_systems: Schedule,
     monster_systems: Schedule,
+    pause_systems: Schedule,
+    background_systems: Schedule,
 }
 
 impl State {
     fn new() -> Self {
         let mut resources = Resources::default();
         resources.insert(TurnState::TitleScreen);
-        Self {
+        let mut state = Self {
             ecs: World::default(),
             resources,
             input_systems: build_input_scheduler(),
             player_systems: build_player_scheduler(),
             monster_systems: build_monster_scheduler(),
-        }
+            pause_systems: build_pause_scheduler(),
+            background_systems: build_title_background_scheduler(),
+        };
+        state.spawn_title_background();
+        state
     }
 
     /// Builds a fresh game world for a new run, with the player spawned as
@@ -181,6 +249,50 @@ impl State {
         self.resources.insert(None::<BattleVictory>);
     }
 
+    /// Builds a random, fully-revealed decorative dungeon (map + monsters,
+    /// no real player) to show behind the title and class-select screens.
+    /// Called once at startup and again every time the player returns to
+    /// the title screen, so it's freshly randomized each time - but NOT
+    /// regenerated between TitleScreen and ClassSelect, so both screens
+    /// show the exact same map (neither of those two screens' tick
+    /// methods call this - only State::new/return_to_title do).
+    /// start_game wipes it outright when a real run begins.
+    fn spawn_title_background(&mut self) {
+        let mut rng = RandomNumberGenerator::new();
+        let mut map_builder = MapBuilder::new(&mut rng);
+        map_builder
+            .map
+            .revealed_tiles
+            .iter_mut()
+            .for_each(|revealed| *revealed = true);
+
+        spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
+        spawn_prefab_enemies(&mut self.ecs, &mut rng, 0, &map_builder.prefab_enemy_spawns);
+
+        // An invisible anchor entity - Player + FieldOfView, deliberately
+        // no Render component - so map_render/entity_render (which both
+        // query for a Player's FieldOfView to know what's "visible") have
+        // something to find without an actual hero glyph appearing over
+        // the background. Its visible_tiles is pre-filled with every tile
+        // on the map, so the whole dungeon and every monster in it renders
+        // at full brightness - "everything explored", per your ask -
+        // rather than the dimmer remembered-but-not-currently-seen look
+        // real exploration uses.
+        let mut fov = FieldOfView::new(0);
+        for y in 0..SCREEN_HEIGHT {
+            for x in 0..SCREEN_WIDTH {
+                fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        fov.is_dirty = false;
+        self.ecs
+            .push((Player { map_level: 0 }, map_builder.player_start, fov));
+
+        self.resources.insert(map_builder.map);
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(map_builder.theme);
+    }
+
     /// Tears down the current run (if any) and returns to the title
     /// screen - called when the player dismisses the GameOver or Victory
     /// screen, instead of immediately starting a new run with whatever
@@ -189,59 +301,107 @@ impl State {
     fn return_to_title(&mut self) {
         self.ecs = World::default();
         self.resources = Resources::default();
+        self.spawn_title_background();
         self.resources.insert(TurnState::TitleScreen);
     }
 
     fn title_screen(&mut self, ctx: &mut BTerm) {
+        self.background_systems
+            .execute(&mut self.ecs, &mut self.resources);
+
+        ctx.set_active_console(5);
+        ctx.print_color_centered(6, YELLOW, BLACK, "EVER SPACE RRPG");
+
         ctx.set_active_console(2);
-        ctx.print_color_centered(15, YELLOW, BLACK, "EVER SPACE RRPG");
         ctx.print_color_centered(
-            18,
+            60,
             WHITE,
             BLACK,
             "A roguelike adventure into the dungeons below.",
         );
-        ctx.print_color_centered(30, GREEN, BLACK, "Press any key to begin");
+        ctx.print_color_centered(90, GREEN, BLACK, "Press any key to begin");
 
         if ctx.key.is_some() {
             self.resources.insert(TurnState::ClassSelect);
         }
     }
 
-    /// Lists every playable class and lets the player pick one with a
-    /// number key, then calls start_game with that choice. New classes go
-    /// here as a new numbered line + Key match arm - nothing else in this
-    /// screen needs to change.
+    /// Lists every playable class with a big name/key, a short description,
+    /// and a big letter-glyph "icon" (a placeholder for real sprite art -
+    /// reuses draw_portrait, the same helper the battle screen uses to
+    /// blow up a glyph) next to it, and starts a run with whichever one
+    /// the player picks. New classes go here as one more CLASS_ROSTER
+    /// entry - this function needs no other changes.
     fn class_select(&mut self, ctx: &mut BTerm) {
+        self.background_systems
+            .execute(&mut self.ecs, &mut self.resources);
+
+        ctx.set_active_console(5);
+        ctx.print_color_centered(0, YELLOW, BLACK, "Choose Your Class");
+
+        let mut icons = DrawBatch::new();
+        icons.target(3);
+
+        for (i, entry) in CLASS_ROSTER.iter().enumerate() {
+            let i = i as i32;
+            // BIG_TEXT_CONSOLE is 25 rows tall; one ~5-row band per class,
+            // matching console 3's 5 total rows (one icon row per class).
+            let headline_row = i * 5 + 3;
+            ctx.print_color(
+                9,
+                headline_row,
+                GREEN,
+                BLACK,
+                &format!("{}) {}", entry.key_label, entry.name.to_uppercase()),
+            );
+
+            // Console 2 is 100 rows tall (4x BIG_TEXT_CONSOLE's 25), so its
+            // row number for "just below this headline" is the headline's
+            // row scaled by that same 4x, plus a small offset to clear it.
+            ctx.set_active_console(2);
+            ctx.print_color(36, headline_row * 4 + 4, WHITE, BLACK, entry.description);
+            ctx.set_active_console(5);
+
+            draw_portrait(
+                &mut icons,
+                0,
+                i,
+                Render {
+                    color: ColorPair::new(YELLOW, BLACK),
+                    glyph: to_cp437(entry.icon_glyph),
+                },
+            );
+        }
+        icons.submit(0).expect("Batch error");
+
+        if let Some(key) = ctx.key {
+            if let Some(entry) = CLASS_ROSTER.iter().find(|c| c.key == key) {
+                self.start_game(entry.name);
+            }
+        }
+    }
+
+    /// Redraws the dungeon map beneath a pause overlay - see
+    /// build_pause_scheduler for why this only re-runs map_render rather
+    /// than the full input schedule (nothing should move, animate, or
+    /// otherwise change while paused). Escape resumes; Q quits to the
+    /// title screen, tearing down the current run.
+    fn paused_tick(&mut self, ctx: &mut BTerm) {
+        self.pause_systems
+            .execute(&mut self.ecs, &mut self.resources);
+
         ctx.set_active_console(2);
-        ctx.print_color_centered(10, YELLOW, BLACK, "Choose Your Class");
-
-        ctx.print_color_centered(14, GREEN, BLACK, "1) Barbarian");
-        ctx.print_color_centered(
-            15,
-            WHITE,
-            BLACK,
-            "A hardy melee fighter. Learns devastating techniques in battle:",
-        );
-        ctx.print_color_centered(
-            16,
-            WHITE,
-            BLACK,
-            "Deathblow, Quick Attack, Counter Attack, Garrote.",
-        );
-
-        ctx.print_color_centered(19, GREEN, BLACK, "2) Mage");
-        ctx.print_color_centered(
-            20,
-            WHITE,
-            BLACK,
-            "(Placeholder for now - plays with only Attack/Defend/Flee until",
-        );
-        ctx.print_color_centered(21, WHITE, BLACK, "spell techniques are added.)");
+        ctx.print_color_centered(45, YELLOW, BLACK, "-- Paused --");
+        ctx.print_color_centered(48, WHITE, BLACK, "Press ESC to resume");
+        ctx.print_color_centered(49, WHITE, BLACK, "Press Q to quit to the title screen");
 
         match ctx.key {
-            Some(VirtualKeyCode::Key1) => self.start_game("Barbarian"),
-            Some(VirtualKeyCode::Key2) => self.start_game("Mage"),
+            Some(VirtualKeyCode::Escape) => {
+                self.resources.insert(TurnState::AwaitingInput);
+            }
+            Some(VirtualKeyCode::Q) => {
+                self.return_to_title();
+            }
             _ => {}
         }
     }
@@ -854,6 +1014,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(4);
         ctx.cls();
+        ctx.set_active_console(5);
+        ctx.cls();
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
@@ -880,6 +1042,9 @@ impl GameState for State {
             TurnState::MonsterTurn => self
                 .monster_systems
                 .execute(&mut self.ecs, &mut self.resources),
+            TurnState::Paused => {
+                self.paused_tick(ctx);
+            }
             TurnState::InBattle => {
                 self.battle_tick(ctx);
             }
@@ -918,6 +1083,7 @@ fn main() -> BError {
             "dungeonfont.png",
         )
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
+        .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 

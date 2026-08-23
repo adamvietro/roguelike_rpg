@@ -5,6 +5,7 @@ pub enum TurnState {
     AwaitingInput,
     PlayerTurn,
     MonsterTurn,
+    Paused,
     InBattle,
     BattleVictory,
     GameOver,

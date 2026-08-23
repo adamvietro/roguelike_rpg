@@ -13,12 +13,13 @@ Burn
 
 Make the player or the Enemy stunned after a flee
 
-Title Screen
-Start Screen for the game where you can pick a class.
-
 More fluid motion - On hold
 
-Pause screen when pressing esc
+Better looking battle options.
+    I want a box around the abilities and I want them in the lower right
+
+
+
 
 <br />
 
@@ -56,6 +57,9 @@ Each class will have default abilities that will need to be always available.
 Add in items that can be won from battle that can be a single use.
 
 ## Options
+Title Screen
+Start Screen for the game where you can pick a class.
+Pause screen when pressing esc
 
 ## Map
 Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.

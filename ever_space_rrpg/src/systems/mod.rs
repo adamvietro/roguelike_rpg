@@ -63,3 +63,30 @@ pub fn build_monster_scheduler() -> Schedule {
         .add_system(end_turn::end_turn_system())
         .build()
 }
+
+/// Redraws the map (console 0) and entities (console 1) with no other
+/// systems running - used for the decorative, fully-revealed background
+/// world shown behind the title and class-select screens. Unlike
+/// build_pause_scheduler, entities ARE drawn here (the point is to show
+/// "a map with everything explored and enemies inside" as backdrop) - see
+/// State::spawn_title_background for how that world's fake "player"
+/// FieldOfView is pre-filled with the whole map so nothing is hidden by
+/// normal fog-of-war rules.
+pub fn build_title_background_scheduler() -> Schedule {
+    Schedule::builder()
+        .add_system(map_render::map_render_system())
+        .add_system(entity_render::entity_render_system())
+        .build()
+}
+
+/// Redraws just the dungeon map (console 0) - no entities, no HUD - so the
+/// pause screen can sit over the map the player was just standing on
+/// instead of a black screen. Deliberately omits entity_render/hud/
+/// player_input/fov: nothing should move, animate, or otherwise change
+/// while paused, this only needs to repaint what's already there since
+/// every console gets cleared each tick.
+pub fn build_pause_scheduler() -> Schedule {
+    Schedule::builder()
+        .add_system(map_render::map_render_system())
+        .build()
+}
