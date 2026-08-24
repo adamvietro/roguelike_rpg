@@ -1328,5 +1328,16 @@ Swapped the shortcut from `\` (`VirtualKeyCode::Backslash`) to **`D`** (`Virtual
 
 If `D` still doesn't register either, that would point away from a keycode-naming issue entirely and toward something upstream eating the keypress before it reaches `class_select` — worth knowing either way.
 
+# Victory Screen
+D-for-Debug worked, and there's the Victory screen — confirmed it's the plain small-text layout we knew about. Let's rebuild it to match the same treatment as Game Over: big header, bigger body text, portrait/icon centered, and the "Press 1" prompt pushed to the bottom.Now let's update `draw_end_screen_portrait` to take a column (so the hero can sit beside the amulet instead of dead-center), and add a matching amulet-drawing method:Now let's rewrite `victory()` with bigger text, both icons, and the prompt at the bottom:Good — one call site, correctly updated to the new two-arg signature. Final balance check and ship:**1 file — modified: `src/main.rs`**
+
+**What changed:**
+
+1. **Bigger text** — same treatment as Game Over: "You have won!" moved to the big-text console (32px cells), body paragraphs moved to the HUD console (~12px, bigger than the old 8px fine text), all row positions recalculated in real pixels so nothing overlaps across the differently-scaled consoles.
+2. **"Press 1..." moved to the bottom** — row 60 out of 67 on the HUD console, well clear of the icons above it, near the bottom of the screen instead of right under the paragraph text.
+3. **Amulet shown alongside the hero** — `draw_end_screen_portrait` now takes a `col` parameter instead of always centering, so the hero sits to the left and a new `draw_end_screen_amulet` draws the Amulet's own glyph (`|`, same one `spawn_amulet_of_yala` uses) to the right, both tinted gold. I hardcoded the Amulet's glyph rather than looking up the live entity — by the time this screen shows, the run's basically over, and there's no guarantee that entity's still sitting in the ECS, so there's nothing to gain from depending on it.
+
+Both icons use the same non-rotated, non-transparent drawing method the original victory portrait already used (the coarse 5×5 grid trick, not the fancy-console rotation from Game Over) — no new API risk here, since a standing hero and a held-up amulet don't need to be "on their side."
+
 # Amazon
 Work on the Amazon next

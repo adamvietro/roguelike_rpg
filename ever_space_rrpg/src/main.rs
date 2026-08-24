@@ -758,12 +758,13 @@ impl State {
     /// (console 3) - same trick draw_portrait already uses during battle -
     /// recolored solid `tint` rather than the entity's normal sprite
     /// color, so it reads as a silhouette (grey for defeat, gold for
-    /// victory) instead of looking like an active battle portrait.
-    /// Position is centered horizontally, placed in the console's middle
-    /// row, clear of the console-2 text used above it in game_over/victory.
+    /// victory) instead of looking like an active battle portrait. Row is
+    /// always the console's middle row; `col` lets victory() place the
+    /// hero to one side of center instead of dead-center, so the Amulet
+    /// (see draw_end_screen_amulet) can sit beside it without overlapping.
     /// Used by victory (upright); game_over uses
     /// draw_end_screen_fallen_portrait instead, which is rotated.
-    fn draw_end_screen_portrait(&mut self, tint: RGB) {
+    fn draw_end_screen_portrait(&mut self, col: i32, tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
             .map(|(e, _)| *e)
@@ -773,12 +774,32 @@ impl State {
             let mut portrait = DrawBatch::new();
             portrait.target(3);
             portrait.set(
-                Point::new(BATTLE_PORTRAIT_COLS / 2, BATTLE_PORTRAIT_ROWS / 2),
+                Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
                 ColorPair::new(tint, BLACK),
                 render.glyph,
             );
             portrait.submit(0).expect("Batch error");
         }
+    }
+
+    /// Draws the Amulet of Yala's own glyph ('|', see
+    /// spawner::spawn_amulet_of_yala) big, on the same battle-portrait
+    /// console/grid as draw_end_screen_portrait, at `col` - used by
+    /// victory() to show it beside the hero. Hardcodes the glyph rather
+    /// than looking up the actual AmuletOfYala entity, since nothing
+    /// guarantees that entity still exists in the ECS by the time the
+    /// Victory screen is showing (the run is already over) - the glyph
+    /// itself is a fixed constant either way, so there's nothing gained
+    /// by depending on the entity still being present.
+    fn draw_end_screen_amulet(&mut self, col: i32, tint: RGB) {
+        let mut amulet = DrawBatch::new();
+        amulet.target(3);
+        amulet.set(
+            Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
+            ColorPair::new(tint, BLACK),
+            to_cp437('|'),
+        );
+        amulet.submit(0).expect("Batch error");
     }
 
     /// Draws the player's own glyph rotated 90 degrees - lying on its side,
@@ -1533,26 +1554,39 @@ impl State {
 
     fn victory(&mut self, ctx: &mut BTerm) {
         // Warm gold version of the actual dungeon the run was won in,
-        // plus the hero's own glyph glowing gold - see
-        // draw_end_screen_background/draw_end_screen_portrait.
+        // plus the hero's own glyph and the Amulet of Yala, both glowing
+        // gold, side by side - see draw_end_screen_background/
+        // draw_end_screen_portrait/draw_end_screen_amulet.
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
-        self.draw_end_screen_portrait(YELLOW.into());
+        self.draw_end_screen_portrait(1, YELLOW.into());
+        self.draw_end_screen_amulet(3, YELLOW.into());
 
-        ctx.set_active_console(2);
+        // Same layout approach as game_over: header on the big-text
+        // console (console 5, 32px cells), body on console 4 (the HUD
+        // console, ~12px cells) positioned in real pixels to clear the
+        // header above and the hero/Amulet icons below - see game_over's
+        // comment for the exact pixel math this mirrors. "Press 1..." is
+        // pushed down near the bottom of the screen instead of sitting
+        // right under the body text.
+        ctx.set_active_console(5);
         ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
+
+        ctx.set_active_console(4);
         ctx.print_color_centered(
-            4,
+            10,
             WHITE,
             BLACK,
             "You put on the Amulet of Yala and feel its power course through your veins.",
         );
         ctx.print_color_centered(
-            5,
+            13,
             WHITE,
             BLACK,
             "Your town is saved, and you can return to your normal life.",
         );
-        ctx.print_color_centered(7, GREEN, BLACK, "Press 1 to return to the title screen.");
+        // Below this point: the hero + Amulet icons, centered on-screen.
+        ctx.print_color_centered(60, GREEN, BLACK, "Press 1 to return to the title screen.");
+
         if let Some(VirtualKeyCode::Key1) = ctx.key {
             self.return_to_title();
         }
