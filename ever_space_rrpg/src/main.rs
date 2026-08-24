@@ -597,6 +597,18 @@ impl State {
         if let Some(key) = ctx.key {
             if let Some(entry) = CLASS_ROSTER.iter().find(|c| c.key == key) {
                 self.start_game(entry.name);
+            } else if key == VirtualKeyCode::D {
+                // Hidden dev shortcut - deliberately NOT a CLASS_ROSTER
+                // entry, so it never appears in the visible list or
+                // description text. See spawner::class_base_stats("Debug")
+                // and resources/starting_kits.ron for what this class
+                // actually gets. A letter key, not the originally-tried
+                // Backslash - punctuation keys are exactly the kind of
+                // thing that can misbehave through this project's
+                // WSLg/X11 stack (same family of issue as the documented
+                // WINIT_UNIX_BACKEND quirk), while letter keys (G, Q) are
+                // already proven working elsewhere in this codebase.
+                self.start_game("Debug");
             }
         }
     }

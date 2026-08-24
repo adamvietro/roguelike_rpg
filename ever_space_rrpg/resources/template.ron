@@ -223,6 +223,42 @@ Templates(
             description: Some("Move unseen for 20 moves. Walk into an enemy while active and you'll strike first for 3x damage.")
         ),
         Template(
+            // Debug class only - never a floor spawn (levels:[]) or
+            // random loot (frequency:0), only ever granted directly via
+            // resources/starting_kits.ron. Sets TurnState::Victory the
+            // instant it's used - see components::ProvidesEffect::DebugWin
+            // / systems/use_items.rs.
+            entity_type: Item,
+            name : "Victory", glyph: '?', levels: [ ],
+            effect: Some(DebugWin),
+            frequency: 0,
+            class: Some("Debug"),
+            description: Some("Debug: instantly wins the run, as if the Amulet of Yala had just been claimed.")
+        ),
+        Template(
+            // Sets TurnState::GameOver - see
+            // components::ProvidesEffect::DebugLose.
+            entity_type: Item,
+            name : "Defeat", glyph: '?', levels: [ ],
+            effect: Some(DebugLose),
+            frequency: 0,
+            class: Some("Debug"),
+            description: Some("Debug: instantly ends the run as a loss, as if Health had just hit 0.")
+        ),
+        Template(
+            // Sets TurnState::NextLevel - see
+            // components::ProvidesEffect::DebugNextLevel. Granted x2 in
+            // the starting kit (resources/starting_kits.ron), so the
+            // default kit alone can reach the deepest normal dungeon
+            // level (0 -> 1 -> 2) without any real exploration.
+            entity_type: Item,
+            name : "Next Level", glyph: '?', levels: [ ],
+            effect: Some(DebugNextLevel),
+            frequency: 0,
+            class: Some("Debug"),
+            description: Some("Debug: instantly advances to the next dungeon level, as if the Exit tile had just been reached.")
+        ),
+        Template(
             entity_type: Enemy,
             name : "Goblin", glyph : 'g', levels : [ 0 ],
             hp : Some(1),

@@ -1321,5 +1321,12 @@ Good, simple to extend. Now let's check the class glyphs already in use, `class_
 
 One thing I didn't add: a Defense stat for Debug (left at 0, same as most classes) since you didn't list one — flag it if you want it tanky on that front too.
 
+## Can't Select
+Good — that narrows it down a lot. Punctuation keys like backslash are exactly the kind of thing that can behave inconsistently through WSLg/X11 (this project's already hit real X11/WSL keyboard quirks before). Letter keys, on the other hand, are already proven working in this exact codebase — `G` for pickup, `Q` for pause-quit — so let's switch to a letter instead of gambling on punctuation again.**1 file — modified: `src/main.rs`**
+
+Swapped the shortcut from `\` (`VirtualKeyCode::Backslash`) to **`D`** (`VirtualKeyCode::D`). Since it builds fine but the key just never registers, this smells like the same category of issue as the project's documented WSLg/X11 windowing quirks — punctuation keys are more prone to that than plain letters, and letter keys (`G`, `Q`) already work reliably elsewhere in this exact codebase. `D` for "Debug" is free (only `Key1`–`Key5` are handled on this screen), so no collision.
+
+If `D` still doesn't register either, that would point away from a keycode-naming issue entirely and toward something upstream eating the keypress before it reaches `class_select` — worth knowing either way.
+
 # Amazon
 Work on the Amazon next

@@ -69,6 +69,20 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             evasion: 0,
             glyph: 'B',
         },
+        // Not in CLASS_ROSTER - never appears on the normal class-select
+        // screen, only reachable via the hidden Backslash shortcut there
+        // (see main.rs's class_select). Deliberately overpowered stats
+        // plus the three instant-win/lose/next-level items (see
+        // resources/starting_kits.ron) for quickly testing late-game
+        // states without a real playthrough.
+        "Debug" => ClassBaseStats {
+            health: 100,
+            damage: 5,
+            speed: 10,
+            defense: 0,
+            evasion: 50,
+            glyph: 'D',
+        },
         // Safe fallback for any unrecognized class name.
         _ => ClassBaseStats {
             health: 10,

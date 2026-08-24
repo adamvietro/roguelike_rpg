@@ -4,7 +4,12 @@ use crate::prelude::*;
 #[read_component(ActivateItem)]
 #[read_component(Effect)]
 #[write_component(Health)]
-pub fn use_items(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] map: &mut Map) {
+pub fn use_items(
+    ecs: &mut SubWorld,
+    commands: &mut CommandBuffer,
+    #[resource] map: &mut Map,
+    #[resource] turn_state: &mut TurnState,
+) {
     let mut healing_to_apply = Vec::<(Entity, i32)>::new();
     <(Entity, &ActivateItem)>::query()
         .iter(ecs)
@@ -68,6 +73,22 @@ pub fn use_items(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] m
                                     attacks_remaining: attacks,
                                 },
                             );
+                        }
+                        // Debug class only - see components::ProvidesEffect.
+                        // Just sets TurnState directly; main.rs's tick
+                        // dispatcher already handles all three states
+                        // (victory/game_over/advance_level) exactly as it
+                        // would if reached the normal way, so nothing else
+                        // needs to know these were triggered by an item
+                        // instead of real gameplay.
+                        ProvidesEffect::DebugWin => {
+                            *turn_state = TurnState::Victory;
+                        }
+                        ProvidesEffect::DebugLose => {
+                            *turn_state = TurnState::GameOver;
+                        }
+                        ProvidesEffect::DebugNextLevel => {
+                            *turn_state = TurnState::NextLevel;
                         }
                     }
                 }

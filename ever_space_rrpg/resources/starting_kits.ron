@@ -27,5 +27,14 @@ StartingKits(
             class: "Rogue",
             items: [ "Healing Potion", "Stealth" ],
         ),
+        StartingKit(
+            // Debug class - see spawner::class_base_stats and
+            // main.rs's hidden Backslash class-select shortcut. Items
+            // just stack when listed more than once (see
+            // Templates::spawn_named_item), so "Next Level" x2 is simply
+            // listed twice - no special count field needed.
+            class: "Debug",
+            items: [ "Victory", "Defeat", "Next Level", "Next Level" ],
+        ),
     ],
 )

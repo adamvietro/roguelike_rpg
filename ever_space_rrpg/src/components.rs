@@ -56,6 +56,18 @@ pub enum ProvidesEffect {
     /// ambush bonus (forced first turn + 3x damage on the opening action -
     /// see systems/player_input.rs and battle::Battle::sneak_attack).
     Stealth(i32),
+    /// Debug-class item: instantly ends the run as a win, exactly as if
+    /// the Amulet of Yala had been claimed (see systems/end_turn.rs,
+    /// which sets TurnState::Victory the same way on the real win
+    /// condition).
+    DebugWin,
+    /// Debug-class item: instantly ends the run as a loss, exactly as if
+    /// the player's Health had hit 0 (see systems/end_turn.rs).
+    DebugLose,
+    /// Debug-class item: instantly triggers the same level-transition
+    /// State::advance_level runs when stepping on a real Exit tile (see
+    /// systems/end_turn.rs / main.rs's TurnState::NextLevel dispatch).
+    DebugNextLevel,
 }
 
 /// Marks an Item entity with its out-of-combat effect. Granted via normal
