@@ -54,11 +54,11 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             glyph: 'r',
         },
         "Amazon" => ClassBaseStats {
-            health: 10,
+            health: 12,
             damage: 1,
             speed: 6,
             defense: 0,
-            evasion: 0,
+            evasion: 5,
             glyph: 'a',
         },
         "Archer" => ClassBaseStats {

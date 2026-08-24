@@ -21,6 +21,18 @@ pub struct Item;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Weapon;
 
+/// A placed hazard entity - Amazon's Trap (see ProvidesEffect::PlaceTrap /
+/// systems/use_items.rs, which spawns one of these at the player's
+/// position) and systems/traps.rs, which checks every enemy's position
+/// against these each monster turn. Deals `damage` to the first enemy
+/// that steps onto its tile, then is removed - single use. The player is
+/// never affected by their own (or any) trap; only entities with an
+/// Enemy component are checked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Trap {
+    pub damage: i32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmuletOfYala;
 
@@ -68,6 +80,19 @@ pub enum ProvidesEffect {
     /// State::advance_level runs when stepping on a real Exit tile (see
     /// systems/end_turn.rs / main.rs's TurnState::NextLevel dispatch).
     DebugNextLevel,
+    /// Amazon's Throw Spear: damages the nearest currently-visible (in the
+    /// player's FieldOfView - real line-of-sight, not just distance, see
+    /// systems/fov.rs) enemy for the player's normal attack damage plus
+    /// this flat bonus - entirely outside battle, no fight starts. See
+    /// systems/use_items.rs. Does nothing (but is still consumed, same as
+    /// every other item used at a moment it has nothing to affect) if no
+    /// enemy is currently visible.
+    RangedStrike(i32),
+    /// Amazon's Trap: places a Trap entity (see components::Trap) at the
+    /// user's current position, dealing `0` damage to the first enemy
+    /// that steps onto it - see systems/traps.rs. The i32 is the trap's
+    /// damage, not a duration/count like most other effects here.
+    PlaceTrap(i32),
 }
 
 /// Marks an Item entity with its out-of-combat effect. Granted via normal
@@ -123,6 +148,28 @@ pub enum TechniqueEffect {
     /// components::Evasion) for the next `turns` enemy attacks faced -
     /// see battle::resolve_enemy_attack / Battle::dodge_bonus.
     Evade { chance_percent: i32, turns: i32 },
+    /// Reduce the enemy's outgoing damage by a random amount between
+    /// `min_reduction` and `max_reduction` (inclusive) for the next
+    /// `attacks` enemy attacks actually faced (an evaded attack doesn't
+    /// consume a charge - see battle::resolve_enemy_attack). Amazon's
+    /// Battle Cry - deliberately random rather than the flat numbers
+    /// every other effect in this project uses, per design.
+    WarCry {
+        min_reduction: i32,
+        max_reduction: i32,
+        attacks: i32,
+    },
+    /// Deal `initial` damage (plus carried weapon damage, same shape as
+    /// FlatDamage) right now, THEN also apply a DamageOverTime-style
+    /// wound of `dot_damage` per turn for the next `dot_turns` rounds -
+    /// Amazon's Poison Spear. Reuses the exact same Battle::enemy_dot /
+    /// tick_dot machinery Rend/Burn/Garrote already use for the DOT half;
+    /// only the "also hit immediately" half is new.
+    PoisonStrike {
+        initial: i32,
+        dot_damage: i32,
+        dot_turns: i32,
+    },
 }
 
 /// Marks an Item entity as a one-time battle technique and carries its

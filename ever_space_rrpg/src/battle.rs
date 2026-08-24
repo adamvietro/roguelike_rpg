@@ -295,6 +295,13 @@ pub struct Battle {
     /// resolve_enemy_attack regardless of whether that attack was
     /// evaded. None when inactive.
     pub dodge_bonus: Option<DodgeState>,
+    /// An active Battle Cry (Amazon) - reduces the enemy's outgoing
+    /// damage by a random amount each hit for the next N attacks. Unlike
+    /// dodge_bonus, this only ticks down when an attack actually connects
+    /// (mirrors Ice Armor's placement in resolve_enemy_attack) - a fully
+    /// evaded attack didn't deal damage to reduce, so it shouldn't spend
+    /// a charge either. None when inactive.
+    pub war_cry: Option<WarCryState>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -328,6 +335,7 @@ impl Battle {
             result_timer_ms: 0.0,
             sneak_attack: false,
             dodge_bonus: None,
+            war_cry: None,
         }
     }
 
@@ -403,6 +411,14 @@ pub struct DotState {
 pub struct DodgeState {
     pub chance_percent: i32,
     pub turns_remaining: i32,
+}
+
+/// An active Battle Cry (Amazon) on the player - see Battle::war_cry.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WarCryState {
+    pub min_reduction: i32,
+    pub max_reduction: i32,
+    pub attacks_remaining: i32,
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
@@ -569,6 +585,21 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
     let ice_armor = entity_ice_armor(ecs, battle.player);
     if let Some(armor) = &ice_armor {
         dmg = (dmg - armor.defense_bonus).max(0);
+    }
+
+    // Battle Cry (Amazon) - a random 1-2 (or whatever the technique's
+    // configured range is) reduction per hit, on top of any Ice Armor
+    // already subtracted above. Ticks down (and clears once exhausted)
+    // only here, past the evaded-early-return above - a dodge shouldn't
+    // spend a Battle Cry charge, since no damage landed to reduce.
+    if let Some(cry) = &mut battle.war_cry {
+        let mut rng = RandomNumberGenerator::new();
+        let reduction = rng.range(cry.min_reduction, cry.max_reduction + 1);
+        dmg = (dmg - reduction).max(0);
+        cry.attacks_remaining -= 1;
+        if cry.attacks_remaining <= 0 {
+            battle.war_cry = None;
+        }
     }
 
     let dmg = apply_damage(ecs, battle.player, dmg);
@@ -761,6 +792,39 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
                 turns_remaining: turns,
             });
             "Boost evasion.".to_string()
+        }
+        TechniqueEffect::WarCry {
+            min_reduction,
+            max_reduction,
+            attacks,
+        } => {
+            battle.war_cry = Some(WarCryState {
+                min_reduction,
+                max_reduction,
+                attacks_remaining: attacks,
+            });
+            "Rally your courage.".to_string()
+        }
+        TechniqueEffect::PoisonStrike {
+            initial,
+            dot_damage,
+            dot_turns,
+        } => {
+            let dmg = initial + carried_weapon_damage(ecs, battle.player);
+            let dmg = apply_damage(ecs, battle.enemy, dmg);
+            battle.show_enemy_damage(dmg);
+            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+            battle.enemy_dot = Some(DotState {
+                damage: dot_damage,
+                turns_remaining: dot_turns,
+                label: name.to_lowercase(),
+            });
+            if dmg == 0 {
+                "Dodge attack. Poison lingers.".to_string()
+            } else {
+                format!("Deal {} damage. Poison lingers.", dmg)
+            }
         }
     }
 }

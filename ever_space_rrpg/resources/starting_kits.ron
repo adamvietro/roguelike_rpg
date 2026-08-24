@@ -29,12 +29,21 @@ StartingKits(
         ),
         StartingKit(
             // Debug class - see spawner::class_base_stats and
-            // main.rs's hidden Backslash class-select shortcut. Items
-            // just stack when listed more than once (see
+            // main.rs's hidden D-key class-select shortcut. Items just
+            // stack when listed more than once (see
             // Templates::spawn_named_item), so "Next Level" x2 is simply
             // listed twice - no special count field needed.
             class: "Debug",
             items: [ "Victory", "Defeat", "Next Level", "Next Level" ],
+        ),
+        StartingKit(
+            // Amazon starts with one of each of its two out-of-combat
+            // tools (Trap, and a Healing Potion like most classes) plus
+            // its damage-reduction technique - Throw Spear and Poison
+            // Spear are left to loot/the guarded fortress room, same
+            // pattern as every other class's kit.
+            class: "Amazon",
+            items: [ "Healing Potion", "Trap", "Battle Cry" ],
         ),
     ],
 )

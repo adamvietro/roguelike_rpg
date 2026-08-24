@@ -37,7 +37,12 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
         key_label: "3",
         name: "Amazon",
         icon_glyph: 'a',
-        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+        description: "A skirmisher fighting at range with spears (5% base \
+                       Evasion). Battle techniques: Poison Spear, Battle \
+                       Cry. Also carries the out-of-combat Throw Spear \
+                       (damages the nearest visible enemy with no fight) \
+                       and Trap (a placed hazard that damages the first \
+                       enemy to step on it).",
     },
     ClassRosterEntry {
         key: VirtualKeyCode::Key4,

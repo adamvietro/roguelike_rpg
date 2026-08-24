@@ -11,6 +11,7 @@ mod movement;
 mod player_input;
 mod random_move;
 mod tooltips;
+mod traps;
 mod use_items;
 
 pub fn build_input_scheduler() -> Schedule {
@@ -52,6 +53,8 @@ pub fn build_monster_scheduler() -> Schedule {
         .add_system(use_items::use_items_system())
         .flush()
         .add_system(movement::movement_system())
+        .flush()
+        .add_system(traps::traps_system())
         .flush()
         .add_system(fov::fov_system())
         .flush()

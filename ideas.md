@@ -5,38 +5,44 @@ Vanish - Flee and Stealth at the same time
 Flurry - Multi Hit
 Riposte - Counter attack for 2x damage
 
+Barbarian
+Whirlwind - For the next 3 turns auto attack with 2 extra attack damage
+
+Mage
+
+
+
 
 Amazon
+animation for the throw spear
+In-battle techniques
 
-Debug
-hp - 100hp
-evasion - 50
-damage - 5
-speed - 10
+Javelin Volley — throw multiple spears in one turn (like a ranged version of Quick Attack's multi-hit).
+Pierce Thrust — a spear jab that ignores some or all of the enemy's Defense, rewarding you for facing armored enemies.
+Retreating Shot — deal damage and immediately guarantee your next Defend/Flee succeeds better, playing into "hit and create distance" instead of trading blows.
+Called Shot — a slower wind-up attack (skip this turn) that guarantees a big hit next turn, a ranged cousin to Counter Attack.
 
-abilities
-Victory - Instantly finishes the game
-Defeat - Instantly Loses the game
-Next Level - Instantly move to the next level
+Out-of-combat tools
 
-Starting Items
-Victory - x1
-Defeat - X1
-Next Level - x2
+Net Trap — a second trap variant: instead of damage, it roots/slows the first enemy that steps on it for a few turns (crowd control rather than damage).
+Scout (Eagle Eye) — temporarily increases your FOV radius, letting you spot enemies (and Throw Spear targets) from farther away.
+Reposition/Vault — a short instant dash a few tiles, useful for breaking line of sight or repositioning before a fight.
+
+Passive/identity
+
+Momentum — a passive that gives a small damage or evasion bonus while at full HP, encouraging hit-and-run play.
+Keen Eyes — a small passive bonus specifically to Throw Spear's targeting range or bonus damage, making the ranged kit scale with level progression later.
+
+
+
+Bosses for each level and the Yala
+
 
 Make the player or the Enemy stunned after a flee
 
 More fluid motion - On hold
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
-
-Refactor main.
-
-
-
-
-
-Refactor main.rs
 
 Sounds and Music
 
@@ -118,6 +124,41 @@ health- 10
 defense - 0
 attack - 1
 Evasion- 10%
+
+### Debug
+hp - 100hp
+evasion - 50
+damage - 5
+speed - 10
+
+abilities
+Victory - Instantly finishes the game
+Defeat - Instantly Loses the game
+Next Level - Instantly move to the next level
+
+Starting Items
+Victory - x1
+Defeat - X1
+Next Level - x2
+
+### Amazon
+Glyph - A
+Weapons Icons - w, x, y
+
+Attack - 1 
+Defense - 0
+Speed - 6
+Evasion - 5%
+Health - 12
+
+Abilities
+Spear - Outside battle attack that will target the nearest enemy and do attack + weapon dmg + 2 dmg
+Battle Cry - For the next 3 turns enemies will do 1-2 less damage
+Trap - Used outside combat will place a trap and if an enemy runs over it will instantly take 5 damage. Icon will be T
+Poison Spear - Will do 1 dmg then 2 dmg for the next 3 turns
+
+Starting Items
+Trap x1, potion x1, Battle Cry x1
 
 
 ## Options

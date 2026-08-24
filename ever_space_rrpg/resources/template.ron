@@ -259,6 +259,86 @@ Templates(
             description: Some("Debug: instantly advances to the next dungeon level, as if the Exit tile had just been reached.")
         ),
         Template(
+            // Amazon's weapon tier, parallel to the Swords/Staffs/Daggers
+            // above - same guaranteed prefab slot, same level gating, but
+            // class: Amazon. Glyphs w/x/y continue the placeholder
+            // numbering/lettering the other tiers started.
+            entity_type: Item,
+            name : "Wooden Spear", glyph: 'w', levels: [ 0 ],
+            frequency: 1,
+            base_damage: Some(1),
+            class: Some("Amazon"),
+            prefab_only: true
+        ),
+        Template(
+            entity_type: Item,
+            name : "Bronze Spear", glyph: 'x', levels: [ 1 ],
+            frequency: 1,
+            base_damage: Some(2),
+            class: Some("Amazon"),
+            prefab_only: true
+        ),
+        Template(
+            entity_type: Item,
+            name : "Iron Spear", glyph: 'y', levels: [ 1, 2 ],
+            frequency: 1,
+            base_damage: Some(3),
+            class: Some("Amazon"),
+            prefab_only: true
+        ),
+        Template(
+            // Amazon out-of-combat item - see
+            // components::ProvidesEffect::RangedStrike /
+            // systems/use_items.rs. Damages the nearest currently-visible
+            // enemy for player attack + weapon damage + 2, with no battle
+            // starting at all. Battle-loot only (levels:[]/frequency:0),
+            // same pattern as every other class-specific special item -
+            // also granted x1 in the Amazon starting kit (see
+            // resources/starting_kits.ron), which bypasses these filters.
+            entity_type: Item,
+            name : "Throw Spear", glyph: '?', levels: [ ],
+            effect: Some(RangedStrike(2)),
+            frequency: 0,
+            class: Some("Amazon"),
+            description: Some("Hurls a spear at the nearest enemy you can see for your attack + weapon damage + 2 - no battle starts.")
+        ),
+        Template(
+            // In-battle technique - see
+            // components::TechniqueEffect::WarCry / battle::resolve_enemy_attack.
+            // Deliberately a random 1-2 reduction per hit, per design -
+            // the one effect in this project that isn't a flat number.
+            entity_type: Item,
+            name : "Battle Cry", glyph: '?', levels: [ ],
+            technique: Some(WarCry(min_reduction: 1, max_reduction: 2, attacks: 3)),
+            frequency: 0,
+            class: Some("Amazon"),
+            description: Some("Rally yourself - the enemy deals 1-2 less damage per hit for your next 3 hits taken.")
+        ),
+        Template(
+            // In-battle technique - see
+            // components::TechniqueEffect::PoisonStrike. An immediate hit
+            // plus a lingering wound, reusing the same DamageOverTime
+            // machinery Rend/Burn/Garrote already use for the DOT half.
+            entity_type: Item,
+            name : "Poison Spear", glyph: '?', levels: [ ],
+            technique: Some(PoisonStrike(initial: 1, dot_damage: 2, dot_turns: 3)),
+            frequency: 0,
+            class: Some("Amazon"),
+            description: Some("A venomous jab: 1 immediate damage, then 2 more damage per turn for the next 3 turns.")
+        ),
+        Template(
+            // Amazon out-of-combat item - see
+            // components::ProvidesEffect::PlaceTrap / systems/traps.rs.
+            // Places a hazard at your current tile; the first enemy to
+            // step on it takes 5 damage, then it's consumed.
+            entity_type: Item,
+            name : "Trap", glyph: 'T', levels: [ ],
+            effect: Some(PlaceTrap(5)),
+            frequency: 0,
+            class: Some("Amazon"),
+            description: Some("Place a hidden trap on your tile. The first enemy that steps on it takes 5 damage.")
+        ),
+        Template(
             entity_type: Enemy,
             name : "Goblin", glyph : 'g', levels : [ 0 ],
             hp : Some(1),

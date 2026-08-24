@@ -3,6 +3,12 @@ use crate::prelude::*;
 #[system]
 #[read_component(ActivateItem)]
 #[read_component(Effect)]
+#[read_component(Point)]
+#[read_component(FieldOfView)]
+#[read_component(Enemy)]
+#[read_component(Damage)]
+#[read_component(Carried)]
+#[read_component(Defense)]
 #[write_component(Health)]
 pub fn use_items(
     ecs: &mut SubWorld,
@@ -11,6 +17,12 @@ pub fn use_items(
     #[resource] turn_state: &mut TurnState,
 ) {
     let mut healing_to_apply = Vec::<(Entity, i32)>::new();
+    // Amazon's Throw Spear - collected here (during the read-only pass
+    // over ActivateItem/Effect) and applied afterward, same two-phase
+    // reasoning as healing_to_apply: the query iterator below holds an
+    // immutable borrow of `ecs`, so any Health mutation has to wait until
+    // it's dropped.
+    let mut ranged_strikes_to_apply = Vec::<(Entity, i32)>::new();
     <(Entity, &ActivateItem)>::query()
         .iter(ecs)
         .for_each(|(entity, activate)| {
@@ -90,6 +102,69 @@ pub fn use_items(
                         ProvidesEffect::DebugNextLevel => {
                             *turn_state = TurnState::NextLevel;
                         }
+                        // Amazon's Throw Spear - finds the nearest enemy
+                        // currently within the user's FieldOfView (real
+                        // line-of-sight via shadowcasting, not just
+                        // distance - see systems/fov.rs), and queues it to
+                        // take the user's normal attack damage plus
+                        // `bonus`. Does nothing if no enemy is visible
+                        // (still consumed either way, same as every other
+                        // item that finds nothing to affect - e.g. a
+                        // Healing Potion at full HP).
+                        ProvidesEffect::RangedStrike(bonus) => {
+                            if let Ok(user) = ecs.entry_ref(activate.used_by) {
+                                let user_pos = user.get_component::<Point>().ok().copied();
+                                let fov = user.get_component::<FieldOfView>().ok().cloned();
+                                if let (Some(user_pos), Some(fov)) = (user_pos, fov) {
+                                    let mut nearest: Option<(Entity, f32)> = None;
+                                    <(Entity, &Point)>::query()
+                                        .filter(component::<Enemy>())
+                                        .iter(ecs)
+                                        .for_each(|(e, pos)| {
+                                            if !fov.visible_tiles.contains(pos) {
+                                                return;
+                                            }
+                                            let dist =
+                                                DistanceAlg::Pythagoras.distance2d(user_pos, *pos);
+                                            if nearest.map_or(true, |(_, best)| dist < best) {
+                                                nearest = Some((*e, dist));
+                                            }
+                                        });
+                                    if let Some((target, _)) = nearest {
+                                        let base = <(Entity, &Damage)>::query()
+                                            .iter(ecs)
+                                            .find(|(e, _)| **e == activate.used_by)
+                                            .map_or(0, |(_, d)| d.0);
+                                        let weapon: i32 = <(&Carried, &Damage)>::query()
+                                            .iter(ecs)
+                                            .filter(|(carried, _)| carried.0 == activate.used_by)
+                                            .map(|(_, dmg)| dmg.0)
+                                            .sum();
+                                        ranged_strikes_to_apply
+                                            .push((target, base + weapon + bonus));
+                                    }
+                                }
+                            }
+                        }
+                        // Amazon's Trap - places a Trap entity (see
+                        // components::Trap / systems/traps.rs) at the
+                        // user's current position. Pure spawn via
+                        // CommandBuffer, so (unlike RangedStrike) this
+                        // doesn't need the deferred second pass.
+                        ProvidesEffect::PlaceTrap(damage) => {
+                            if let Ok(user) = ecs.entry_ref(activate.used_by) {
+                                if let Ok(&pos) = user.get_component::<Point>() {
+                                    commands.push((
+                                        pos,
+                                        Trap { damage },
+                                        Render {
+                                            color: ColorPair::new(RED, BLACK),
+                                            glyph: to_cp437('T'),
+                                        },
+                                    ));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -104,6 +179,28 @@ pub fn use_items(
             if let Ok(health) = target.get_component_mut::<Health>() {
                 // (11)
                 health.current = i32::min(health.max, health.current + heal.1); // (12)
+            }
+        }
+    }
+
+    // Amazon's Throw Spear damage, applied here for the same reason
+    // healing is: Health needs a mutable borrow the read-only query loop
+    // above couldn't hold at the same time. Defense-aware, mirroring
+    // battle::apply_damage's logic (which can't be called directly here -
+    // it takes &mut World, not the restricted &mut SubWorld a #[system]
+    // gets).
+    for (target, amount) in ranged_strikes_to_apply.iter() {
+        if let Ok(mut entry) = ecs.entry_mut(*target) {
+            let defense = entry.get_component::<Defense>().map_or(0, |d| d.0);
+            let actual = (*amount - defense).max(0);
+            let died = if let Ok(health) = entry.get_component_mut::<Health>() {
+                health.current -= actual;
+                health.current < 1
+            } else {
+                false
+            };
+            if died {
+                commands.remove(*target);
             }
         }
     }

@@ -1390,7 +1390,7 @@ I verified brace balance on every touched file and traced every cross-file `self
 
 ### Errors
 ```rust
-vinny@DESKTOP-ANBE9HK:~/Projects/roguelike_rpg/ever_space_rrpg$ cargo run --release
+cargo run --release
    Compiling ever_space_rrpg v0.1.0 (/home/vinny/Projects/roguelike_rpg/ever_space_rrpg)
 warning: `draw_hollow_box` is ambiguous
    --> src/screens/battle.rs:305:9
@@ -1545,4 +1545,99 @@ Renamed it to `draw_ascii_box` everywhere — permanent fix, since two identical
 
 
 # Amazon
-Work on the Amazon next
+Glyph - A
+Weapons Icons - w, x, y
+
+Attack - 1 
+Defense - 0
+Speed - 6
+Evasion - 5%
+Health - 12
+
+Abilities
+Spear - Outside battle attack that will target the nearest enemy and do attack + weapon dmg + 2 dmg
+Battle Cry - For the next 3 turns enemies will do 1-2 less damage
+Trap - Used outside combat will place a trap and if an enemy runs over it will instantly take 5 damage. Icon will be T
+Poison Spear - Will do 1 dmg then 2 dmg for the next 3 turns
+
+Starting Items
+Trap x1, potion x1, Battle Cry x1
+
+## Feedback
+Good — that's simple: this project's FOV is already computed via real shadowcasting (`field_of_view_set`, blocked by walls), so a target being in `visible_tiles` already *is* proper line-of-sight. One check covers both.
+
+Still need the two Battle Cry answers before I start — they decide whether it's Technique-system code or Effect-system code, which is a real fork in the implementation, not a style choice:
+
+```
+Battle Cry - used during your turn in a fight (like Rogue's Dodge), or used from the dungeon item list before a fight starts (like Mage's Ice Armor)?
+In-battle technique
+Battle Cry's damage reduction - random 1-2 each hit, or a flat number to match every other numeric effect in the project?
+True random 1-2 each hit
+```
+
+That confirms it — `player_input.rs:23` already uses `.filter(component::<Enemy>())`, the exact same idiom I used in both `traps.rs` and the Throw Spear targeting code. Every pattern in this delivery is now traced back to proven prior art in this codebase, not a guess. Packaging everything.Amazon is fully built. **9 files — 1 new, 8 modified:**
+
+| Downloaded as       | Save to                       | Action  |
+| ------------------- | ----------------------------- | ------- |
+| `components.rs`     | `src/components.rs`           | Replace |
+| `battle.rs`         | `src/battle.rs`               | Replace |
+| `use_items.rs`      | `src/systems/use_items.rs`    | Replace |
+| `traps.rs`          | `src/systems/traps.rs`        | **New** |
+| `systems_mod.rs`    | `src/systems/mod.rs`          | Replace |
+| `spawner_mod.rs`    | `src/spawner/mod.rs`          | Replace |
+| `screens_title.rs`  | `src/screens/title.rs`        | Replace |
+| `template.ron`      | `resources/template.ron`      | Replace |
+| `starting_kits.ron` | `resources/starting_kits.ron` | Replace |
+
+**Summary of the kit:**
+- **Stats:** 12 HP, 1 dmg, 6 speed, 0 defense, 5% evasion, glyph `A`, weapon tier Wooden/Bronze/Iron Spear (`w`/`x`/`y`, dmg 1/2/3).
+- **Throw Spear** (out-of-combat) and **Trap** (out-of-combat) — both genuinely new mechanics for this project: the first attack that damages an enemy without ever starting a battle, the second a placeable, persistent hazard entity with its own dedicated system.
+- **Battle Cry** and **Poison Spear** (in-battle techniques) — Battle Cry is the first *randomized* effect in the project (every other numeric effect is flat, per your call); Poison Spear composes an instant hit with the existing Rend/Burn-style damage-over-time machinery.
+- **Starting kit:** Healing Potion, Trap, Battle Cry. Throw Spear and Poison Spear are loot-only, matching how every other class's specialty items work.
+
+I traced every new pattern back to something already proven elsewhere in this codebase before using it — the `component::<Enemy>()` filter, the two-phase "collect then apply" pattern for anything needing a `Health` mutation, the `Ok(&x)` copy-out idiom — so nothing here is a first-time guess the way the `set_fancy` rotation work earlier had to be. That said, I still can't compile this myself, so a real build is the next step, especially given how much new ground (targeting, traps, randomized combat math) this kit covers compared to Rogue/Mage.
+
+### Errors
+```rust
+error[E0277]: can't compare `&legion::Entity` with `legion::Entity`
+   --> src/systems/use_items.rs:136:63
+    |
+136 | ...                   .find(|(e, _)| *e == activate.used_by)
+    |                                         ^^ no implementation for `&legion::Entity == legion::Entity`
+    |
+    = help: the trait `PartialEq<legion::Entity>` is not implemented for `&legion::Entity`
+help: consider dereferencing here
+    |
+136 |                                             .find(|(e, _)| **e == activate.used_by)
+    |                                                            +
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `ever_space_rrpg` (bin "ever_space_rrpg") due to 1 previous error
+```
+
+Simple, exact fix — matches the compiler's own suggestion, and `**e` is already the established idiom elsewhere in this codebase for this exact situation (e.g. the counter-attack item-filtering code uses the same double-deref).Only the one instance — fixed, balanced.**1 file — modified: `src/systems/use_items.rs`**
+
+Legion's query iterator was yielding an extra layer of reference than my single `*e` accounted for — `**e` is exactly the idiom this codebase already uses elsewhere for the same pattern (the counter-attack item filtering). Rebuild should get past this one.
+
+# Bosses for Each Level
+Now I have everything needed. Let's build it.
+
+### 1. `components.rs` — add `Boss` marker### 2. `spawner/template.rs` — `boss_only` field, `spawn_entity` returns `Entity`, new `spawn_boss`Now let's view `spawn_prefab_enemies` fully once more (exact end boundary) to insert `spawn_boss` right after it, and update `spawn_entity`'s return type:Good catch needed here — I should also exclude `boss_only` templates from the **general ambient pool** and the **prefab-guard pool**, or a boss could randomly show up as an ordinary floor monster instead of only guarding the stairs. Let's fix both filters while I'm in here:Now update `spawn_prefab_enemies`'s filter and add `spawn_boss` right after it:Now let's update `spawn_entity` to return the `Entity`:Both statement-form calls (lines 89, 125, 215) are unaffected — discarding a return value as a bare statement needs no changes. Now let's add the wrapper function in `spawner/mod.rs`:### 3. `main.rs` — wire `spawn_boss` into `start_game` and `advance_level`Now `advance_level`:Now let's add three placeholder boss templates — one per level — so the placement mechanism is actually testable before we tune real stats next round. I'll flag them clearly as rough stand-ins.No collisions — every glyph appears exactly once except `?` (which is intentionally shared by all battle techniques, since they're never floor-spawned). Now let's do a full sanity sweep across every touched file:All balanced. Let's do one last cross-check — confirm `spawn_boss` is called correctly and `Boss`/`boss_only` are wired end-to-end with no orphaned references:Everything is wired end-to-end — two call sites (level 0 in `start_game`, every level in `advance_level`), the `Boss` marker is applied correctly, and `boss_only` is respected by all three spawn pools (ambient, prefab-guard, and the new boss pool itself). Let's ship it.Boss placement is fully wired up. **5 files — all modified:**
+
+| Downloaded as         | Save to                   |
+| --------------------- | ------------------------- |
+| `components.rs`       | `src/components.rs`       |
+| `spawner_template.rs` | `src/spawner/template.rs` |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`      |
+| `main.rs`             | `src/main.rs`             |
+| `template.ron`        | `resources/template.ron`  |
+
+**How it works:**
+
+- **Where they go:** every level already computes an `amulet_start` point — the furthest reachable tile from the player's spawn, already reused as either the Exit tile (levels 0/1) or the Amulet's own position (level 2). A boss now spawns *exactly there* on every level, via a new `spawn_boss` function mirroring the existing `spawn_prefab_enemies`/`spawn_prefab_weapon` pattern.
+- **Why that guarantees a real fight:** this project already blocks the player from walking onto any tile an enemy occupies — it starts a battle instead. So standing a boss directly on the Exit/Amulet tile means it's genuinely unavoidable: win the fight, and only then can you step onto the stairs or claim the Amulet.
+- **New `Boss` marker component** tags these entities for anything later (rendering, AI, HUD) that wants to treat them differently — doesn't change any mechanics yet.
+- **New `boss_only` template flag** — I made sure this is excluded from *both* the general ambient floor-spawn pool *and* the fortress prefab-guard pool, not just added as a new pool. Otherwise a boss could've randomly turned up as an ordinary monster instead of only guarding its post.
+- **Testable now:** I added three clearly-flagged **placeholder** bosses (Goblin Chieftain / Orc Warlord / Ettin Overlord, one per level, roughly scaled above that level's normal enemies) so you can actually see the placement working on a build, rather than shipping the mechanism with nothing to spawn. These are explicitly not the real stats — that's next.
+
+One small structural note: I changed the private `spawn_entity` helper to return the `Entity` it just created (previously `()`), since `spawn_boss` needs it to attach the `Boss` tag afterward. The other three call sites just ignore the new return value, which Rust allows without any warning — nothing else needed to change.
