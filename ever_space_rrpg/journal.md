@@ -1015,6 +1015,7 @@ One thing worth testing: since Ice Armor left the technique system, Mage's in-ba
 
 
 # Better Battles
+
 Now let's look at the actual menu box drawing code (the `BattleTurn::PlayerMenu` block around line 761-800):Found it. The box is anchored to the very bottom of the HUD console (`box_y = HUD_ROWS - box_height`) regardless of where the player portrait actually sits — it was never actually positioned relative to the portrait, just clear of its right edge horizontally. Let me work out the right numbers.The player portrait (row 3 of the 5-row portrait console) occupies roughly HUD rows 40–54. Right now the box sits at `HUD_ROWS - box_height` (bottom-anchored, e.g. row ~58 for a typical box), which puts it well below the portrait instead of beside it.
 
 I'll top-align the box with the portrait's row instead — this is a small, contained change in `main.rs`, no other files touched.Now let me sanity-check the rest of the file to confirm nothing else references `box_y`/`BOX_X` assuming the old bottom-anchored position:All uses derive from `box_y`, so they'll move together automatically — no other spot to fix.**1 file — modified: `src/main.rs`**
@@ -1157,3 +1158,20 @@ The root cause is clear: this schedule runs at full frame rate (30fps) with no t
 **Fix:** split the one schedule into two — `background_systems` (map/entity render, still every frame, so there's no flicker) and a new `background_movement_systems` (random_move → movement → animation), which now only runs once every `BACKGROUND_MOVE_INTERVAL_MS` (400ms, easy to retune — that's the single number to change if 400ms still feels off in either direction). A small `background_move_timer_ms` field accumulates real elapsed time each frame and resets after each movement pass; a shared `tick_background` helper handles both the timer and the always-render call, used by both `title_screen` and `class_select`.
 
 Take a look and let me know if 400ms feels right, too slow, or still too fast.
+
+# Victory and Death Screens
+Now let's implement. First, add the tint helper next to `vignette`:Now add the `draw_end_screen_background` method. Let's find where `draw_battle_arena` starts to place this new method near it:Now update `game_over` and `victory` to call these:Now the victory screen:GOLD isn't actually proven elsewhere in the codebase (that hit was just my own edit) — matching the project's own past caution about unproven color constants (e.g. the earlier ORANGE→YELLOW swap), I'll use YELLOW instead, which is used successfully throughout this file already:Now let's sanity-check everything compiles. Let's try `cargo check` (network is disabled, but dependencies may already be vendored/cached):No Rust toolchain in this sandbox, so let's do careful manual verification instead — brace balance and a grep sweep for the new code:Good — this exact query pattern is already proven in `hud.rs` and `player_input.rs`. Let's finalize by copying the file to outputs and presenting it.**1 file — modified: `src/main.rs`**
+
+Both `game_over` and `victory` were plain text on a black console 0/1 (nothing else draws to those consoles in those states). Rather than building a separate fake world (like the title screen's decorative background needed to, since there's no real run before you start one), I reused what's already there: **neither death nor victory tears down the current run's `ecs`/`resources`** — that only happens in `return_to_title`, once you dismiss the screen. So the actual map, theme, and even your player entity (with its real glyph/class) are all still sitting there, unused.
+
+**What I added:**
+
+1. **`tint_color()`** — a small helper that multiplies an RGB color by a tint, so I can recolor the theme's existing floor/wall palette instead of hardcoding a whole second palette.
+2. **`draw_end_screen_background()`** — same floor/wall/vignette technique `draw_battle_arena` already proves works, minus the battle-specific scenery, tinted red (defeat) or warm gold (victory). Draws the *actual* dungeon you died/won in, dimmed or glowing, instead of black.
+3. **`draw_end_screen_portrait()`** — your own glyph, drawn big on the battle-portrait console (same trick as battle portraits), recolored as a solid dark-grey silhouette for defeat or yellow for victory.
+4. Both screens now call these before their existing text — none of the existing text/keybind logic changed.
+
+**One thing to flag honestly:** I originally reached for a `GOLD` color constant for the victory portrait, then caught that it wasn't actually proven anywhere in your codebase (only my own new line) — swapped it for `YELLOW`, which is used successfully throughout this file already. Since I can't compile this myself, that's the kind of thing worth a close look on first build, along with the portrait's exact row/column placement (centered on the portrait console, row/col math worked by hand).
+
+# Amazon
+Work on the Amazon next

@@ -1,8 +1,4 @@
 # Working 
-Enemies will initiate a turn based RPG battle. Loot at the end will be class specific "cards" or abilities that a player can use.
-
-
-
 New classes
 Rogue
 Vanish - Flee and Stealth at the same time
@@ -17,6 +13,10 @@ Make the player or the Enemy stunned after a flee
 More fluid motion - On hold
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
+
+Better Winning Screen.
+Better Death Screen.
+
 
 
 Refactor main.rs
@@ -54,6 +54,7 @@ battle messages damage centered right and message centered left
 Attack
 Defend
 Flee
+Enemies will initiate a turn based RPG battle. Loot at the end will be class specific "cards" or abilities that a player can use.
 
 ### Stats
 Add in speed for each type of enemy, and the player so that we can have the ones with low HP get an attack in, for the bigger enemies we want to have their speed slower.

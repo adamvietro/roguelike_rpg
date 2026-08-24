@@ -202,6 +202,20 @@ fn vignette(base: RGB, x: i32, y: i32, w: i32, h: i32) -> RGB {
     )
 }
 
+/// Component-wise multiplies `base` by `tint` (each in 0.0-1.0), clamped -
+/// used to recolor the same floor/wall palette a level's theme already
+/// defines rather than hardcoding a whole separate palette for the
+/// GameOver/Victory backgrounds. E.g. a reddish tint darkens/desaturates
+/// toward red for defeat; a warm gold tint brightens toward gold for
+/// victory.
+fn tint_color(base: RGB, tint: RGB) -> RGB {
+    RGB::from_f32(
+        (base.r * tint.r).min(1.0),
+        (base.g * tint.g).min(1.0),
+        (base.b * tint.b).min(1.0),
+    )
+}
+
 /// One playable class's class-select entry: which key picks it, what its
 /// button reads, the exact string passed to spawn_player/Class (must match
 /// any `class:` tags in template.ron for techniques to gate correctly),
@@ -671,6 +685,70 @@ impl State {
     /// Callers look up Render live during an active battle, or pass a
     /// value captured before an entity was removed (see
     /// battle_victory_tick, where the enemy no longer exists in the ECS).
+    /// Fills console 0 with the current run's dungeon theme (floor/wall
+    /// tiles + vignette - same ingredients as draw_battle_arena's
+    /// background, minus the battle-specific scenery/border), tinted
+    /// toward `tint`. Used by game_over/victory so those screens show a
+    /// moody dimmed/glowing version of the actual dungeon instead of a
+    /// flat black backdrop - the map/theme resources are still the
+    /// current run's, since neither death nor victory wipes them
+    /// (only return_to_title does, once the player dismisses the screen).
+    fn draw_end_screen_background(&mut self, tint: RGB) {
+        let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap();
+        let floor_glyph = theme.tile_to_render(TileType::Floor);
+        let wall_glyph = theme.tile_to_render(TileType::Wall);
+        let floor_base = tint_color(theme.floor_color(), tint);
+        let wall_base = tint_color(theme.wall_color(), tint);
+        drop(theme);
+
+        let mut arena = DrawBatch::new();
+        arena.target(0);
+        for y in 0..DISPLAY_HEIGHT {
+            for x in 0..DISPLAY_WIDTH {
+                let is_border =
+                    x == 0 || y == 0 || x == DISPLAY_WIDTH - 1 || y == DISPLAY_HEIGHT - 1;
+                let (glyph, base) = if is_border {
+                    (wall_glyph, wall_base)
+                } else {
+                    (floor_glyph, floor_base)
+                };
+                let bg = vignette(base, x, y, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+                let fg = RGB::from_f32(
+                    (bg.r * 1.4).min(1.0),
+                    (bg.g * 1.4).min(1.0),
+                    (bg.b * 1.4).min(1.0),
+                );
+                arena.set(Point::new(x, y), ColorPair::new(fg, bg), glyph);
+            }
+        }
+        arena.submit(0).expect("Batch error");
+    }
+
+    /// Draws the player's own glyph, big, on the battle-portrait console
+    /// (console 3) - same trick draw_portrait already uses during battle -
+    /// recolored solid `tint` rather than the entity's normal sprite
+    /// color, so it reads as a silhouette (grey for defeat, gold for
+    /// victory) instead of looking like an active battle portrait.
+    /// Position is centered horizontally, placed in the console's middle
+    /// row, clear of the console-2 text used above it in game_over/victory.
+    fn draw_end_screen_portrait(&mut self, tint: RGB) {
+        let player = <(Entity, &Player)>::query()
+            .iter(&self.ecs)
+            .map(|(e, _)| *e)
+            .nth(0);
+        let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        if let Some(render) = render {
+            let mut portrait = DrawBatch::new();
+            portrait.target(3);
+            portrait.set(
+                Point::new(BATTLE_PORTRAIT_COLS / 2, BATTLE_PORTRAIT_ROWS / 2),
+                ColorPair::new(tint, BLACK),
+                render.glyph,
+            );
+            portrait.submit(0).expect("Batch error");
+        }
+    }
+
     fn draw_battle_arena(
         &mut self,
         enemy_render: Option<Render>,
@@ -1312,6 +1390,12 @@ impl State {
     }
 
     fn game_over(&mut self, ctx: &mut BTerm) {
+        // Reddish, dimmed version of the actual dungeon the run ended in,
+        // plus the fallen hero's own glyph as a grey silhouette - see
+        // draw_end_screen_background/draw_end_screen_portrait.
+        self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
+        self.draw_end_screen_portrait(DARK_GRAY);
+
         ctx.set_active_console(2);
         ctx.print_color_centered(2, RED, BLACK, "Your quest has ended.");
         ctx.print_color_centered(
@@ -1340,6 +1424,12 @@ impl State {
     }
 
     fn victory(&mut self, ctx: &mut BTerm) {
+        // Warm gold version of the actual dungeon the run was won in,
+        // plus the hero's own glyph glowing gold - see
+        // draw_end_screen_background/draw_end_screen_portrait.
+        self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
+        self.draw_end_screen_portrait(YELLOW);
+
         ctx.set_active_console(2);
         ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
         ctx.print_color_centered(
