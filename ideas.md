@@ -8,14 +8,29 @@ Riposte - Counter attack for 2x damage
 
 Amazon
 
+Debug
+hp - 100hp
+evasion - 50
+damage - 5
+speed - 10
+
+abilities
+Victory - Instantly finishes the game
+Defeat - Instantly Loses the game
+Next Level - Instantly move to the next level
+
+Starting Items
+Victory - x1
+Defeat - X1
+Next Level - x2
+
 Make the player or the Enemy stunned after a flee
 
 More fluid motion - On hold
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
-Better Winning Screen.
-Better Death Screen.
+
 
 
 
@@ -36,6 +51,8 @@ HUD Battle Item Tool Tip.
 Add a 0 command for the item use
 Hotkeys for abilities 
 Different colors for active states of the player
+Better Winning Screen.
+Better Death Screen.
 
 ## Battle Arena
 Have a Battle Victory Screen to show the items that you won.

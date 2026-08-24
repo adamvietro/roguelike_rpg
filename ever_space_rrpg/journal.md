@@ -1173,5 +1173,153 @@ Both `game_over` and `victory` were plain text on a black console 0/1 (nothing e
 
 **One thing to flag honestly:** I originally reached for a `GOLD` color constant for the victory portrait, then caught that it wasn't actually proven anywhere in your codebase (only my own new line) — swapped it for `YELLOW`, which is used successfully throughout this file already. Since I can't compile this myself, that's the kind of thing worth a close look on first build, along with the portrait's exact row/column placement (centered on the portrait console, row/col math worked by hand).
 
+## Errors
+```rust
+error[E0308]: mismatched types
+    --> src/main.rs:1397:39
+     |
+1397 |         self.draw_end_screen_portrait(DARK_GRAY);
+     |              ------------------------ ^^^^^^^^^ expected `RGB`, found `(u8, u8, u8)`
+     |              |
+     |              arguments to this method are incorrect
+     |
+     = note: expected struct `bracket_lib::prelude::RGB`
+                 found tuple `(u8, u8, u8)`
+note: method defined here
+    --> src/main.rs:734:8
+     |
+ 734 |     fn draw_end_screen_portrait(&mut self, tint: RGB) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^            ---------
+help: call `Into::into` on this expression to convert `(u8, u8, u8)` into `bracket_lib::prelude::RGB`
+     |
+1397 |         self.draw_end_screen_portrait(DARK_GRAY.into());
+     |                                                +++++++
+
+error[E0308]: mismatched types
+    --> src/main.rs:1431:39
+     |
+1431 |         self.draw_end_screen_portrait(YELLOW);
+     |              ------------------------ ^^^^^^ expected `RGB`, found `(u8, u8, u8)`
+     |              |
+     |              arguments to this method are incorrect
+     |
+     = note: expected struct `bracket_lib::prelude::RGB`
+                 found tuple `(u8, u8, u8)`
+note: method defined here
+    --> src/main.rs:734:8
+     |
+ 734 |     fn draw_end_screen_portrait(&mut self, tint: RGB) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^            ---------
+help: call `Into::into` on this expression to convert `(u8, u8, u8)` into `bracket_lib::prelude::RGB`
+     |
+1431 |         self.draw_end_screen_portrait(YELLOW.into());
+     |                                             +++++++
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `ever_space_rrpg` (bin "ever_space_rrpg") due to 2 previous errors
+```
+
+Good, exactly what the compiler suggested — the named color constants (`DARK_GRAY`, `YELLOW`, etc.) are `(u8, u8, u8)` tuples, not `RGB` directly; they need `.into()` to convert. Fixing both call sites:That fixes it — the compiler's suggested `.into()` is correct: bracket-lib's named color constants like `DARK_GRAY` and `YELLOW` are actually plain `(u8, u8, u8)` tuples, and `RGB` implements `From<(u8, u8, u8)>`, so `.into()` converts them cleanly. Nothing else in the two new functions is affected — they already work in plain `RGB` throughout.**1 file — modified: `src/main.rs`**
+
+Same file as before, with the two `.into()` calls added. Rebuild and it should compile clean now.
+
+## Make the Icon Look Dead
+Got it — you want the fallen hero's glyph actually rotated to lie on its side, tinted red. That needs a different rendering path than the plain simple console `draw_portrait` uses — bracket-lib's simple consoles can't rotate a glyph, only bracket-lib's "fancy console" feature (`DrawBatch::set_fancy`) can. Let me check the console setup and wire in a dedicated fancy console for this.Good — confirmed nothing in this project has ever used bracket-lib's "fancy console" rotation feature (there's only a commented-out, never-activated stub for sub-pixel movement that even mentions abandoning that path). This will genuinely be new ground for this codebase, so I'll flag that clearly. Let's build it.Now let's add the fallen-portrait function using a new fancy console, right after the existing portrait helper:Now add the console index constant and update the console-layout comment block near the top:Now update the console-clearing block in `tick()` and the `BTermBuilder` chain in `main()`:Now the `main()` builder chain to register console 6 as a fancy console:Now let's update `game_over` to use the fallen, red-tinted portrait, and add bigger text on the title-screen's big-text console:Now let's do a final sanity sweep — brace balance, and check for any missed references:Everything's wired consistently. Let's ship it.**1 file — modified: `src/main.rs`**
+
+**What changed:**
+
+1. **Fallen, red, rotated hero.** `draw_portrait`/`draw_end_screen_portrait` can only stamp a glyph upright onto a fixed grid cell — there's no rotation on a plain "simple console." Real rotation needs bracket-lib's **"fancy console"** feature (`DrawBatch::set_fancy`), which nothing in this project has used before (I checked — there's only a commented-out, never-activated stub for sub-pixel movement that even mentions the team backing away from fancy consoles for a different reason). So this adds a new **console 6**, registered via `.with_fancy_console(...)`, using the same square 32×32px cells as the main dungeon view so a 90° turn doesn't stretch the glyph. `draw_end_screen_fallen_portrait` draws your hero's own glyph there, rotated flat and tinted red, centered on screen.
+
+2. **Bigger death-screen header.** "Your quest has ended." now renders on the same big-text console the title screen's logo already uses (32px cells vs. the old 8px), with the paragraph text repositioned below it using the same pixel-height math `class_select` already uses to avoid overlap. The fallen portrait sits center-screen; the two closing lines ("Don't worry...", "Press 1...") were pushed down to clear it.
+
+**Flagging honestly:** `DrawBatch::set_fancy`'s exact signature — specifically whether rotation is a plain `f32` in radians or a wrapper type like `Radians`/`Degrees` — is my best recollection, not something proven anywhere in your codebase like the rest of this file's patterns. This is the one real "might not compile as-written" risk here. If it errors on that specific call, paste the message back and I'll fix just that line — the console setup, tinting, and layout around it should be sound regardless.
+
+Victory screen is untouched for now, per "I haven't seen the victory screen yet" — take a look at both and let me know what you want adjusted (including whether Victory should get the same big-text treatment).
+
+### Errors
+```rust
+That's a real, specific type mismatch, not a guess-and-hope situation — the error itself points to the fix: `set_fancy` wants something that converts `Into<Radians>`, and `Degrees` is the type that does that (not a bare `f32`). Swapping to `Degrees`:**1 file — modified: `src/main.rs`**
+
+Your compiler error was actually the useful kind — it confirmed `set_fancy` wants `Into<Radians>`, and pointed at `Degrees` as the type that provides it. Swapped the rotation argument from a raw `f32` to `Degrees::new(90.0)`.
+
+**One small remaining guess, flagged plainly:** I'm assuming `Degrees` has a `::new()` constructor, matching every other geometry type this file already uses (`Point::new`, `PointF::new`, `RGB::from_f32`). If it's actually a plain tuple struct instead, the fix is a one-word swap to `Degrees(90.0)` — paste the error if it complains and I'll make that change immediately.
+```
+
+Good, useful screenshot — two real things to fix:
+
+1. **The rotated icon rendered tiny.** I placed it correctly (dead center), but I left `set_fancy`'s scale parameter at `1.0` — that's exactly the knob that should blow it up, similar to how the battle portraits get "big" from their coarse grid. Bumping the scale up.
+2. **Body text needs to be bigger too**, not just the header — right now it's still on the small 8px console, which now looks tiny next to the big header and needs to move down anyway to clear the now-bigger icon.Add a scale constant near the other console-layout constants:Now let's move the body text onto the HUD console (already used for the "1.5×" bigger dungeon-view text elsewhere) and recompute row positions to clear both the header and the now-larger icon:**1 file — modified: `src/main.rs`**
+
+**Two fixes:**
+
+1. **Icon size.** I had `set_fancy`'s `scale` parameter locked at `1.0` — native glyph size, which is tiny against a 1280×800 window. That's the actual knob for size on a fancy console (there's no coarse-grid trick available here like the battle portraits use, since fancy-console positions aren't snapped to a grid). Added a new `END_SCREEN_FALLEN_SCALE` constant (currently `6.0`) and wired it into both the x and y scale — uniform, so the rotation stays a clean square instead of stretching.
+
+2. **Body text.** Moved the four paragraph lines off the small 8px console onto console 4 — the same "~1.5× bigger" HUD console already used for the dungeon HUD text — and recalculated every row position in actual pixels rather than row counts, since the header (32px cells), body (~12px cells), and the now-much-bigger icon all live on differently-scaled consoles that need to clear each other's real screen space, not just look right by row-number coincidence.
+
+`END_SCREEN_FALLEN_SCALE = 6.0` is the one number worth tuning by eye once you rebuild — bump it up or down if the icon still reads too small/large.
+
+### Weird Black Background
+That black box is real — the fancy console renders an opaque background quad from whatever color we pass, and we passed plain `BLACK`. There's no proven "transparent background" API for a fancy console in this codebase to fall back on safely, so instead of guessing at a new, unverified API surface, I'll make the box's background color exactly match the arena color that's already drawn behind it at that spot — same vignette math, computed at the icon's exact position, using only APIs already proven in this file.Now update the `game_over` call site to pass both tints:Good, all consistent — one call site, correctly updated with both tints.**1 file — modified: `src/main.rs`**
+
+**Root cause:** a fancy console always renders an opaque background quad — unlike every other overlay console in this file, which are registered "`_no_bg`" and let console 0 show through. I'd been passing plain `BLACK` for that background, which is exactly the solid box you saw.
+
+Rather than guess at a second unverified API (whether there's some transparent-background trick for fancy consoles — nothing in this codebase proves one exists), I made `draw_end_screen_fallen_portrait` compute the **exact same vignette color** `draw_end_screen_background` already painted at that spot on console 0, and use that as the quad's background. Both functions now take the same `background_tint`, so the icon's backing box is mathematically guaranteed to match the arena color right behind it — no transparency needed, and no new API surface risked, since this only reuses `vignette`/`tint_color`/`RGB`, all already proven elsewhere in this file.
+
+It won't be a *perfect* seam if the vignette shifts noticeably between the icon's center and its edges (the box is ~192px wide, so there's some falloff across it), but it should read as blended rather than a hard black rectangle. Let me know how it looks once you rebuild.
+
+### Still Weird Background (Try Transparent)
+Understood — let's actually try it. Given the earlier evidence that `ColorPair::new` accepted plain `RGB` without complaint, and this project's later features (flash tinting, the abandoned fade-tint idea) all assume this engine supports real alpha blending under the hood, my best bet is that `ColorPair` is built on `RGBA` (with `RGB` auto-converting to opaque alpha=1), which would make a genuinely transparent background possible by passing `RGBA` with alpha=0 explicitly.Now update the `game_over` call site — no longer needs the shared `background_tint` for the portrait call:Both helpers are still used by `draw_end_screen_background`/`draw_battle_arena`, so nothing's orphaned. Let's ship it.**1 file — modified: `src/main.rs`**
+
+**What changed:** `draw_end_screen_fallen_portrait` now passes `RGBA::from_f32(0.0, 0.0, 0.0, 0.0)` (fully transparent) as the background, instead of trying to color-match the arena. Both `fg`/`bg` are now explicitly typed as `RGBA` rather than `RGB`, betting that `ColorPair` is actually built on `RGBA` internally (with plain `RGB` silently converting to opaque alpha=1 — which is consistent with every other `ColorPair::new(RGB, RGB)` call in this file compiling fine without ever needing alpha before).
+
+Also simplified: dropped the now-unused `background_tint` parameter and the vignette-sampling logic entirely, since there's no longer a background color to match.
+
+**This is a real guess, not a proven pattern** — nothing in this codebase has needed an alpha channel until now. If it fails to compile, the error will tell us exactly what type `set_fancy`/`ColorPair` actually expect, and I can fix it precisely from that. If it *does* compile but doesn't render transparently (i.e., alpha isn't actually respected by this rendering path), that'll only be visible once you run it — worth flagging that "compiles" and "looks right" are two separate things to check here.
+
+
+# Debug Class
+Debug
+hp - 100hp
+evasion - 50
+damage - 5
+speed - 10
+defense - 0
+
+abilities
+Victory - Instantly finishes the game
+Defeat - Instantly Loses the game
+Next Level - Instantly move to the next level
+
+Starting Items
+Victory - x1
+Defeat - X1
+Next Level - x2
+
+Good, simple to extend. Now let's check the class glyphs already in use, `class_base_stats`, `Templates`/`spawner`/`template.ron` structure, and `use_items.rs`'s resource access to `TurnState`:Now let's check `starting_kits.ron` and `starting_kits.rs` for exact format:Good, this fully applies effect/technique/class/description. Now let's check `use_items.rs`'s system macro signature to add the `TurnState` resource cleanly, matching the pattern already used in `end_turn.rs`:Everything I need is confirmed. Let's implement.
+
+### 1. `components.rs` — add three new `ProvidesEffect` variants### 2. `use_items.rs` — wire the three effects to `TurnState`### 3. `spawner/mod.rs` — add Debug's base stats### 4. `resources/template.ron` — add the three Debug items### 5. `resources/starting_kits.ron` — grant them (Next Level ×2 via repetition)### 6. `main.rs` — hidden `\` shortcut in `class_select`Confirmed — fully generic, no per-variant code needed there. Now a final sanity sweep across all touched files:Everything is consistently wired. Let's copy all six changed files to outputs and present them.Yes, this all makes sense — and I designed it around one key realization: **"Victory," "Defeat," and "Next Level" aren't battle techniques, they're out-of-combat items**, using the same system as Healing Potion/Dungeon Map/Ice Armor rather than the battle-menu Technique system. That's the right fit since you'd use them while exploring, not mid-fight.
+
+**6 files:**
+
+| Downloaded as       | Save to                       | Action  |
+| ------------------- | ----------------------------- | ------- |
+| `main.rs`           | `src/main.rs`                 | Replace |
+| `components.rs`     | `src/components.rs`           | Replace |
+| `use_items.rs`      | `src/systems/use_items.rs`    | Replace |
+| `spawner_mod.rs`    | `src/spawner/mod.rs`          | Replace |
+| `template.ron`      | `resources/template.ron`      | Replace |
+| `starting_kits.ron` | `resources/starting_kits.ron` | Replace |
+
+**How it works:**
+
+- **Stats:** Health 100, Damage 5, Speed 10, Evasion 50, Defense 0 (not specified, so left at the default). Glyph `D` — checked against every existing player/monster/item glyph, no collisions.
+- **The three items** are new `ProvidesEffect` variants (`DebugWin`/`DebugLose`/`DebugNextLevel`). Using one just sets `TurnState` directly to `Victory`/`GameOver`/`NextLevel` — the exact same states the real win/lose/level-exit conditions already set in `end_turn.rs`, so `main.rs`'s existing dispatcher and screens handle them with zero new code. I confirmed `end_turn.rs`'s own state-transition logic has a catch-all that won't clobber this if it runs later in the same tick.
+- **Starting kit:** Victory ×1, Defeat ×1, Next Level ×2 — done by just listing `"Next Level"` twice in the kit's item list, since items already stack (no count field needed).
+- **Hidden access:** `Debug` isn't in `CLASS_ROSTER` at all, so it's invisible on the class-select screen. Pressing `\` there calls `start_game("Debug")` directly, bypassing the visible roster entirely.
+
+**One thing worth double-checking on your end:** I used `VirtualKeyCode::Backslash`, which is standard in winit's keycode enum but hasn't been used anywhere in this codebase before — if the build complains about that specific identifier, tell me the error and I'll adjust it.
+
+One thing I didn't add: a Defense stat for Debug (left at 0, same as most classes) since you didn't list one — flag it if you want it tanky on that front too.
+
 # Amazon
 Work on the Amazon next

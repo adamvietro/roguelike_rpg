@@ -39,6 +39,24 @@ mod prelude {
     // window, DISPLAY_WIDTH x DISPLAY_HEIGHT cols/rows (the dungeon view's
     // own grid) on the small text font instead of the dungeon font - lands
     // at 32x32px cells, 4x console 2's 8px text.
+    /// Console 6: a "fancy console" (supports DrawBatch::set_fancy, incl.
+    /// rotation) - same DISPLAY_WIDTH x DISPLAY_HEIGHT grid and dungeonfont
+    /// as console 0, so cells are the same 32x32px squares, giving a clean
+    /// (non-stretched) rotation. Used only by
+    /// draw_end_screen_fallen_portrait for the GameOver screen's fallen
+    /// hero - see main()'s builder chain and State::tick's console-clear
+    /// block.
+    pub const END_SCREEN_FALLEN_CONSOLE: usize = 6;
+    /// How much to blow up the fallen hero's glyph on the GameOver screen
+    /// - set_fancy's `scale` parameter, a multiplier on the glyph's native
+    /// 32x32px size (uniform x/y so a 90-degree rotation stays square,
+    /// not stretched). 1.0 (native size) reads as tiny against a
+    /// 1280x800 window - this is the equivalent of the battle portraits'
+    /// "5x scale-up via a coarse grid" trick, just done through
+    /// set_fancy's own scale parameter instead, since that trick isn't
+    /// available on a fancy console (positions there aren't snapped to a
+    /// grid the way draw_portrait's are).
+    pub const END_SCREEN_FALLEN_SCALE: f32 = 6.0;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -731,6 +749,8 @@ impl State {
     /// victory) instead of looking like an active battle portrait.
     /// Position is centered horizontally, placed in the console's middle
     /// row, clear of the console-2 text used above it in game_over/victory.
+    /// Used by victory (upright); game_over uses
+    /// draw_end_screen_fallen_portrait instead, which is rotated.
     fn draw_end_screen_portrait(&mut self, tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
@@ -746,6 +766,63 @@ impl State {
                 render.glyph,
             );
             portrait.submit(0).expect("Batch error");
+        }
+    }
+
+    /// Draws the player's own glyph rotated 90 degrees - lying on its side,
+    /// for the GameOver screen specifically. draw_portrait/
+    /// draw_end_screen_portrait can only place a glyph on a fixed grid
+    /// cell, upright - there's no rotation available on a plain
+    /// "simple console". Actual rotation needs bracket-terminal's "fancy
+    /// console" feature (DrawBatch::set_fancy, on END_SCREEN_FALLEN_CONSOLE
+    /// - see main()), which nothing in this project has used before now.
+    ///
+    /// set_fancy's rotation parameter needs `Into<Radians>`, not a plain
+    /// f32 - confirmed by your build's own compiler error, which also
+    /// confirmed bracket-geometry's `Degrees` type is the thing that
+    /// converts into it.
+    ///
+    /// THE UNTESTED PART: a flat opaque background quad (from two earlier
+    /// attempts, both confirmed by screenshot) can't blend into the
+    /// radial vignette behind it no matter what color it's given - a flat
+    /// rectangle inside a gradient always shows a seam. The real fix is a
+    /// genuinely transparent background instead of a matched one. This
+    /// tries that via `RGBA` with alpha 0, betting that ColorPair is
+    /// actually built on RGBA under the hood (with plain RGB silently
+    /// converting to alpha=1 opaque, which is consistent with every
+    /// ColorPair::new(RGB, RGB) call elsewhere in this file compiling
+    /// fine) rather than RGB-only - nothing in this codebase has needed
+    /// alpha before, so this specific call is a genuine guess, not a
+    /// proven pattern. If it doesn't compile, the error will say exactly
+    /// what type is actually expected, and I can fix it precisely from
+    /// that - or fall back to the "deliberate framed plaque" approach if
+    /// transparency turns out not to be available here at all.
+    fn draw_end_screen_fallen_portrait(&mut self, icon_tint: RGB) {
+        let player = <(Entity, &Player)>::query()
+            .iter(&self.ecs)
+            .map(|(e, _)| *e)
+            .nth(0);
+        let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        if let Some(render) = render {
+            let cx = DISPLAY_WIDTH / 2;
+            let cy = DISPLAY_HEIGHT / 2;
+
+            let mut fallen = DrawBatch::new();
+            fallen.target(END_SCREEN_FALLEN_CONSOLE);
+            // Center of the console's square-celled DISPLAY_WIDTH x
+            // DISPLAY_HEIGHT grid (same 32px cells as the main dungeon
+            // view, so a 90-degree turn doesn't stretch/squash the glyph).
+            let fg: RGBA = icon_tint.into();
+            let bg: RGBA = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+            fallen.set_fancy(
+                PointF::new(cx as f32, cy as f32),
+                0,
+                Degrees::new(90.0),
+                PointF::new(END_SCREEN_FALLEN_SCALE, END_SCREEN_FALLEN_SCALE),
+                ColorPair::new(fg, bg),
+                render.glyph,
+            );
+            fallen.submit(0).expect("Batch error");
         }
     }
 
@@ -1390,33 +1467,52 @@ impl State {
     }
 
     fn game_over(&mut self, ctx: &mut BTerm) {
-        // Reddish, dimmed version of the actual dungeon the run ended in,
-        // plus the fallen hero's own glyph as a grey silhouette - see
-        // draw_end_screen_background/draw_end_screen_portrait.
+        // Red, dimmed version of the actual dungeon the run ended in,
+        // plus the fallen hero's own glyph - rotated onto its side, tinted
+        // red, with a genuinely transparent background this time (see
+        // draw_end_screen_fallen_portrait) instead of an opaque quad
+        // matched to the arena color.
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
-        self.draw_end_screen_portrait(DARK_GRAY);
+        self.draw_end_screen_fallen_portrait(RED.into());
 
-        ctx.set_active_console(2);
+        // Header on the big-text console (console 5, 32px cells - same
+        // one the title screen's "EVER SPACE RRPG" uses). Body text below
+        // it moved from console 2 (fine 8px) to console 4 (the HUD
+        // console, ~12px cells - the same "1.5x bigger" text already used
+        // for the dungeon HUD) so it isn't dwarfed by the header, and row
+        // positions are worked out in pixels (not row counts) so nothing
+        // overlaps across these differently-scaled consoles: header row 2
+        // on console 5 bottoms out at (2+1)*32 = 96px -> console 4 row 9
+        // (~108px) clears it; the fallen portrait (see
+        // draw_end_screen_fallen_portrait) is centered at y=400px and, at
+        // END_SCREEN_FALLEN_SCALE, spans roughly 304-496px -> console 4
+        // row 45 (~537px) clears its bottom edge with margin.
+        ctx.set_active_console(5);
         ctx.print_color_centered(2, RED, BLACK, "Your quest has ended.");
+
+        ctx.set_active_console(4);
         ctx.print_color_centered(
-            4,
+            10,
             WHITE,
             BLACK,
             "Slain by a monster, your hero's journey has come to a premature end.",
         );
         ctx.print_color_centered(
-            5,
+            13,
             WHITE,
             BLACK,
             "The Amulet of Yala remains unclaimed, and your home town is not saved.",
         );
+        // Below this point: the fallen portrait, centered on-screen (see
+        // draw_end_screen_fallen_portrait). These two lines sit clear
+        // beneath it.
         ctx.print_color_centered(
-            8,
+            45,
             YELLOW,
             BLACK,
             "Don't worry, you can always try again with a new hero.",
         );
-        ctx.print_color_centered(9, GREEN, BLACK, "Press 1 to return to the title screen.");
+        ctx.print_color_centered(48, GREEN, BLACK, "Press 1 to return to the title screen.");
 
         if let Some(VirtualKeyCode::Key1) = ctx.key {
             self.return_to_title();
@@ -1428,7 +1524,7 @@ impl State {
         // plus the hero's own glyph glowing gold - see
         // draw_end_screen_background/draw_end_screen_portrait.
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
-        self.draw_end_screen_portrait(YELLOW);
+        self.draw_end_screen_portrait(YELLOW.into());
 
         ctx.set_active_console(2);
         ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
@@ -1464,6 +1560,8 @@ impl GameState for State {
         ctx.set_active_console(4);
         ctx.cls();
         ctx.set_active_console(5);
+        ctx.cls();
+        ctx.set_active_console(END_SCREEN_FALLEN_CONSOLE);
         ctx.cls();
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
@@ -1533,6 +1631,15 @@ fn main() -> BError {
         )
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
+        // Console 6 (END_SCREEN_FALLEN_CONSOLE): a "fancy console" -
+        // supports DrawBatch::set_fancy (sub-pixel position + rotation +
+        // scale), unlike every other console above which is a plain
+        // "simple console". Same square 32x32px cells as console 0/1
+        // (dungeonfont at native size on the DISPLAY_WIDTH x
+        // DISPLAY_HEIGHT grid), so a 90-degree rotation doesn't
+        // stretch/squash the glyph. Used only by
+        // draw_end_screen_fallen_portrait for the GameOver screen.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_vsync(false)
         .build()?;
 
