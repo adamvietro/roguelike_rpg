@@ -1339,5 +1339,210 @@ D-for-Debug worked, and there's the Victory screen — confirmed it's the plain 
 
 Both icons use the same non-rotated, non-transparent drawing method the original victory portrait already used (the coarse 5×5 grid trick, not the fancy-console rotation from Game Over) — no new API risk here, since a standing hero and a held-up amulet don't need to be "on their side."
 
+# Refactor main.rs
+No real pushback on the idea itself — `main.rs` is **1,693 lines** now and doing at least five distinct jobs: app bootstrap/console setup, the `State` lifecycle (new run, level transitions, title background), several full-screen UI states (title, class select, pause, battle, victory, game over), a ~480-line `battle_tick` that's become its own subsystem, and a pile of free-standing draw helpers (`vignette`, `draw_tree`, `flash_tint`, etc.) that have nothing to do with game state at all. That's a lot to hold in one file when you just want to tweak, say, the victory screen.
+
+Two technical notes, not objections, just things worth knowing going in:
+
+1. **This is safe mechanically.** `State`'s fields are all private, but Rust's privacy rule is "visible to the defining module and all its descendants" — since `State` is defined at the crate root (`main.rs`), any new submodule we create can still see and use those private fields directly, no need to mark anything `pub`. Splitting `impl State { ... }` across multiple files is completely normal Rust.
+
+2. **`battle_tick` is the risky part.** It's the single biggest, most tangled function in the file — lots of local state, nested matches, borrows of `self.ecs`/`self.resources`. Moving code between files doesn't change what it *does*, but I can't compile-test here, so for a function that size I'd rather move it as its own careful pass and have you build/confirm before continuing, rather than one giant everything-at-once rewrite that's hard to debug if something's off.
+
+Proposed module split, for your sign-off before I start moving code:
+
+- **`src/render_helpers.rs`** — the free functions with no `State` dependency: `draw_portrait`, `wrap_text`, `draw_hollow_box`, `flash_tint`, `draw_tree`, `vignette`, `tint_color`.
+- **`src/screens/title.rs`** — `title_screen`, `class_select`, `spawn_title_background`, `tick_background`, `CLASS_ROSTER`/`ClassRosterEntry`.
+- **`src/screens/pause.rs`** — `paused_tick`.
+- **`src/screens/battle.rs`** — `battle_tick`, `battle_victory_tick`, `draw_battle_arena` (the big one — done last, its own pass).
+- **`src/screens/end.rs`** — `game_over`, `victory`, `draw_end_screen_background`/`portrait`/`amulet`/`fallen_portrait`.
+- **`main.rs`** stays with: `State` struct definition, `new`/`start_game`/`advance_level`/`return_to_title` (core lifecycle), the `GameState::tick` dispatcher, and `main()`.
+
+Want me to go with this breakdown, or adjust the boundaries first?
+
+## Solution
+Now let's view the entire `battle_tick` body (368-852) and `battle_victory_tick` (852-892):Given the size, let's do this mechanically with `sed` to guarantee an exact, byte-for-byte extraction rather than retyping 500+ lines by hand.Good, that's exactly the closing brace of `battle_victory_tick`. Now let's build the new file with a proper header, then splice in the extracted body:Now mark `battle_tick` and `battle_victory_tick` as `pub` (they're called from `main.rs`'s `tick()` dispatcher, an ancestor module — so they need `pub` just like the other screen entry points):Now remove this block from `main.rs` and register the module:Delete lines 248 (doc comment start) through 892 (`battle_victory_tick`'s closing `}`), leaving the `impl State`'s own closer at 893:Same off-by-one closing-brace issue as before — `start_game`'s closing `}` was kept but `impl State`'s own closer is now missing. Fix:That confirms it — `advance_level` is the last method, correctly closed, followed by `impl State`'s closer, then `impl GameState`. Structure is exactly what I expect: `State::new`, `start_game`, `return_to_title`, `advance_level` remain in `main.rs`. Now let's register `mod battle;` and check overall balance:Every file is brace-balanced. Now let's do a full-project sanity sweep — check that nothing references a moved item incorrectly, and view the final `main.rs` end-to-end:Let's verify every cross-module `self.` method call resolves correctly — check each new screens file for method calls (not just field access) and confirm they're visible from that location:No duplicates, every function appears exactly once. Now let's verify no other file in the project referenced any of the moved free functions with an unqualified path that would now break, and check the `screens/mod.rs` final state:Found two stale comments in `src/battle.rs` referencing "flash_tint in main.rs" — now inaccurate since it moved to `render_helpers.rs`. Let's fix those too:Also fix the `spawner/mod.rs` comments referencing "CLASS_ROSTER in main.rs" (now `screens/title.rs`):Now let's also check for any other stale "in main.rs" references throughout the project that might now be inaccurate:Also caught a **pre-existing** stale comment unrelated to this refactor — `spawner/mod.rs` still says "hidden Backslash shortcut" even though we swapped that to the `D` key a few turns ago. Fixing all three:Now a final complete sweep — brace balance on every touched file, and one more grep for any remaining stale cross-references:All balanced. Now let's package the full delivery — 10 files, mostly new plus a few touched-up.Refactor's done. **10 files — 6 new, 4 modified:**
+
+| Downloaded as       | Save to                       | Action  |
+| ------------------- | ----------------------------- | ------- |
+| `main.rs`           | `src/main.rs`                 | Replace |
+| `render_helpers.rs` | `src/render_helpers.rs`       | **New** |
+| `screens_mod.rs`    | `src/screens/mod.rs`          | **New** |
+| `screens_title.rs`  | `src/screens/title.rs`        | **New** |
+| `screens_pause.rs`  | `src/screens/pause.rs`        | **New** |
+| `screens_battle.rs` | `src/screens/battle.rs`       | **New** |
+| `screens_end.rs`    | `src/screens/end.rs`          | **New** |
+| `battle.rs`         | `src/battle.rs`               | Replace |
+| `spawner_mod.rs`    | `src/spawner/mod.rs`          | Replace |
+| `player_input.rs`   | `src/systems/player_input.rs` | Replace |
+
+**`main.rs` went from 1,693 lines to 346.** It now holds only: the prelude, `State`'s struct definition, its core lifecycle (`new`/`start_game`/`return_to_title`/`advance_level`), the `GameState::tick` dispatcher, and `main()`. Everything else moved into a `screens/` folder (mirroring `systems/`/`map_builder/`) plus a flat `render_helpers.rs` for the free drawing/text functions.
+
+**Two visibility corrections along the way**, worth knowing about since they contradict what I told you last time:
+- I initially said `State`'s private fields would just work from new submodules — that part's true (Rust: private items are visible to *descendant* modules).
+- But the *screen methods themselves* (`title_screen`, `battle_tick`, `game_over`, etc.) needed to be marked `pub`, since `main.rs`'s `tick()` dispatcher is calling *into* those submodules — and privacy doesn't flow the other direction. I caught this while actually writing the code, not before, so I'm flagging it plainly rather than pretending I had it right from the start.
+
+**Three bonus fixes found while moving things around**, all cosmetic/doc-only, no behavior change:
+1. A doc comment for `draw_battle_arena` had gotten glued onto `draw_end_screen_background` by mistake in an earlier edit — split back apart correctly.
+2. Two comments in `battle.rs` and one in `player_input.rs` still said "main.rs" for things that just moved — updated to point at `screens/battle.rs`.
+3. A **pre-existing, unrelated** stale comment in `spawner/mod.rs` still said "hidden Backslash shortcut" from before we swapped that to the `D` key — fixed.
+
+I verified brace balance on every touched file and traced every cross-file `self.method()` call by hand to confirm it resolves under Rust's actual privacy rules. I can't compile this myself, so a real build is still the first thing worth doing — but structurally, this should be a clean, behavior-identical reorganization.
+
+### Errors
+```rust
+vinny@DESKTOP-ANBE9HK:~/Projects/roguelike_rpg/ever_space_rrpg$ cargo run --release
+   Compiling ever_space_rrpg v0.1.0 (/home/vinny/Projects/roguelike_rpg/ever_space_rrpg)
+warning: `draw_hollow_box` is ambiguous
+   --> src/screens/battle.rs:305:9
+    |
+305 |         draw_hollow_box(
+    |         ^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `draw_hollow_box` could refer to the function imported here
+   --> src/main.rs:15:13
+    |
+ 15 |     pub use bracket_lib::prelude::*;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `draw_hollow_box` to disambiguate
+note: `draw_hollow_box` could also refer to the function imported here
+   --> src/main.rs:67:13
+    |
+ 67 |     pub use crate::render_helpers::*;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `draw_hollow_box` to disambiguate
+    = note: `#[warn(ambiguous_glob_imports)]` (part of `#[warn(future_incompatible)]`) on by default
+
+warning: `draw_hollow_box` is ambiguous
+   --> src/screens/battle.rs:383:9
+    |
+383 |         draw_hollow_box(
+    |         ^^^^^^^^^^^^^^^ ambiguous name
+    |
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: for more information, see issue #114095 <https://github.com/rust-lang/rust/issues/114095>
+    = note: ambiguous because of multiple glob imports of a name in the same module
+note: `draw_hollow_box` could refer to the function imported here
+   --> src/main.rs:15:13
+    |
+ 15 |     pub use bracket_lib::prelude::*;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `draw_hollow_box` to disambiguate
+note: `draw_hollow_box` could also refer to the function imported here
+   --> src/main.rs:67:13
+    |
+ 67 |     pub use crate::render_helpers::*;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: consider adding an explicit import of `draw_hollow_box` to disambiguate
+
+error[E0277]: the trait bound `object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>: bracket_lib::prelude::Console` is not satisfied
+   --> src/screens/battle.rs:306:13
+    |
+306 |             &mut log_batch,
+    |             ^^^^^^^^^^^^^^ the trait `bracket_lib::prelude::Console` is not implemented for `object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>`
+    |
+    = help: the following other types implement trait `bracket_lib::prelude::Console`:
+              FlexiConsole
+              SimpleConsole
+              SparseConsole
+              SpriteConsole
+              VirtualConsole
+    = note: required for the cast from `&mut object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>` to `&mut dyn bracket_lib::prelude::Console`
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> src/screens/battle.rs:305:9
+    |
+305 |           draw_hollow_box(
+    |  _________^^^^^^^^^^^^^^^-
+306 | |             &mut log_batch,
+307 | |             MSG_BOX_X,
+308 | |             MSG_BOX_Y,
+...   |
+311 | |             ColorPair::new(WHITE, BLACK),
+    | |             ---------------------------- expected `RGBA`, found `ColorPair`
+312 | |         );
+    | |_________- argument #7 of type `bracket_lib::prelude::RGBA` is missing
+    |
+note: function defined here
+   --> /home/vinny/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bracket-terminal-0.8.7/src/consoles/text/gui_helpers.rs:41:8
+    |
+ 41 | pub fn draw_hollow_box(
+    |        ^^^^^^^^^^^^^^^
+help: provide the argument
+    |
+305 ~         draw_hollow_box(
+306 +             &mut log_batch,
+307 +             MSG_BOX_X,
+308 +             MSG_BOX_Y,
+309 +             MSG_BOX_WIDTH,
+310 +             MSG_BOX_HEIGHT,
+311 +             /* bracket_lib::prelude::RGBA */,
+312 +             /* bracket_lib::prelude::RGBA */,
+313 ~         );
+    |
+
+error[E0277]: the trait bound `object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>: bracket_lib::prelude::Console` is not satisfied
+   --> src/screens/battle.rs:384:13
+    |
+384 |             &mut menu_batch,
+    |             ^^^^^^^^^^^^^^^ the trait `bracket_lib::prelude::Console` is not implemented for `object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>`
+    |
+    = help: the following other types implement trait `bracket_lib::prelude::Console`:
+              FlexiConsole
+              SimpleConsole
+              SparseConsole
+              SpriteConsole
+              VirtualConsole
+    = note: required for the cast from `&mut object_pool::Reusable<'_, bracket_lib::prelude::DrawBatch>` to `&mut dyn bracket_lib::prelude::Console`
+
+error[E0061]: this function takes 7 arguments but 6 arguments were supplied
+   --> src/screens/battle.rs:383:9
+    |
+383 |           draw_hollow_box(
+    |  _________^^^^^^^^^^^^^^^-
+384 | |             &mut menu_batch,
+385 | |             BOX_X,
+386 | |             box_y,
+...   |
+389 | |             ColorPair::new(GREEN, BLACK),
+    | |             ---------------------------- expected `RGBA`, found `ColorPair`
+390 | |         );
+    | |_________- argument #7 of type `bracket_lib::prelude::RGBA` is missing
+    |
+note: function defined here
+   --> /home/vinny/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bracket-terminal-0.8.7/src/consoles/text/gui_helpers.rs:41:8
+    |
+ 41 | pub fn draw_hollow_box(
+    |        ^^^^^^^^^^^^^^^
+help: provide the argument
+    |
+383 ~         draw_hollow_box(
+384 +             &mut menu_batch,
+385 +             BOX_X,
+386 +             box_y,
+387 +             BOX_WIDTH,
+388 +             box_height,
+389 +             /* bracket_lib::prelude::RGBA */,
+390 +             /* bracket_lib::prelude::RGBA */,
+391 ~         );
+    |
+
+Some errors have detailed explanations: E0061, E0277.
+For more information about an error, try `rustc --explain E0061`.
+warning: `ever_space_rrpg` (bin "ever_space_rrpg") generated 2 warnings
+error: could not compile `ever_space_rrpg` (bin "ever_space_rrpg") due to 4 previous errors; 4 warnings emitted
+```
+
+Found it — this is a real, straightforward bug from the refactor, not a guess. `bracket_lib::prelude` **already has its own `draw_hollow_box`** function (different signature — takes `&mut dyn Console` and 7 args including two separate `RGBA` colors, not a `DrawBatch` + `ColorPair`). Before the refactor, my `draw_hollow_box` was defined directly in `main.rs`, so Rust's "local definition wins over glob imports" rule silently favored mine. Once it moved into `render_helpers.rs` and got glob-imported into the same prelude alongside `bracket_lib::prelude::*`, both are now just glob imports — ambiguous, and the compiler picked bracket-lib's version, which explains every error here.
+
+The real fix is to rename mine so it can never collide again:Now update both call sites in `screens/battle.rs`:Balanced. Only `draw_hollow_box` collided (the compiler would've flagged every ambiguous name in the same pass if there were others, and it didn't), so this should be the complete fix.**2 files — both modified: `src/render_helpers.rs`, `src/screens/battle.rs`**
+
+Root cause, plainly: `bracket_lib::prelude` already ships its own `draw_hollow_box` (a completely different function — different args, different console type). My own `draw_hollow_box` used to live directly in `main.rs`, where Rust's rule that a local definition beats a same-named glob import kept it working invisibly. Moving it into `render_helpers.rs` and pulling it in via `pub use crate::render_helpers::*;` put it on equal footing with bracket-lib's version in the same glob-import scope — so the compiler could no longer silently prefer mine, and (per the errors) picked bracket-lib's instead, which explains every symptom: wrong arg count, `ColorPair` where `RGBA` was expected, `DrawBatch` not implementing `Console`.
+
+Renamed it to `draw_ascii_box` everywhere — permanent fix, since two identically-named functions can't collide if they're not actually the same name anymore. No other function in `render_helpers.rs` triggered this (the compiler would've flagged every ambiguous name in the same pass, not just one), so this should be the complete fix.
+
+
 # Amazon
 Work on the Amazon next

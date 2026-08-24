@@ -116,7 +116,7 @@ pub fn player_input(
                     // Invisible does - it starts normally, but as an
                     // ambush: forced first turn + 3x damage on the
                     // opening action (see Battle::sneak_attack /
-                    // battle_tick and main.rs's Attack handling). Stealth
+                    // screens/battle.rs's battle_tick Attack handling). Stealth
                     // breaks the instant it's used this way, same as any
                     // other consumed status.
                     let player_is_stealthed = <(Entity, &Stealthed)>::query()

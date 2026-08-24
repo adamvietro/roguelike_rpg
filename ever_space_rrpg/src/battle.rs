@@ -267,7 +267,7 @@ pub struct Battle {
     /// ctx.frame_time_ms and cleared to None once it reaches zero. Set
     /// whenever that combatant acts or takes damage; draw_battle_arena
     /// reads these to tint the portrait's foreground color while active
-    /// (see flash_tint in main.rs).
+    /// (see flash_tint in render_helpers.rs).
     pub enemy_flash: Option<(FlashKind, f32)>,
     pub player_flash: Option<(FlashKind, f32)>,
     /// A briefly-shown floating damage number over each portrait - set by
@@ -287,7 +287,7 @@ pub struct Battle {
     /// to the player regardless of Speed, and triples the damage of
     /// whichever action the player picks first. Cleared (one-shot) the
     /// instant that first PlayerMenu action resolves, whatever it was -
-    /// see main.rs's BattleTurn::PlayerMenu handling.
+    /// see screens/battle.rs's BattleTurn::PlayerMenu handling.
     pub sneak_attack: bool,
     /// An active Evade-technique bonus (e.g. Rogue's Dodge) - adds
     /// `chance_percent` on top of the player's base Evasion for the next
@@ -406,7 +406,7 @@ pub struct DodgeState {
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
-/// See Battle::enemy_flash/player_flash and flash_tint in main.rs.
+/// See Battle::enemy_flash/player_flash and flash_tint in render_helpers.rs.
 pub const PORTRAIT_FLASH_DURATION_MS: f32 = 150.0;
 
 /// A floating damage number shown briefly over a portrait - see

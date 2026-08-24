@@ -30,6 +30,8 @@ More fluid motion - On hold
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
+Refactor main.
+
 
 
 
@@ -130,5 +132,8 @@ More Prefabs
 
 ## Balance
 Starting Items
+
+## Refactors
+Main into distinct Modules
 
 

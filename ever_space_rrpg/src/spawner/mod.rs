@@ -7,7 +7,7 @@ use template::Templates;
 /// A class's starting Health/Damage/Speed/Defense/Evasion, plus which
 /// glyph the player renders as in the dungeon - matches the same letter
 /// used for that class's icon on the class-select screen (see
-/// CLASS_ROSTER in main.rs), so the choice you made stays visually
+/// CLASS_ROSTER in screens/title.rs), so the choice you made stays visually
 /// consistent in-game. Looked up by class_base_stats at spawn time -
 /// previously every class got identical hardcoded numbers/glyph
 /// regardless of which was picked.
@@ -23,7 +23,7 @@ struct ClassBaseStats {
 }
 
 /// Base stats + glyph for a given class name. Amazon/Archer don't have
-/// designed stats yet (still placeholders - see CLASS_ROSTER in main.rs),
+/// designed stats yet (still placeholders - see CLASS_ROSTER in screens/title.rs),
 /// so they share the fallback numbers for now - Barbarian, Mage, and
 /// Rogue all have real, distinct numbers. Each class still gets its own
 /// glyph even while sharing stats.
@@ -70,8 +70,8 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             glyph: 'B',
         },
         // Not in CLASS_ROSTER - never appears on the normal class-select
-        // screen, only reachable via the hidden Backslash shortcut there
-        // (see main.rs's class_select). Deliberately overpowered stats
+        // screen, only reachable via the hidden D-key shortcut there
+        // (see screens/title.rs's class_select). Deliberately overpowered stats
         // plus the three instant-win/lose/next-level items (see
         // resources/starting_kits.ron) for quickly testing late-game
         // states without a real playthrough.

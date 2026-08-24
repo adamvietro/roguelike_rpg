@@ -1,0 +1,243 @@
+use crate::prelude::*;
+use crate::State;
+
+impl State {
+    /// Fills console 0 with the current run's dungeon theme (floor/wall
+    /// tiles + vignette - same ingredients as draw_battle_arena's
+    /// background, minus the battle-specific scenery/border), tinted
+    /// toward `tint`. Used by game_over/victory so those screens show a
+    /// moody dimmed/glowing version of the actual dungeon instead of a
+    /// flat black backdrop - the map/theme resources are still the
+    /// current run's, since neither death nor victory wipes them
+    /// (only return_to_title does, once the player dismisses the screen).
+    fn draw_end_screen_background(&mut self, tint: RGB) {
+        let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap();
+        let floor_glyph = theme.tile_to_render(TileType::Floor);
+        let wall_glyph = theme.tile_to_render(TileType::Wall);
+        let floor_base = tint_color(theme.floor_color(), tint);
+        let wall_base = tint_color(theme.wall_color(), tint);
+        drop(theme);
+
+        let mut arena = DrawBatch::new();
+        arena.target(0);
+        for y in 0..DISPLAY_HEIGHT {
+            for x in 0..DISPLAY_WIDTH {
+                let is_border =
+                    x == 0 || y == 0 || x == DISPLAY_WIDTH - 1 || y == DISPLAY_HEIGHT - 1;
+                let (glyph, base) = if is_border {
+                    (wall_glyph, wall_base)
+                } else {
+                    (floor_glyph, floor_base)
+                };
+                let bg = vignette(base, x, y, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+                let fg = RGB::from_f32(
+                    (bg.r * 1.4).min(1.0),
+                    (bg.g * 1.4).min(1.0),
+                    (bg.b * 1.4).min(1.0),
+                );
+                arena.set(Point::new(x, y), ColorPair::new(fg, bg), glyph);
+            }
+        }
+        arena.submit(0).expect("Batch error");
+    }
+
+    /// Draws the player's own glyph, big, on the battle-portrait console
+    /// (console 3) - same trick draw_portrait already uses during battle -
+    /// recolored solid `tint` rather than the entity's normal sprite
+    /// color, so it reads as a silhouette (grey for defeat, gold for
+    /// victory) instead of looking like an active battle portrait. Row is
+    /// always the console's middle row; `col` lets victory() place the
+    /// hero to one side of center instead of dead-center, so the Amulet
+    /// (see draw_end_screen_amulet) can sit beside it without overlapping.
+    /// Used by victory (upright); game_over uses
+    /// draw_end_screen_fallen_portrait instead, which is rotated.
+    fn draw_end_screen_portrait(&mut self, col: i32, tint: RGB) {
+        let player = <(Entity, &Player)>::query()
+            .iter(&self.ecs)
+            .map(|(e, _)| *e)
+            .nth(0);
+        let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        if let Some(render) = render {
+            let mut portrait = DrawBatch::new();
+            portrait.target(3);
+            portrait.set(
+                Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
+                ColorPair::new(tint, BLACK),
+                render.glyph,
+            );
+            portrait.submit(0).expect("Batch error");
+        }
+    }
+
+    /// Draws the Amulet of Yala's own glyph ('|', see
+    /// spawner::spawn_amulet_of_yala) big, on the same battle-portrait
+    /// console/grid as draw_end_screen_portrait, at `col` - used by
+    /// victory() to show it beside the hero. Hardcodes the glyph rather
+    /// than looking up the actual AmuletOfYala entity, since nothing
+    /// guarantees that entity still exists in the ECS by the time the
+    /// Victory screen is showing (the run is already over) - the glyph
+    /// itself is a fixed constant either way, so there's nothing gained
+    /// by depending on the entity still being present.
+    fn draw_end_screen_amulet(&mut self, col: i32, tint: RGB) {
+        let mut amulet = DrawBatch::new();
+        amulet.target(3);
+        amulet.set(
+            Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
+            ColorPair::new(tint, BLACK),
+            to_cp437('|'),
+        );
+        amulet.submit(0).expect("Batch error");
+    }
+
+    /// Draws the player's own glyph rotated 90 degrees - lying on its side,
+    /// for the GameOver screen specifically. draw_portrait/
+    /// draw_end_screen_portrait can only place a glyph on a fixed grid
+    /// cell, upright - there's no rotation available on a plain
+    /// "simple console". Actual rotation needs bracket-terminal's "fancy
+    /// console" feature (DrawBatch::set_fancy, on END_SCREEN_FALLEN_CONSOLE
+    /// - see main()), which nothing in this project has used before now.
+    ///
+    /// set_fancy's rotation parameter needs `Into<Radians>`, not a plain
+    /// f32 - confirmed by your build's own compiler error, which also
+    /// confirmed bracket-geometry's `Degrees` type is the thing that
+    /// converts into it.
+    ///
+    /// THE UNTESTED PART: a flat opaque background quad (from two earlier
+    /// attempts, both confirmed by screenshot) can't blend into the
+    /// radial vignette behind it no matter what color it's given - a flat
+    /// rectangle inside a gradient always shows a seam. The real fix is a
+    /// genuinely transparent background instead of a matched one. This
+    /// tries that via `RGBA` with alpha 0, betting that ColorPair is
+    /// actually built on RGBA under the hood (with plain RGB silently
+    /// converting to alpha=1 opaque, which is consistent with every
+    /// ColorPair::new(RGB, RGB) call elsewhere in this file compiling
+    /// fine) rather than RGB-only - nothing in this codebase has needed
+    /// alpha before, so this specific call is a genuine guess, not a
+    /// proven pattern. If it doesn't compile, the error will say exactly
+    /// what type is actually expected, and I can fix it precisely from
+    /// that - or fall back to the "deliberate framed plaque" approach if
+    /// transparency turns out not to be available here at all.
+    fn draw_end_screen_fallen_portrait(&mut self, icon_tint: RGB) {
+        let player = <(Entity, &Player)>::query()
+            .iter(&self.ecs)
+            .map(|(e, _)| *e)
+            .nth(0);
+        let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        if let Some(render) = render {
+            let cx = DISPLAY_WIDTH / 2;
+            let cy = DISPLAY_HEIGHT / 2;
+
+            let mut fallen = DrawBatch::new();
+            fallen.target(END_SCREEN_FALLEN_CONSOLE);
+            // Center of the console's square-celled DISPLAY_WIDTH x
+            // DISPLAY_HEIGHT grid (same 32px cells as the main dungeon
+            // view, so a 90-degree turn doesn't stretch/squash the glyph).
+            let fg: RGBA = icon_tint.into();
+            let bg: RGBA = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+            fallen.set_fancy(
+                PointF::new(cx as f32, cy as f32),
+                0,
+                Degrees::new(90.0),
+                PointF::new(END_SCREEN_FALLEN_SCALE, END_SCREEN_FALLEN_SCALE),
+                ColorPair::new(fg, bg),
+                render.glyph,
+            );
+            fallen.submit(0).expect("Batch error");
+        }
+    }
+
+    /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
+    pub fn game_over(&mut self, ctx: &mut BTerm) {
+        // Red, dimmed version of the actual dungeon the run ended in,
+        // plus the fallen hero's own glyph - rotated onto its side, tinted
+        // red, with a genuinely transparent background this time (see
+        // draw_end_screen_fallen_portrait) instead of an opaque quad
+        // matched to the arena color.
+        self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
+        self.draw_end_screen_fallen_portrait(RED.into());
+
+        // Header on the big-text console (console 5, 32px cells - same
+        // one the title screen's "EVER SPACE RRPG" uses). Body text below
+        // it moved from console 2 (fine 8px) to console 4 (the HUD
+        // console, ~12px cells - the same "1.5x bigger" text already used
+        // for the dungeon HUD) so it isn't dwarfed by the header, and row
+        // positions are worked out in pixels (not row counts) so nothing
+        // overlaps across these differently-scaled consoles: header row 2
+        // on console 5 bottoms out at (2+1)*32 = 96px -> console 4 row 9
+        // (~108px) clears it; the fallen portrait (see
+        // draw_end_screen_fallen_portrait) is centered at y=400px and, at
+        // END_SCREEN_FALLEN_SCALE, spans roughly 304-496px -> console 4
+        // row 45 (~537px) clears its bottom edge with margin.
+        ctx.set_active_console(5);
+        ctx.print_color_centered(2, RED, BLACK, "Your quest has ended.");
+
+        ctx.set_active_console(4);
+        ctx.print_color_centered(
+            10,
+            WHITE,
+            BLACK,
+            "Slain by a monster, your hero's journey has come to a premature end.",
+        );
+        ctx.print_color_centered(
+            13,
+            WHITE,
+            BLACK,
+            "The Amulet of Yala remains unclaimed, and your home town is not saved.",
+        );
+        // Below this point: the fallen portrait, centered on-screen (see
+        // draw_end_screen_fallen_portrait). These two lines sit clear
+        // beneath it.
+        ctx.print_color_centered(
+            45,
+            YELLOW,
+            BLACK,
+            "Don't worry, you can always try again with a new hero.",
+        );
+        ctx.print_color_centered(48, GREEN, BLACK, "Press 1 to return to the title screen.");
+
+        if let Some(VirtualKeyCode::Key1) = ctx.key {
+            self.return_to_title();
+        }
+    }
+
+    /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
+    pub fn victory(&mut self, ctx: &mut BTerm) {
+        // Warm gold version of the actual dungeon the run was won in,
+        // plus the hero's own glyph and the Amulet of Yala, both glowing
+        // gold, side by side - see draw_end_screen_background/
+        // draw_end_screen_portrait/draw_end_screen_amulet.
+        self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
+        self.draw_end_screen_portrait(1, YELLOW.into());
+        self.draw_end_screen_amulet(3, YELLOW.into());
+
+        // Same layout approach as game_over: header on the big-text
+        // console (console 5, 32px cells), body on console 4 (the HUD
+        // console, ~12px cells) positioned in real pixels to clear the
+        // header above and the hero/Amulet icons below - see game_over's
+        // comment for the exact pixel math this mirrors. "Press 1..." is
+        // pushed down near the bottom of the screen instead of sitting
+        // right under the body text.
+        ctx.set_active_console(5);
+        ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
+
+        ctx.set_active_console(4);
+        ctx.print_color_centered(
+            10,
+            WHITE,
+            BLACK,
+            "You put on the Amulet of Yala and feel its power course through your veins.",
+        );
+        ctx.print_color_centered(
+            13,
+            WHITE,
+            BLACK,
+            "Your town is saved, and you can return to your normal life.",
+        );
+        // Below this point: the hero + Amulet icons, centered on-screen.
+        ctx.print_color_centered(60, GREEN, BLACK, "Press 1 to return to the title screen.");
+
+        if let Some(VirtualKeyCode::Key1) = ctx.key {
+            self.return_to_title();
+        }
+    }
+}
