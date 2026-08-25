@@ -176,7 +176,8 @@ impl State {
             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
             if enemy_hp_now < 1 {
                 let mut rng = RandomNumberGenerator::new();
-                let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
+                let loot =
+                    grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy);
                 let mut cb = CommandBuffer::new(&mut self.ecs);
                 cb.remove(battle.enemy);
                 cb.flush(&mut self.ecs);
@@ -500,6 +501,7 @@ impl State {
                                     &mut self.ecs,
                                     &mut rng,
                                     battle.player,
+                                    battle.enemy,
                                 );
                                 let mut cb = CommandBuffer::new(&mut self.ecs);
                                 cb.remove(battle.enemy);
@@ -539,6 +541,7 @@ impl State {
                                     &mut self.ecs,
                                     &mut rng,
                                     battle.player,
+                                    battle.enemy,
                                 );
                                 let mut cb = CommandBuffer::new(&mut self.ecs);
                                 cb.remove(battle.enemy);
@@ -584,7 +587,12 @@ impl State {
 
                     if enemy_hp_now < 1 {
                         let mut rng = RandomNumberGenerator::new();
-                        let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player);
+                        let loot = grant_random_battle_loot(
+                            &mut self.ecs,
+                            &mut rng,
+                            battle.player,
+                            battle.enemy,
+                        );
                         let mut cb = CommandBuffer::new(&mut self.ecs);
                         cb.remove(battle.enemy);
                         cb.flush(&mut self.ecs);

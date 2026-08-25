@@ -227,14 +227,27 @@ impl Templates {
     /// spawning for the wrong class also made them eligible here by
     /// accident. Call this from battle_tick when an enemy dies. Returns
     /// the granted item's display name, if any.
+    /// Rolls a chance to grant the player a random one-time battle item
+    /// after a battle victory (see BATTLE_LOOT_DROP_CHANCE_PERCENT above),
+    /// filtered to items matching `player_class`. `enemy` is the entity
+    /// that was just defeated - if it's tagged Boss (see
+    /// spawner::spawn_boss), the drop is guaranteed instead of rolled,
+    /// so a boss always leaves something behind. Called before the enemy
+    /// entity is actually removed (see screens/battle.rs), so `enemy` is
+    /// still valid to look up here.
     pub fn grant_random_battle_loot(
         &self,
         ecs: &mut World,
         rng: &mut RandomNumberGenerator,
         player: Entity,
+        enemy: Entity,
         player_class: &str,
     ) -> Option<String> {
-        if rng.range(0, 100) >= BATTLE_LOOT_DROP_CHANCE_PERCENT {
+        let is_boss = ecs
+            .entry_ref(enemy)
+            .map(|e| e.get_component::<Boss>().is_ok())
+            .unwrap_or(false);
+        if !is_boss && rng.range(0, 100) >= BATTLE_LOOT_DROP_CHANCE_PERCENT {
             return None;
         }
 

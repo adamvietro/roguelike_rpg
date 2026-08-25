@@ -175,16 +175,19 @@ pub fn spawn_boss(
 }
 
 /// Rolls a chance to grant the player a random one-time battle item after
-/// a battle victory, filtered to items matching the player's own Class.
-/// Returns the granted item's display name, if any.
+/// a battle victory, filtered to items matching the player's own Class -
+/// guaranteed instead of rolled if `enemy` is a boss (see
+/// Templates::grant_random_battle_loot). Returns the granted item's
+/// display name, if any.
 pub fn grant_random_battle_loot(
     ecs: &mut World,
     rng: &mut RandomNumberGenerator,
     player: Entity,
+    enemy: Entity,
 ) -> Option<String> {
     let player_class = entity_class(ecs, player)?;
     let template = Templates::load();
-    template.grant_random_battle_loot(ecs, rng, player, &player_class)
+    template.grant_random_battle_loot(ecs, rng, player, enemy, &player_class)
 }
 
 /// Grants `player` their class's guaranteed starting inventory - see

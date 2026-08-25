@@ -1641,3 +1641,17 @@ Now I have everything needed. Let's build it.
 - **Testable now:** I added three clearly-flagged **placeholder** bosses (Goblin Chieftain / Orc Warlord / Ettin Overlord, one per level, roughly scaled above that level's normal enemies) so you can actually see the placement working on a build, rather than shipping the mechanism with nothing to spawn. These are explicitly not the real stats — that's next.
 
 One small structural note: I changed the private `spawn_entity` helper to return the `Entity` it just created (previously `()`), since `spawn_boss` needs it to attach the `Boss` tag afterward. The other three call sites just ignore the new return value, which Rust allows without any warning — nothing else needed to change.
+
+## Bosses Will Guarantee Loot
+Now update the `spawner/mod.rs` wrapper:Now update all 4 call sites in `screens/battle.rs`:Now let's fix all 4 call sites — the two single-line ones and two multi-line ones:Now the two multi-line ones:All 4 call sites updated correctly, `battle.enemy` still valid at each point (removed only afterward). Let's confirm balance across every touched file:That paren "mismatch" is worth checking honestly rather than waving off — let me verify it's pre-existing prose (like the `main.rs` false-alarms earlier) and not something I introduced:That confirms it — my edits added zero net parentheses (I only inserted `battle.enemy`/`battle.enemy,`, no parens), and there are plenty of comment lines with parenthetical asides that don't close on the same line (e.g. `(see`, `(a`, `(console 0:`). This is the same benign "prose comments contain unbalanced parens" pattern we already ran into with `main.rs` earlier in this project — not a real syntax problem, just a limitation of naive whole-file paren counting. Braces (the ones that actually matter for Rust block structure) are balanced. Let's do the final cross-check and ship.Every signature and every call site agrees. Let's package the delivery.**3 files — all modified:**
+
+| Downloaded as         | Save to                   |
+| --------------------- | ------------------------- |
+| `spawner_template.rs` | `src/spawner/template.rs` |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`      |
+| `screens_battle.rs`   | `src/screens/battle.rs`   |
+
+**What changed:** normal enemies still roll a 40% chance to drop loot (`BATTLE_LOOT_DROP_CHANCE_PERCENT`, unchanged). `grant_random_battle_loot` now also takes the defeated enemy's `Entity`, checks it for the `Boss` marker component, and if it's a boss, skips that roll entirely — loot is guaranteed. Same candidate pool as before (any item template matching the player's class), just no chance of coming up empty.
+
+I updated all 4 places in `screens/battle.rs` that call this — every path an enemy can die through (a normal Attack, a Technique, a DOT tick, or a Counter Attack triggered off the enemy's own attack) all call it before the enemy entity is actually removed, so `battle.enemy` is still valid to check in every case. Confirmed the signature and every call site agree on argument order and count.
+
