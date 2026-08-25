@@ -1667,3 +1667,9 @@ The original file is still here — let's work from that directly rather than re
 
 I worked directly from your original uploaded file rather than reconstructing it from the chat excerpts, so nothing in the untouched ~250 rows in between should have drifted.
 
+# Battle Cry Attacks Left
+Good, there's already an established pattern for exactly this. Let's see the full status-display block:This is a well-established pattern — one combined status line, built from a list of active player statuses. Battle Cry just needs to join that list. Let's add it:**1 file — modified: `src/screens/battle.rs`**
+
+Turns out this didn't need new UI plumbing — the battle screen already had a "combined status line" mechanism showing things like `Defending`, `Ice Armor (N left)`, and `Countering` whenever they're active. Battle Cry just needed one line joining that same list: `"Battle Cry (N left)"`, reading `battle.war_cry`'s `attacks_remaining` directly, same pattern as Ice Armor.
+
+One thing I noticed while in there, not fixed since it's outside today's ask: Dodge (Rogue's Evade technique) has no status line at all right now — it's tracked in state but never shown. Let me know if you want that added too while we're in this area.

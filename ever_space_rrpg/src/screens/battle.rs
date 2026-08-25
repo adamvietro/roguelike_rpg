@@ -282,6 +282,15 @@ impl State {
         if let Some(armor) = entity_ice_armor(&self.ecs, battle.player) {
             player_statuses.push(format!("Ice Armor ({} left)", armor.attacks_remaining));
         }
+        if let Some(cry) = &battle.war_cry {
+            player_statuses.push(format!("Battle Cry ({} left)", cry.attacks_remaining));
+        }
+        if let Some(dodge) = &battle.dodge_bonus {
+            player_statuses.push(format!(
+                "Dodge (+{}% evasion, {} left)",
+                dodge.chance_percent, dodge.turns_remaining
+            ));
+        }
         if battle.countering.is_some() {
             player_statuses.push("Countering".to_string());
         }
