@@ -43,6 +43,13 @@ pub struct Template {
     /// Missing from template.ron defaults to false via serde.
     #[serde(default)]
     pub prefab_only: bool,
+    /// If true, this Enemy template is a level boss - never a normal
+    /// ambient spawn, only ever placed via spawn_boss at
+    /// MapBuilder::amulet_start (the same "furthest reachable point"
+    /// already used as the Exit tile on levels 0/1 and the Amulet's
+    /// position on level 2). Missing from template.ron defaults to false.
+    #[serde(default)]
+    pub boss_only: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -69,7 +76,7 @@ impl Templates {
         let mut available_entities = Vec::new();
         self.entities
             .iter()
-            .filter(|e| e.levels.contains(&level) && !e.prefab_only)
+            .filter(|e| e.levels.contains(&level) && !e.prefab_only && !e.boss_only)
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_entities.push(t);
@@ -91,7 +98,8 @@ impl Templates {
     /// map_builder::prefab / MapBuilder::prefab_enemy_spawns) - unlike
     /// spawn_entities' general pool, which mixes enemies and items
     /// together with no guarantee either way, this only ever picks an
-    /// actual monster.
+    /// actual monster. Excludes boss_only templates - a boss is placed
+    /// exclusively via spawn_boss, never as a regular prefab guard.
     pub fn spawn_prefab_enemies(
         &self,
         ecs: &mut World,
@@ -102,7 +110,9 @@ impl Templates {
         let mut available_enemies = Vec::new();
         self.entities
             .iter()
-            .filter(|t| t.entity_type == EntityType::Enemy && t.levels.contains(&level))
+            .filter(|t| {
+                t.entity_type == EntityType::Enemy && t.levels.contains(&level) && !t.boss_only
+            })
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_enemies.push(t);
@@ -115,6 +125,51 @@ impl Templates {
                 self.spawn_entity(pt, entity, &mut commands);
             }
         });
+        commands.flush(ecs);
+    }
+
+    /// Spawns a guaranteed boss (never an item) at `spawn_point` - the
+    /// level's MapBuilder::amulet_start, the same "furthest reachable
+    /// point" already used as the Exit tile on levels 0/1 and the
+    /// Amulet's own position on level 2, so a boss placed there is
+    /// standing directly on (or as close as the map allows to) the thing
+    /// it's guarding. Since the player can never move onto a tile another
+    /// entity occupies (see systems/player_input.rs - stepping onto an
+    /// enemy's tile starts a battle instead of moving), this guarantees
+    /// the boss must be defeated before the stairs/Amulet can actually be
+    /// reached.
+    ///
+    /// Picks randomly, weighted by frequency, among Enemy templates whose
+    /// `boss_only` is true and whose `levels` includes this dungeon
+    /// level. If no boss is defined for this level yet, this silently
+    /// does nothing - same "no candidates, no spawn" behavior as
+    /// spawn_prefab_weapon when a class has no matching weapon tier.
+    /// Tags the spawned entity with components::Boss in addition to
+    /// everything spawn_entity already sets up for a normal Enemy.
+    pub fn spawn_boss(
+        &self,
+        ecs: &mut World,
+        rng: &mut RandomNumberGenerator,
+        level: usize,
+        spawn_point: Point,
+    ) {
+        let mut available_bosses = Vec::new();
+        self.entities
+            .iter()
+            .filter(|t| {
+                t.entity_type == EntityType::Enemy && t.boss_only && t.levels.contains(&level)
+            })
+            .for_each(|t| {
+                for _ in 0..t.frequency {
+                    available_bosses.push(t);
+                }
+            });
+
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        if let Some(template) = rng.random_slice_entry(&available_bosses) {
+            let entity = self.spawn_entity(&spawn_point, template, &mut commands);
+            commands.add_component(entity, Boss);
+        }
         commands.flush(ecs);
     }
 
@@ -265,12 +320,15 @@ impl Templates {
             .collect()
     }
 
+    /// Returns the newly-spawned Entity - spawn_boss needs it to attach
+    /// the components::Boss tag afterward; every other caller ignores the
+    /// return value, which Rust allows without a warning.
     fn spawn_entity(
         &self,
         pt: &Point,
         template: &Template,
         commands: &mut legion::systems::CommandBuffer,
-    ) {
+    ) -> Entity {
         let entity = commands.push((
             pt.clone(),
             Render {
@@ -306,6 +364,7 @@ impl Templates {
                 commands.add_component(entity, Weapon {});
             }
         }
+        entity
     }
 
     /// Tags an entity with its template's out-of-combat Effect, if it has

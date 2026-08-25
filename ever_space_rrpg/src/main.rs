@@ -144,6 +144,7 @@ impl State {
             map_builder.prefab_weapon_spawn,
             class,
         );
+        spawn_boss(&mut self.ecs, &mut rng, 0, map_builder.amulet_start);
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
@@ -238,6 +239,12 @@ impl State {
             map_level as usize,
             map_builder.prefab_weapon_spawn,
             &player_class,
+        );
+        spawn_boss(
+            &mut self.ecs,
+            &mut rng,
+            map_level as usize,
+            map_builder.amulet_start,
         );
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));

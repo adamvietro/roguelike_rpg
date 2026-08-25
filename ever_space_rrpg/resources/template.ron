@@ -370,5 +370,40 @@ Templates(
             base_damage: Some(3),
             speed: Some(2)
         ),
+        Template(
+            // PLACEHOLDER STATS - guards the Exit tile on level 0 (see
+            // spawner::spawn_boss / Templates::spawn_boss). Numbers here
+            // are a rough first pass, deliberately just "somewhat
+            // stronger than Goblin/Orc" so the placement mechanism is
+            // testable now - real balancing is a separate pass.
+            entity_type: Enemy,
+            name : "Goblin Chieftain", glyph : 'G', levels : [ 0 ],
+            hp : Some(6),
+            frequency: 1,
+            base_damage: Some(2),
+            speed: Some(6),
+            boss_only: true
+        ),
+        Template(
+            // PLACEHOLDER STATS - guards the Exit tile on level 1.
+            entity_type: Enemy,
+            name : "Orc Warlord", glyph : 'W', levels : [ 1 ],
+            hp : Some(10),
+            frequency: 1,
+            base_damage: Some(3),
+            speed: Some(5),
+            boss_only: true
+        ),
+        Template(
+            // PLACEHOLDER STATS - guards the Amulet of Yala on level 2,
+            // the final boss.
+            entity_type: Enemy,
+            name : "Ettin Overlord", glyph : 'X', levels : [ 2 ],
+            hp : Some(16),
+            frequency: 1,
+            base_damage: Some(4),
+            speed: Some(3),
+            boss_only: true
+        ),
     ],
 )

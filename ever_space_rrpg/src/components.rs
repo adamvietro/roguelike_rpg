@@ -15,6 +15,15 @@ pub struct Player {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Enemy;
 
+/// Marks an Enemy entity as a level boss - guards the Exit/Amulet tile
+/// (see spawner::spawn_boss / Templates::spawn_boss, which places one at
+/// MapBuilder::amulet_start on every level). Doesn't change any combat
+/// mechanics by itself yet - stats/abilities are a separate pass - this
+/// just identifies the entity for that future work and for anything
+/// (rendering, HUD, AI) that wants to treat a boss differently later.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Boss;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Item;
 

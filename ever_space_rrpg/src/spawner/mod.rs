@@ -160,6 +160,20 @@ pub fn spawn_prefab_weapon(
     template.spawn_prefab_weapon(ecs, rng, level, spawn_point, player_class);
 }
 
+/// Spawns the level's guaranteed boss at `spawn_point` (always
+/// MapBuilder::amulet_start - see Templates::spawn_boss for why that
+/// point in particular). Silently does nothing if no boss template is
+/// defined for this level yet.
+pub fn spawn_boss(
+    ecs: &mut World,
+    rng: &mut RandomNumberGenerator,
+    level: usize,
+    spawn_point: Point,
+) {
+    let template = Templates::load();
+    template.spawn_boss(ecs, rng, level, spawn_point);
+}
+
 /// Rolls a chance to grant the player a random one-time battle item after
 /// a battle victory, filtered to items matching the player's own Class.
 /// Returns the granted item's display name, if any.

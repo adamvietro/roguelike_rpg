@@ -33,9 +33,7 @@ Passive/identity
 Momentum — a passive that gives a small damage or evasion bonus while at full HP, encouraging hit-and-run play.
 Keen Eyes — a small passive bonus specifically to Throw Spear's targeting range or bonus damage, making the ranged kit scale with level progression later.
 
-
-
-Bosses for each level and the Yala
+Bosses will guarantee Loot.
 
 
 Make the player or the Enemy stunned after a flee
@@ -74,6 +72,9 @@ battle messages in a list
 Move the action box up
 battle messages damage centered right and message centered left
 
+### Bosses
+Implemented a boss for each level.
+Guarantee boss loot
 
 ### Abilities
 Attack
