@@ -78,7 +78,7 @@ Templates(
             // Rogue. Glyphs 4/5/6 continue the placeholder numbering the
             // Staffs started (0/1/2).
             entity_type: Item,
-            name : "Rusty Dagger", glyph: '4', levels: [ 0 ],
+            name : "Rusty Dagger", glyph: '3', levels: [ 0 ],
             frequency: 1,
             base_damage: Some(1),
             class: Some("Rogue"),
@@ -86,7 +86,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Silver Dagger", glyph: '5', levels: [ 1 ],
+            name : "Silver Dagger", glyph: '4', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
             class: Some("Rogue"),
@@ -94,7 +94,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Venomous Dagger", glyph: '6', levels: [ 1, 2 ],
+            name : "Venomous Dagger", glyph: '5', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
             class: Some("Rogue"),
@@ -264,7 +264,7 @@ Templates(
             // class: Amazon. Glyphs w/x/y continue the placeholder
             // numbering/lettering the other tiers started.
             entity_type: Item,
-            name : "Wooden Spear", glyph: 'w', levels: [ 0 ],
+            name : "Wooden Spear", glyph: 'x', levels: [ 0 ],
             frequency: 1,
             base_damage: Some(1),
             class: Some("Amazon"),
@@ -272,7 +272,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Bronze Spear", glyph: 'x', levels: [ 1 ],
+            name : "Bronze Spear", glyph: 'y', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
             class: Some("Amazon"),
@@ -280,7 +280,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Iron Spear", glyph: 'y', levels: [ 1, 2 ],
+            name : "Iron Spear", glyph: 'z', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
             class: Some("Amazon"),
@@ -387,7 +387,7 @@ Templates(
         Template(
             // PLACEHOLDER STATS - guards the Exit tile on level 1.
             entity_type: Enemy,
-            name : "Orc Warlord", glyph : 'W', levels : [ 1 ],
+            name : "Orc Warlord", glyph : 'K', levels : [ 1 ],
             hp : Some(10),
             frequency: 1,
             base_damage: Some(3),
@@ -398,7 +398,7 @@ Templates(
             // PLACEHOLDER STATS - guards the Amulet of Yala on level 2,
             // the final boss.
             entity_type: Enemy,
-            name : "Ettin Overlord", glyph : 'X', levels : [ 2 ],
+            name : "Ettin Overlord", glyph : 'V', levels : [ 2 ],
             hp : Some(16),
             frequency: 1,
             base_damage: Some(4),
