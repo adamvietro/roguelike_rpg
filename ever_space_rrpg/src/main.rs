@@ -74,6 +74,25 @@ mod prelude {
     /// opaque background quad would paint a visible box sliding over the
     /// map every time something moved.
     pub const GLIDE_CONSOLE: usize = 7;
+    /// Console 8: a third "fancy console", sharing BATTLE_PORTRAIT_COLS x
+    /// BATTLE_PORTRAIT_ROWS's coarse 5x5 grid with console 3 (same font,
+    /// same physical window) - since a low column/row count over the same
+    /// window automatically yields huge cells (that's the entire "big
+    /// portrait" trick console 3 already uses), this needs no separate
+    /// scale factor the way END_SCREEN_FALLEN_CONSOLE did. Used only by
+    /// draw_battle_arena (screens/battle.rs) to give the currently
+    /// "Attacking" portrait a small shake (see
+    /// render_helpers::attack_wiggle_offset) via sub-pixel positioning -
+    /// something console 3's plain per-cell `set()` can't do. Relies on
+    /// the same transparent-background trick as GLIDE_CONSOLE/
+    /// END_SCREEN_FALLEN_CONSOLE (RGBA alpha 0): this was tried once
+    /// before, early in this project, and abandoned specifically because
+    /// a fancy console's normally-opaque background revealed a visibly
+    /// sliding box over the static arena behind it - see the
+    /// battle-portrait jiggle history in journal.md. That's the one
+    /// thing that's changed since; the rest of this console's setup is
+    /// otherwise identical in spirit to that first attempt.
+    pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 8;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -286,6 +305,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(GLIDE_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
+        ctx.cls();
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
@@ -379,6 +400,17 @@ fn main() -> BError {
         // genuinely transparent background, instead of console 1's
         // integer-snapped grid - see the GLIDE_CONSOLE doc comment.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
+        // Console 8 (BATTLE_PORTRAIT_WIGGLE_CONSOLE): a third "fancy
+        // console", sharing console 3's coarse BATTLE_PORTRAIT_COLS x
+        // BATTLE_PORTRAIT_ROWS grid (so cells are automatically just as
+        // big, no separate scale needed). Used by draw_battle_arena to
+        // give the "Attacking" portrait a small sub-pixel shake - see the
+        // BATTLE_PORTRAIT_WIGGLE_CONSOLE doc comment.
+        .with_fancy_console(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "dungeonfont.png",
+        )
         .with_vsync(false)
         .build()?;
 

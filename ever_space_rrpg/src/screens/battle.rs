@@ -102,24 +102,33 @@ impl State {
         // --- Portraits: each creature's own glyph, drawn once on the
         // coarse BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it
         // renders far larger than its normal dungeon-map size. Enemy sits
-        // top-right, player sits bottom-left.
+        // top-right, player sits bottom-left. Whichever side is currently
+        // "Attacking" gets a small shake instead of the plain draw - see
+        // draw_wiggling_portrait below.
         let mut portraits = DrawBatch::new();
         portraits.target(3);
+        let mut wiggle = DrawBatch::new();
+        wiggle.target(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
         if let Some(render) = enemy_render {
             let tinted = Render {
                 color: flash_tint(render.color, enemy_flash),
                 glyph: render.glyph,
             };
-            draw_portrait(&mut portraits, 3, 1, tinted);
+            if !draw_wiggling_portrait(&mut wiggle, 3, 1, tinted, enemy_flash) {
+                draw_portrait(&mut portraits, 3, 1, tinted);
+            }
         }
         if let Some(render) = player_render {
             let tinted = Render {
                 color: flash_tint(render.color, player_flash),
                 glyph: render.glyph,
             };
-            draw_portrait(&mut portraits, 1, 3, tinted);
+            if !draw_wiggling_portrait(&mut wiggle, 1, 3, tinted, player_flash) {
+                draw_portrait(&mut portraits, 1, 3, tinted);
+            }
         }
         portraits.submit(0).expect("Batch error");
+        wiggle.submit(1).expect("Batch error");
     }
 
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.

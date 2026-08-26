@@ -15,6 +15,61 @@ pub fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) 
     batch.set(Point::new(col, row), render.color, render.glyph);
 }
 
+/// Same empirical correction as entity_render.rs's
+/// GLIDE_CONSOLE_Y_ANCHOR_OFFSET (a glyph placed via set_fancy renders
+/// one full cell too far north vs. the same position on a plain
+/// console's set()) applied here too, on a DIFFERENT fancy console
+/// (BATTLE_PORTRAIT_WIGGLE_CONSOLE). This is a carried-over assumption,
+/// not a separately re-confirmed measurement - the reasoning is that the
+/// anchor discrepancy is a property of how set_fancy interprets a
+/// position in cell units generally, not something tied to one
+/// console's particular pixel-per-cell size, so it should transfer. If
+/// the wiggling portrait renders visibly high once you can see it, this
+/// constant is the first place to check.
+const WIGGLE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
+
+/// Draws `render`'s glyph with a small shake instead of the plain
+/// `draw_portrait` above - only for the side currently mid-"Attacking"
+/// flash (see attack_wiggle_offset). Returns true if it drew (onto
+/// `batch`, which must already be targeting BATTLE_PORTRAIT_WIGGLE_CONSOLE)
+/// - false if `flash` isn't an active Attacking flash, in which case the
+/// caller should fall back to the plain draw_portrait on console 3
+/// instead. Never both for the same portrait on the same frame.
+pub fn draw_wiggling_portrait(
+    batch: &mut DrawBatch,
+    col: i32,
+    row: i32,
+    render: Render,
+    flash: Option<(FlashKind, f32)>,
+) -> bool {
+    let remaining = match flash {
+        Some((FlashKind::Attacking, remaining)) if remaining > 0.0 => remaining,
+        _ => return false,
+    };
+    let elapsed_ms = PORTRAIT_FLASH_DURATION_MS - remaining;
+    let offset_x = attack_wiggle_offset(elapsed_ms);
+    // Fully transparent background (RGBA alpha 0) - the same trick that
+    // let the GameOver fallen portrait and the dungeon-view tile glide
+    // draw a moving glyph over a static background with no visible box
+    // edge. This is the one thing different from the jiggle attempted
+    // early in this project (see journal.md), which used this same
+    // "coarse grid = big glyph" trick but on a console with an opaque
+    // background, and had to be abandoned for exactly that reason.
+    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    batch.set_fancy(
+        PointF::new(
+            col as f32 + offset_x,
+            row as f32 + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET,
+        ),
+        0,
+        Degrees::new(0.0),
+        PointF::new(1.0, 1.0),
+        ColorPair::new(render.color.fg, bg_transparent),
+        render.glyph,
+    );
+    true
+}
+
 /// Greedily wraps `text` into lines no longer than `width` characters,
 /// breaking only at word boundaries (never mid-word). Used for the
 /// class-select descriptions, which vary a lot in length - some are short
@@ -82,6 +137,29 @@ pub fn draw_ascii_box(
     batch.set(Point::new(x + width - 1, y), color, corner);
     batch.set(Point::new(x, y + height - 1), color, corner);
     batch.set(Point::new(x + width - 1, y + height - 1), color, corner);
+}
+
+/// Small horizontal shake for a portrait mid-"Attacking" flash - a few
+/// quick back-and-forth oscillations that decay to nothing exactly as the
+/// flash itself expires, so the portrait is back in its resting spot the
+/// instant the white flash fades (no separate timer - this only needs the
+/// same remaining-ms value Battle::enemy_flash/player_flash already
+/// track). Only ever called for FlashKind::Attacking - a "Hit" flash
+/// keeps its plain color tint with no motion, since a wiggle reads as the
+/// attacker's own flourish, not something the target should do.
+///
+/// Returned in fractional CELLS, not pixels - draw_battle_arena adds this
+/// straight onto the portrait's normal (col, row) before handing it to
+/// set_fancy on BATTLE_PORTRAIT_WIGGLE_CONSOLE, which shares console 3's
+/// coarse, huge-celled grid - so even a small fraction of a cell here
+/// reads as a very visible shake.
+pub fn attack_wiggle_offset(elapsed_ms: f32) -> f32 {
+    const WIGGLE_CYCLES: f32 = 3.0;
+    const WIGGLE_AMPLITUDE_CELLS: f32 = 0.12;
+    let progress = (elapsed_ms / PORTRAIT_FLASH_DURATION_MS).min(1.0);
+    let decay = 1.0 - progress;
+    let phase = progress * WIGGLE_CYCLES * std::f32::consts::TAU;
+    WIGGLE_AMPLITUDE_CELLS * decay * phase.sin()
 }
 
 /// Tints `base`'s foreground color for a brief post-action flash - white
