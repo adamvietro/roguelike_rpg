@@ -365,6 +365,29 @@ impl Templates {
                         max: template.hp.unwrap(),
                     },
                 );
+                // Pre-seed an already-expired MovingAnimation right at
+                // spawn, rather than waiting for this enemy's first real
+                // move to attach one for the first time. Every move after
+                // the first is a cheap overwrite of an existing component
+                // (see systems/animation.rs's tick_animations, which never
+                // removes this once attached) - but an entity's very
+                // first-ever move is still a genuinely new component being
+                // added, which is a structural change other systems can
+                // read one frame late (the same root cause behind the
+                // player's old opposite-direction jump). Spawning with one
+                // already in place, already expired (elapsed_ms at the
+                // duration, start/end both the spawn tile), closes that
+                // last gap: gliding_position reads it as "not animating"
+                // immediately, and this enemy's actual first step is just
+                // another overwrite like every move after it.
+                commands.add_component(
+                    entity,
+                    MovingAnimation {
+                        start: *pt,
+                        end: *pt,
+                        elapsed_ms: MOVE_ANIM_DURATION_MS,
+                    },
+                );
             }
         }
         Self::apply_effect(template, entity, commands);
