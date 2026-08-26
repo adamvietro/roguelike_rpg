@@ -1673,3 +1673,53 @@ Good, there's already an established pattern for exactly this. Let's see the ful
 Turns out this didn't need new UI plumbing — the battle screen already had a "combined status line" mechanism showing things like `Defending`, `Ice Armor (N left)`, and `Countering` whenever they're active. Battle Cry just needed one line joining that same list: `"Battle Cry (N left)"`, reading `battle.war_cry`'s `attacks_remaining` directly, same pattern as Ice Armor.
 
 One thing I noticed while in there, not fixed since it's outside today's ask: Dodge (Rogue's Evade technique) has no status line at all right now — it's tracked in state but never shown. Let me know if you want that added too while we're in this area.
+
+# Modify Defend Action
+Good, there's a clear convention (module-level `pub const ..._PERCENT: i32`). I'll follow it.Good — `rng` is already declared as `mut` and in scope at that point (used for the evasion roll above), so this reuses it cleanly rather than shadowing a second RNG right next to it, matching how the file already re-declares fresh RNGs per independent roll elsewhere (e.g. Battle Cry, a few lines below).
+
+Let me sanity-check the rest of the file didn't need touching and that this compiles conceptually (types/borrow-wise):That all lines up — `RandomNumberGenerator` comes through the crate's `prelude` glob, same as everywhere else it's used in this file, and there's no naming collision since my edit reuses the existing `rng` rather than declaring a new one.
+
+That's the Defend change, done:
+
+- Added `DEFEND_SUCCESS_CHANCE_PERCENT: i32 = 30` alongside the other named constants at the top of `battle.rs`, following the exact pattern `BATTLE_LOOT_DROP_CHANCE_PERCENT` already set in `spawner/template.rs`.
+- In `resolve_enemy_attack`, the guaranteed `dmg = (dmg / 2).max(1)` became a 30%-chance roll using the RNG that was already live from the evasion check just above it (deliberately not sharing that same roll — dodge and defend are different mechanics and shouldn't succeed/fail together), and on success just halves with integer division (already rounds down) and no floor, per your call.
+
+One thing worth flagging while it's fresh: right now a failed Defend roll (the 70% case) is silent — the log line still just says `"Take N damage."` with nothing distinguishing "you defended and it didn't help" from "you never defended." If you want, I can add a log variant for that so a Defend that whiffs doesn't feel indistinguishable from not defending at all — small addition, your call whether it's worth it.
+
+---
+
+Now, the bigger question — what I'd do with `battle.rs` given everything that's come before. A few honest observations from reading the whole file, not just a wishlist:
+
+**It's starting to show its age structurally.** `resolve_enemy_attack` (where I just edited) is the single place every enemy hit resolves, and it's grown one more `if let Some(x) = &mut battle.x { ... }` block per mechanic — Dodge, Defend, Ice Armor, Battle Cry, Counter — each with its own tick-down/consume logic inlined. That's exactly how the class kits got built incrementally, and it's readable today at 5 mechanics, but it's the same shape of growth that made `main.rs` need its ~1,700→350 line refactor. If Archer or a 6th class adds another defensive status, I'd suggest extracting these into a small ordered "damage pipeline" — a `Vec` of reduction steps applied in sequence with a shared trace for the log — rather than one more inline block. Not urgent, but worth deciding on *before* the next status gets added, not after three more pile up.
+
+**Two systems live oddly split.** `battle.rs` (851 lines, pure data/logic) and `screens/battle.rs` (668 lines, rendering + tick dispatch) is a good separation in principle, but a few things (like the status-line list I saw Dodge/Battle Cry just get added to) live entirely in the screen file even though they're really "what is currently true about this battle," which feels like `Battle`-struct data, not render logic. Minor, but if we're touching statuses again for Archer, might be worth moving that list-building into `battle.rs` as a method the screen just calls.
+
+**Concretely, on the "what to add" side**, given the project's own stated priorities:
+- **Archer** is the most obvious next `battle.rs` touch — it needs real `CanAttack`/technique entries wired the same way Amazon/Mage were, which is now a well-worn path (technique enum variant → one match arm in `apply_player_technique` → template.ron entries → starting kit).
+- **Enemy AI variety** — right now `resolve_enemy_attack` is explicitly "enemies only ever know Attack." Boss stats are still flagged placeholder in the journal; giving bosses an actual decision (defend sometimes, use a technique-like ability) would touch this same function and is probably the highest-impact single change to `battle.rs` specifically, since it's currently the flattest part of an otherwise deep combat system.
+
+Let me know which direction to go once you're back — happy to start sketching the damage-pipeline refactor, Archer's kit, or boss AI, whichever you want first.
+
+# Fluid Motion Returned
+Good — I've got a clear, verified picture now. Here's what's actually true and what I think we should do.
+
+## What I found
+
+`MovingAnimation` already exists — start/end points, elapsed time, ticked by real frame time — but it's **never actually used to draw anything**. `entity_render` draws every entity with `draw_batch.set(*pos - offset, ...)`, straight to the integer tile grid, completely ignoring `MovingAnimation`. There's even a commented-out `animated_position()`/`lerp`/`ease_out_cubic` stub sitting right next to the struct, unused. So right now, movement in the dungeon view is an instant snap — the timing machinery for a glide exists, but nothing draws the glide itself.
+
+That stub was shelved for the same reason the battle-portrait jiggle got shelved: sub-pixel movement needs bracket-lib's "fancy console," and a fancy console always paints an opaque background quad. A moving glyph on an opaque box, sliding over a static background, shows a visible edge the instant it's not perfectly aligned — which is exactly the wall you hit with the GameOver portrait too, before landing on `RGBA` alpha=0.
+
+## Why this changes things
+
+Console 6 — the fancy console built for the fallen-hero portrait — already uses the **same grid dimensions and the same 32×32px cells as console 0/1** (the dungeon view), specifically so a rotated glyph doesn't stretch. That also means it's positioned in the same coordinate space as the dungeon tiles, and fancy-console positions aren't snapped to the grid the way `draw_portrait`'s are — which is precisely the sub-pixel freedom the shelved `animated_position` stub needed. Combine that with the now-proven transparent background, and the actual blocker from before is gone.
+
+## What I'd propose
+
+- Wire the commented-out `lerp`/`ease_out_cubic`/`animated_position` code back in (it already computes the eased fractional position — this part barely changes).
+- Add a small fancy-console pass, alongside `entity_render`, that: for any entity currently carrying a `MovingAnimation`, draws it at its eased fractional position on a fancy console with a transparent background — and skip drawing that entity on the normal console 1 for that frame so it isn't double-drawn.
+- Reuse console 6, or register a new one — console 6 is currently only active during GameOver, never during gameplay, so timing never overlaps, but a dedicated console is cleaner and less likely to bite us later if GameOver's usage ever changes. I'd lean toward a new console rather than overloading 6's meaning.
+
+**Real uncertainty I want to flag up front, not discover mid-edit**: everything above is inferred from how console 6 behaves for a single static icon drawn once. I haven't confirmed `set_fancy` behaves the same way when called many times per frame for multiple simultaneously-moving entities (enemies chasing the player, say) — that's untested territory, both for the API and for performance.
+
+Want me to go ahead and build this?
+

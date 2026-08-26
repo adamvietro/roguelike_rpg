@@ -445,6 +445,12 @@ pub const MAX_LOG_LINES: usize = 4;
 /// when the player doesn't bother pressing anything.
 pub const RESULT_AUTO_ADVANCE_MS: f32 = 1100.0;
 
+/// Defend used to be a guaranteed 50% reduction on the next hit taken. Now
+/// it's a gamble: this is the percent chance that reduction actually
+/// triggers at all (see resolve_enemy_attack) - on a miss, Defend does
+/// nothing this turn beyond having been selected.
+pub const DEFEND_SUCCESS_CHANCE_PERCENT: i32 = 30;
+
 /// What to show on the post-battle victory screen (TurnState::BattleVictory)
 /// - set right when an enemy dies in battle_tick, read once by
 /// battle_victory_tick, then cleared when the player dismisses it.
@@ -575,7 +581,13 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
 
     let mut dmg = entity_damage(ecs, battle.enemy);
     if battle.player_defending && dmg > 0 {
-        dmg = (dmg / 2).max(1);
+        // Gamble, not a guarantee: roll separately from the dodge check
+        // above (Defend and Evasion are different mechanics and shouldn't
+        // share a roll), and on success halve the damage with no floor -
+        // a successful Defend can now reduce a small hit all the way to 0.
+        if rng.range(0, 100) < DEFEND_SUCCESS_CHANCE_PERCENT {
+            dmg /= 2;
+        }
     }
 
     // Ice Armor is applied out-of-combat (via an Invisible-Cloak-style

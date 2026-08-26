@@ -71,6 +71,7 @@ Floating attack values after an attack
 battle messages in a list
 Move the action box up
 battle messages damage centered right and message centered left
+30% change to absorb 50% of the damage when you defend.
 
 ### Bosses
 Implemented a boss for each level.
