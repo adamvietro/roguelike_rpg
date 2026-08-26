@@ -19,6 +19,35 @@ const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 /// anchoring behavior, this is the one place to adjust.
 const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
 
+/// The player is excluded from the glide (see entity_render below) for a
+/// reason specific to this camera design, not a rendering limitation:
+/// Camera::on_player_move recenters left_x/top_y the instant a move is
+/// processed, so the camera always keeps the player exactly at display
+/// center once a move completes - the camera's whole job is to chase the
+/// player. Animating the player's OWN glyph on top of a camera that's
+/// simultaneously trying to keep that same glyph centered means the
+/// glyph's start-of-glide screen position (still the OLD world point, now
+/// read against the ALREADY-recentered camera) lands on the opposite side
+/// of center from the direction just traveled - confirmed by measuring
+/// actual rendered pixel positions frame-by-frame during a real move: the
+/// glyph appeared one full cell off-center, opposite the direction of
+/// travel, then eased back to center over the following few frames.
+/// That's not a bug in the interpolation math - it's a structural
+/// conflict between "this entity is being smoothly animated" and "the
+/// camera is simultaneously locked onto this exact entity." Enemies have
+/// no such conflict (the camera never centers on them), so they keep the
+/// normal glide. Fixing this properly for the player too would mean
+/// making the camera's own rendering offset scroll smoothly in lockstep
+/// with the same eased position, which would require the entire map
+/// (map_render.rs, currently a plain integer-grid console) to render at
+/// sub-pixel precision too - a much bigger change than this bug warrants
+/// right now.
+fn is_player(ecs: &SubWorld, entity: Entity) -> bool {
+    ecs.entry_ref(entity)
+        .ok()
+        .map_or(false, |e| e.get_component::<Player>().is_ok())
+}
+
 #[system]
 #[read_component(Point)]
 #[read_component(Render)]
@@ -54,7 +83,14 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
         .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
         .for_each(|(entity, pos, render)| {
             let color = tinted_color(ecs, *entity, render.color);
-            match gliding_position(ecs, *entity) {
+            // The player is deliberately excluded from the glide - see
+            // is_player below. Every other entity still glides normally.
+            let glide_target = if is_player(ecs, *entity) {
+                None
+            } else {
+                gliding_position(ecs, *entity)
+            };
+            match glide_target {
                 Some((fx, fy)) => {
                     let draw_pos = PointF::new(
                         fx - offset.x as f32,
