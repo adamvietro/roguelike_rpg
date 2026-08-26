@@ -59,6 +59,21 @@ mod prelude {
     /// available on a fancy console (positions there aren't snapped to a
     /// grid the way draw_portrait's are).
     pub const END_SCREEN_FALLEN_SCALE: f32 = 6.0;
+    /// Console 7: a second "fancy console", same DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT grid/32x32px cells as console 0/1/6. Used by
+    /// entity_render (systems/entity_render.rs) to draw any entity
+    /// currently mid-tile-glide (see components::gliding_position /
+    /// MovingAnimation) at a sub-pixel position instead of snapping
+    /// straight to its destination tile on console 1. Registered last in
+    /// the builder chain (see main()), so it paints over console 1 - the
+    /// gliding entity is deliberately NOT also drawn there for the same
+    /// frame, so there's no double-draw, just a handoff between the two
+    /// consoles for the duration of the glide. Relies on the same
+    /// genuinely-transparent-background trick END_SCREEN_FALLEN_CONSOLE
+    /// proved out (RGBA alpha 0) - without it, a fancy console's normally
+    /// opaque background quad would paint a visible box sliding over the
+    /// map every time something moved.
+    pub const GLIDE_CONSOLE: usize = 7;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -269,6 +284,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(END_SCREEN_FALLEN_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(GLIDE_CONSOLE);
+        ctx.cls();
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
@@ -321,7 +338,17 @@ impl GameState for State {
 fn main() -> BError {
     let context = BTermBuilder::new()
         .with_title("Ever Space RRPG")
-        .with_fps_cap(30.0)
+        // Raised from 30 to 60: with real elapsed-time-based animation
+        // (MovingAnimation/FrameTime, not frame counts - see
+        // systems/animation.rs), every timed effect in this project
+        // already scales correctly at any frame rate. The tile-glide
+        // specifically only gets ~4-5 frames total to play out at 30fps
+        // for its default MOVE_ANIM_DURATION_MS, which reads as jumpy
+        // rather than smooth - doubling the frame budget is the direct
+        // fix for that, with no knock-on effect on anything's actual
+        // speed (battle flashes, popups, background wandering, etc. all
+        // still take exactly as long in real time as before).
+        .with_fps_cap(60.0)
         .with_dimensions(DISPLAY_WIDTH, DISPLAY_HEIGHT)
         .with_tile_dimensions(32, 32)
         .with_resource_path("resources/")
@@ -345,6 +372,12 @@ fn main() -> BError {
         // DISPLAY_HEIGHT grid), so a 90-degree rotation doesn't
         // stretch/squash the glyph. Used only by
         // draw_end_screen_fallen_portrait for the GameOver screen.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
+        // Console 7 (GLIDE_CONSOLE): a second "fancy console", same grid
+        // and cell size as console 6 above. Used by entity_render to draw
+        // any entity mid-tile-glide at a sub-pixel position with a
+        // genuinely transparent background, instead of console 1's
+        // integer-snapped grid - see the GLIDE_CONSOLE doc comment.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_vsync(false)
         .build()?;

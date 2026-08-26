@@ -4,6 +4,21 @@ use crate::prelude::*;
 /// red - see tinted_color.
 const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 
+/// Empirically-confirmed correction for GLIDE_CONSOLE's vertical
+/// positioning: a glyph drawn via set_fancy at the same (x, y) that
+/// places it correctly via the plain console's set() renders exactly one
+/// full cell too far north, consistently, regardless of movement
+/// direction, and without drifting further off over a longer glide -
+/// confirmed by direct testing, not documentation (bracket-lib's source
+/// isn't available to consult here). That signature - a constant,
+/// direction-independent, non-accumulating one-cell error - points at
+/// set_fancy anchoring a glyph's position from the bottom of its cell
+/// rather than the top the way set() does, not at anything wrong in the
+/// movement/lerp/camera math feeding it. Added to fy before it reaches
+/// set_fancy to compensate. If a future bracket-lib upgrade changes this
+/// anchoring behavior, this is the one place to adjust.
+const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
+
 #[system]
 #[read_component(Point)]
 #[read_component(Render)]
@@ -12,11 +27,24 @@ const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 #[read_component(Health)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
+#[read_component(MovingAnimation)]
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
     let mut draw_batch = DrawBatch::new();
     draw_batch.target(1);
+    // Any entity currently mid-glide (see components::gliding_position)
+    // draws here instead of on console 1 above - a "fancy console" on the
+    // same grid/cell size (see GLIDE_CONSOLE), with a genuinely
+    // transparent background, so a sub-pixel position doesn't reveal a
+    // background seam the way a fancy console's normal opaque quad would
+    // (this is the same fix END_SCREEN_FALLEN_CONSOLE's fallen-hero
+    // portrait needed). Registered last in main()'s builder chain, so it
+    // paints on top of console 1 - correct, since a gliding entity is
+    // deliberately skipped below rather than drawn on both consoles at
+    // once.
+    let mut glide_batch = DrawBatch::new();
+    glide_batch.target(GLIDE_CONSOLE);
     let offset = Point::new(camera.left_x, camera.top_y);
 
     let player_fov = fov.iter(ecs).nth(0).unwrap();
@@ -26,10 +54,35 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
         .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
         .for_each(|(entity, pos, render)| {
             let color = tinted_color(ecs, *entity, render.color);
-            draw_batch.set(*pos - offset, color, render.glyph);
+            match gliding_position(ecs, *entity) {
+                Some((fx, fy)) => {
+                    let draw_pos = PointF::new(
+                        fx - offset.x as f32,
+                        fy - offset.y as f32 + GLIDE_CONSOLE_Y_ANCHOR_OFFSET,
+                    );
+                    // Fully transparent background (RGBA alpha 0) - same
+                    // proven trick as the GameOver fallen portrait. Only
+                    // the foreground changes vs. the plain-console draw
+                    // below; color.fg carries the same low-health/stealth
+                    // tinting tinted_color() already computed above.
+                    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+                    glide_batch.set_fancy(
+                        draw_pos,
+                        0,
+                        Degrees::new(0.0),
+                        PointF::new(1.0, 1.0),
+                        ColorPair::new(color.fg, bg_transparent),
+                        render.glyph,
+                    );
+                }
+                None => {
+                    draw_batch.set(*pos - offset, color, render.glyph);
+                }
+            }
         });
 
     draw_batch.submit(5000).expect("Batch error");
+    glide_batch.submit(5100).expect("Batch error");
 }
 
 /// Overrides a dungeon-view entity's color for two player-only status

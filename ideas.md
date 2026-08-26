@@ -38,7 +38,7 @@ Bosses will guarantee Loot.
 
 Make the player or the Enemy stunned after a flee
 
-More fluid motion - On hold
+Wiggle when attacking
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
@@ -91,6 +91,7 @@ Defense Stat 1 defense is a lot right now so might need to make a negative attac
 
 ## Player Animations
 Flash on hit
+More fluid motion
 
 ## Classes
 Each class will have default abilities that will need to be always available.

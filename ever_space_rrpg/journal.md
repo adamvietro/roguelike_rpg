@@ -1723,3 +1723,69 @@ Console 6 — the fancy console built for the fallen-hero portrait — already u
 
 Want me to go ahead and build this?
 
+## Outcome
+Good — `MovingAnimation` is already correctly attached with real `start`/`end` on every move. Now let me check the systems schedule wiring, the exact `Point`/`PointF` types available, and the `main.rs` builder/tick blocks in full detail.Now let's look at the `tick()` clearing block and the `BTermBuilder` chain in full detail before editing.Good — no collisions, safe to activate. Now let's make the edits.Now the console constant and doc-comment updates in `main.rs`:Now the `tick()` clear block:Now the `BTermBuilder` chain in `main()`:Now the core of it — `entity_render.rs`:Now let's do a full sanity sweep — check for anything that might reference `MOVE_ANIM_DURATION_MS` semantics differently, verify no orphaned references, and confirm nothing else draws entities and would need the same treatment (title-screen background, which also uses `entity_render`).Good — since `entity_render` is the single shared system used across every schedule (input, player, monster, and the title-screen background), this change automatically covers the decorative title-screen wandering enemies too, with no extra wiring needed there.Good, `camera.left_x`/`top_y` are already used as `i32` in the existing offset math, so `offset.x as f32` is consistent. Let me do one last check — that `gliding_position` is reachable from `entity_render.rs` (both go through `crate::prelude::*`, and `components::*` is re-exported there).That resolves cleanly. Let's copy the changed files out.**Three files, all modified:**
+
+| File                                                              | What changed                                                                                                                                                                                         |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/systems/entity_render.rs` (→ `src/systems/entity_render.rs`) | Any entity mid-`MovingAnimation` now draws via `set_fancy` on a new fancy console with a transparent background, at its eased sub-pixel position, instead of snapping to console 1's integer grid    |
+| `src/components.rs`                                               | Uncommented `lerp`/`ease_out_cubic`; replaced the old commented-out `animated_position` stub with `gliding_position`, which returns eased fractional coordinates (or `None` once a glide's finished) |
+| `src/main.rs`                                                     | New `GLIDE_CONSOLE` constant (console 7), a second fancy console registered in the `BTermBuilder` chain, and one more `cls()` in `tick()`'s per-frame clear block                                    |
+
+**How it works:** `movement.rs` already attached `MovingAnimation { start, end, elapsed_ms }` correctly on every move — that part was already right, it just wasn't being read by anything. Now `entity_render` checks each entity for an in-flight glide; if present, it draws the eased position on the new transparent fancy console (console 7) instead of the plain one, and skips drawing it on console 1 for that frame, so there's no double-draw. Since `entity_render` is the one shared system used by every schedule, this also automatically applies to enemies chasing the player and the title screen's decorative wandering background — no separate wiring needed there.
+
+**One deliberate caution, flagged honestly:** rather than reading `.x`/`.y` back off a `PointF` (never proven anywhere in this codebase — only construction of one has ever been witnessed, in the fallen-portrait code), `gliding_position` returns a plain `(f32, f32)` tuple, and `entity_render` builds the final `PointF` itself after subtracting the camera offset. Slightly more verbose, but it avoids leaning on an unconfirmed part of the API on top of the genuinely new one (`set_fancy` called every frame, potentially for several entities at once, which — as noted last time — has also never been proven here).
+
+Build it and see what happens — first real test of both of those unknowns at once.
+
+### Errors
+```rust
+   Compiling ever_space_rrpg v0.1.0 (/home/vinny/Projects/roguelike_rpg/ever_space_rrpg)
+error[E0308]: `match` arms have incompatible types
+  --> src/systems/entity_render.rs:60:25
+   |
+42 |               match gliding_position(ecs, *entity) {
+   |               ------------------------------------ `match` arms have incompatible types
+...
+51 | /                     glide_batch.set_fancy(
+52 | |                         draw_pos,
+53 | |                         0,
+54 | |                         Degrees::new(0.0),
+...  |
+57 | |                         render.glyph,
+58 | |                     );
+   | |                      -
+   | |                      |
+   | |______________________help: consider removing this semicolon
+   |                        this is found to be of type `()`
+59 |                   }
+60 |                   None => draw_batch.set(*pos - offset, color, render.glyph),
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `()`, found `&mut DrawBatch`
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `ever_space_rrpg` (bin "ever_space_rrpg") due to 1 previous error
+```
+
+Good catch — `DrawBatch::set` returns `&mut DrawBatch` (it's a chainable builder), unlike `set_fancy` which the compiler inferred as `()` because of the trailing semicolon in the other arm. Easy fix: make the `None` arm a block that also discards its return value, so both arms agree on type `()`.That's the whole fix — both arms now end in a statement (trailing `;`), so both evaluate to `()` and the `match` type-checks. Nothing else in the file changes.**Modified:** `src/systems/entity_render.rs` — replaces the previous version. Only the `None` arm changed, wrapped in `{ ...; }` so it discards `DrawBatch::set`'s return value instead of implicitly returning it, matching the `Some` arm's `()` type. Try the build again.
+
+## Single Cell Offset
+That confirms it cleanly — a constant, direction-independent, non-cumulative one-cell vertical offset is exactly what you'd get from `set_fancy` anchoring the glyph's Y position differently than `set` does (bottom-of-cell vs. top-of-cell), not from anything in the movement/lerp/camera math. Simple, targeted fix: compensate by exactly one cell on the Y axis when building the fancy-console draw position.That's the whole fix. Let's ship it.**Modified:** `src/systems/entity_render.rs` — replaces the previous version. Two small additions, no other logic touched:
+
+- A new `GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0` constant, with a comment explaining it's an empirical correction confirmed by your testing, not something derived from bracket-lib docs we don't have.
+- `draw_pos`'s Y calculation now adds that offset: `fy - offset.y as f32 + GLIDE_CONSOLE_Y_ANCHOR_OFFSET`.
+
+Give it a run — if it lands exactly right, great; if it overshoots the other direction or is still off by some amount, that'll actually tell us something new (e.g. if it's now exactly one cell too far *south*, the anchor theory would be wrong in direction and we'd want `-1.0` instead, or if it's now off by half a cell, the anchor is center-based rather than bottom-based). Let me know what you see.
+
+## Too Quick to Move to the Next Cell
+Good — confirmed everything timed in this project (glide duration, background wandering pace, battle flashes, damage popups, result auto-advance) is already driven by real elapsed milliseconds, never raw frame counts. That means raising the FPS cap is safe — nothing will suddenly speed up or misbehave, it just gets more frames to spread the same durations across.
+
+That points at the actual cause of the jumpiness: `.with_fps_cap(30.0)` combined with a 150ms glide means each move only gets **~4–5 frames total** to animate across — not enough to read as smooth motion, no matter how good the easing curve is. Two independent, complementary levers:Now let's also give the glide a bit more real time to play out, which helps independently of frame rate and gives the eased curve more room to actually read as a curve:**Two files, both modified:**
+
+| File                | Change                                        |
+| ------------------- | --------------------------------------------- |
+| `src/main.rs`       | FPS cap raised from 30 → 60                   |
+| `src/components.rs` | `MOVE_ANIM_DURATION_MS` raised from 150 → 220 |
+
+Together these give each glide roughly **3x the frames** it had before (~4–5 → ~13), which is the real fix for jumpiness — this isn't a speed change to the movement itself (a move still completes in a bit over 0.2s either way), it's giving the same motion enough frames to actually look continuous. I confirmed first that every timed system in the project (flashes, popups, background wandering, result auto-advance) already scales off real elapsed time rather than frame counts, so raising the frame rate doesn't speed anything else up unexpectedly.
+
+If it's still not smooth enough after this, the next knob to reach for is `MOVE_ANIM_DURATION_MS` again (push it toward 250–300ms) rather than the FPS cap — going past 60fps starts trading off against your GPU/CPU headroom for diminishing visual return.

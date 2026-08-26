@@ -421,8 +421,13 @@ pub struct Evasion(pub i32);
 /// How long a single tile-to-tile glide takes, in milliseconds. Shared by
 /// tick_animations (systems/animation.rs, which advances/expires it) and
 /// entity_render (which reads elapsed_ms to interpolate the drawn
-/// position) so both stay in lockstep.
-pub const MOVE_ANIM_DURATION_MS: f32 = 150.0;
+/// position) so both stay in lockstep. Raised from 150 to 220 alongside
+/// the FPS cap going from 30 to 60 (see main()'s BTermBuilder chain) -
+/// together these give a glide roughly 3x the frames it had before
+/// (~4-5 frames -> ~13), which is what actually fixed the visible
+/// jumpiness; either change alone would have helped some, but not as
+/// much as both together.
+pub const MOVE_ANIM_DURATION_MS: f32 = 220.0;
 
 /// Attached alongside the instant Point update in movement.rs so a
 /// creature's *logical* position (and therefore FOV/turn-state/anything
@@ -443,33 +448,47 @@ pub struct MovingAnimation {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameTime(pub f32);
 
-// /// Standard ease-out cubic: fast start, gentle settle into the
-// /// destination tile rather than a linear, slightly mechanical glide.
-// pub fn ease_out_cubic(t: f32) -> f32 {
-//     let t = t - 1.0;
-//     t * t * t + 1.0
-// }
+/// Standard ease-out cubic: fast start, gentle settle into the
+/// destination tile rather than a linear, slightly mechanical glide.
+pub fn ease_out_cubic(t: f32) -> f32 {
+    let t = t - 1.0;
+    t * t * t + 1.0
+}
 
-// pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
-//     a + (b - a) * t
-// }
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
 
-// /// Where `entity` should actually be drawn this frame: eased between
-// /// MovingAnimation.start/.end if one is present and still running,
-// /// otherwise its plain logical Point. Keeps the interpolation math in one
-// /// place so entity_render doesn't need to know the details.
-// pub fn animated_position(ecs: &SubWorld, entity: Entity, logical_pos: Point) -> PointF {
-//     if let Ok(entry) = ecs.entry_ref(entity) {
-//         if let Ok(anim) = entry.get_component::<MovingAnimation>() {
-//             let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
-//             return PointF::new(
-//                 lerp(anim.start.x as f32, anim.end.x as f32, t),
-//                 lerp(anim.start.y as f32, anim.end.y as f32, t),
-//             );
-//         }
-//     }
-//     PointF::new(logical_pos.x as f32, logical_pos.y as f32)
-// }
+/// If `entity` currently has an in-flight MovingAnimation, returns its
+/// eased fractional (x, y) for *this* frame - still in logical/world
+/// coordinates, before the camera offset entity_render applies. Returns
+/// None once the glide has finished (elapsed_ms has caught up to
+/// MOVE_ANIM_DURATION_MS) or if the entity was never moving, so callers
+/// know to fall back to drawing the entity's plain integer Point instead.
+///
+/// Deliberately returns a raw (f32, f32) tuple rather than a PointF -
+/// this codebase has only ever *constructed* a PointF (see
+/// draw_end_screen_fallen_portrait), never read x/y back off one, so
+/// there's no proof here that PointF exposes public fields the way Point
+/// does. Building the tuple ourselves and letting the caller make the
+/// final PointF (after subtracting its own camera offset) avoids leaning
+/// on that unconfirmed API surface entirely.
+///
+/// Does NOT consume/remove the animation - that stays tick_animations'
+/// job (systems/animation.rs), so "when does a glide end" is only ever
+/// decided in one place.
+pub fn gliding_position(ecs: &SubWorld, entity: Entity) -> Option<(f32, f32)> {
+    let entry = ecs.entry_ref(entity).ok()?;
+    let anim = entry.get_component::<MovingAnimation>().ok()?;
+    if anim.elapsed_ms >= MOVE_ANIM_DURATION_MS {
+        return None;
+    }
+    let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
+    Some((
+        lerp(anim.start.x as f32, anim.end.x as f32, t),
+        lerp(anim.start.y as f32, anim.end.y as f32, t),
+    ))
+}
 
 /// Computes the same ColorPair/glyph a tile would be drawn with in
 /// map_render.rs, for a single point - shared so entity_render can paint
