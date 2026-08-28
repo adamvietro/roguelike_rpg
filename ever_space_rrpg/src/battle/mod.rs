@@ -1,5 +1,29 @@
 use crate::prelude::*;
 
+// --- Attack-type category modules -------------------------------------------
+//
+// Each module below owns one mechanical category of battle effect - the
+// same split TechniqueEffect's variants already fell into, just given a
+// home instead of being interpreted inline in one giant match. A
+// technique that reuses an existing category (e.g. a new class's flat-
+// damage attack) is a template.ron entry only, same as before this
+// refactor. A genuinely new category is one new module plus one new
+// TechniqueEffect variant and match arm in apply_player_technique below -
+// it never needs a new field on Battle, since every category (except
+// pure damage, which has no lingering state) stores its active state in
+// the same generic StatusSet (see battle::status) rather than inventing
+// its own.
+pub mod buff;
+pub mod counter;
+pub mod damage;
+pub mod dot;
+pub mod heal;
+pub mod status;
+pub mod stun;
+
+pub use buff::{BuffKind, Magnitude};
+pub use status::{ActiveStatus, StatusKind, StatusSet};
+
 // --- Battle action capability components -----------------------------------
 //
 // Each of these is a marker component an entity can carry to say "I can do
@@ -244,15 +268,14 @@ pub struct Battle {
     /// decided yet - battle_tick resolves this before rendering anything.
     pub awaiting_order_decision: bool,
     pub player_defending: bool,
-    /// Set by any Counter-shaped technique; consumed (and cleared) by the
-    /// next resolve_enemy_attack call, whenever that happens to land. Holds
-    /// the technique's own chance/multiplier rather than a hardcoded
-    /// constant, so different classes' counter-style techniques can differ.
-    pub countering: Option<CounterState>,
-    /// A damage-over-time effect currently active on the enemy (e.g. from
-    /// a Rend-shaped technique), ticked once per round in `tick_dot`.
-    /// None when inactive.
-    pub enemy_dot: Option<DotState>,
+    /// Every currently-active status affecting the ENEMY (Stun, Dot) -
+    /// see battle::status::StatusSet. Replaces the old bespoke
+    /// `enemy_stunned`/`enemy_dot` fields.
+    pub enemy_statuses: StatusSet,
+    /// Every currently-active status affecting the PLAYER (Buff,
+    /// Counter) - see battle::status::StatusSet. Replaces the old
+    /// bespoke `dodge_bonus`/`war_cry`/`countering` fields.
+    pub player_statuses: StatusSet,
     pub fled: bool,
     /// Scrolling battle log, most recent entry last - replaces the old
     /// single `message: String` so earlier lines (e.g. a DoT tick right
@@ -289,24 +312,6 @@ pub struct Battle {
     /// instant that first PlayerMenu action resolves, whatever it was -
     /// see screens/battle.rs's BattleTurn::PlayerMenu handling.
     pub sneak_attack: bool,
-    /// An active Evade-technique bonus (e.g. Rogue's Dodge) - adds
-    /// `chance_percent` on top of the player's base Evasion for the next
-    /// `turns` enemy attacks faced, ticked down once per attack in
-    /// resolve_enemy_attack regardless of whether that attack was
-    /// evaded. None when inactive.
-    pub dodge_bonus: Option<DodgeState>,
-    /// An active Battle Cry (Amazon) - reduces the enemy's outgoing
-    /// damage by a random amount each hit for the next N attacks. Unlike
-    /// dodge_bonus, this only ticks down when an attack actually connects
-    /// (mirrors Ice Armor's placement in resolve_enemy_attack) - a fully
-    /// evaded attack didn't deal damage to reduce, so it shouldn't spend
-    /// a charge either. None when inactive.
-    pub war_cry: Option<WarCryState>,
-    /// An active stun on the enemy (Hunter's Stun or Feint) - see
-    /// StunState. Checked at the very top of resolve_enemy_attack, ahead
-    /// of even the Evasion check, since a stunned enemy doesn't attack
-    /// at all rather than attacking-and-missing. None when inactive.
-    pub enemy_stunned: Option<StunState>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -329,8 +334,8 @@ impl Battle {
             first_actor: Combatant::Player,
             awaiting_order_decision: true,
             player_defending: false,
-            countering: None,
-            enemy_dot: None,
+            enemy_statuses: StatusSet::default(),
+            player_statuses: StatusSet::default(),
             fled: false,
             log: Vec::new(),
             enemy_flash: None,
@@ -339,9 +344,6 @@ impl Battle {
             player_damage_popup: None,
             result_timer_ms: 0.0,
             sneak_attack: false,
-            dodge_bonus: None,
-            war_cry: None,
-            enemy_stunned: None,
         }
     }
 
@@ -393,48 +395,6 @@ impl Battle {
             remaining_ms: DAMAGE_POPUP_DURATION_MS,
         });
     }
-}
-
-/// A pending counter-technique's chance/multiplier - see Battle::countering.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CounterState {
-    pub chance_percent: i32,
-    pub multiplier: i32,
-}
-
-/// An active damage-over-time effect on the enemy - see Battle::enemy_dot.
-#[derive(Clone, Debug, PartialEq)]
-pub struct DotState {
-    pub damage: i32,
-    pub turns_remaining: i32,
-    /// The technique's own name, lowercased, for the per-tick message
-    /// (e.g. "The garrote bites...").
-    pub label: String,
-}
-
-/// An active Evade-technique bonus on the player - see Battle::dodge_bonus.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct DodgeState {
-    pub chance_percent: i32,
-    pub turns_remaining: i32,
-}
-
-/// An active Battle Cry (Amazon) on the player - see Battle::war_cry.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct WarCryState {
-    pub min_reduction: i32,
-    pub max_reduction: i32,
-    pub attacks_remaining: i32,
-}
-
-/// An active stun on the enemy (Hunter's Stun or Feint) - see
-/// Battle::enemy_stunned. `turns_remaining` counts down once per enemy
-/// turn faced in resolve_enemy_attack, which skips the attack entirely
-/// while this is active (no Defend/Ice Armor/Counter gets consumed on a
-/// stunned turn, same as a fully-evaded one).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct StunState {
-    pub turns_remaining: i32,
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
@@ -555,55 +515,53 @@ pub fn player_attack_damage(ecs: &World, player: Entity) -> i32 {
     entity_damage(ecs, player) + carried_weapon_damage(ecs, player)
 }
 
+/// Restores `amount` HP to an entity, clamped to its max. Shared by
+/// battle::heal (the Heal technique effect).
+pub fn heal_entity(ecs: &mut World, entity: Entity, amount: i32) {
+    <(Entity, &mut Health)>::query()
+        .iter_mut(ecs)
+        .filter(|(e, _)| **e == entity)
+        .for_each(|(_, hp)| hp.current = (hp.current + amount).min(hp.max));
+}
+
 /// The enemy automatically attacks the player. Enemies currently only ever
 /// know Attack (see CanAttack / available_actions), so this is a simple
 /// hardcoded action - a natural place for smarter enemy AI to hook in
-/// later. Applies the player's Defend reduction if active, then clears it
-/// (Defend only blocks the next hit taken, from whichever side lands it).
-/// If Counter Attack is armed, rolls it here too, since this is the single
-/// place every enemy attack against the player passes through regardless
-/// of initiative order. Pushes its own log line(s) directly (main hit, and
-/// a separate counter line if one fires) rather than returning a string -
-/// the terse log format doesn't try to narrate cause (Defend vs Ice Armor
-/// vs neither all just reduce the same final number), so there's nothing
-/// left for a caller to do with a returned message.
+/// later.
+///
+/// This is the single place every enemy attack against the player passes
+/// through, so it's also the one place that has to check every status
+/// that can intercept an attack, in order: Stun (skips the attack
+/// entirely) -> Evasion (skips the damage entirely) -> Defend/Ice
+/// Armor/War Cry (each reduce the damage that lands) -> Counter (reacts
+/// to a landed hit). Each of those checks now delegates to its own
+/// category module instead of being inlined here - this function is the
+/// ORDER they happen in, not their individual mechanics.
 pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
-    // A stunned enemy (Hunter's Stun or Feint - see Battle::enemy_stunned)
-    // doesn't attack at all this turn - checked ahead of even the
-    // Evasion check below, since this is "the enemy never swings"
-    // rather than "the enemy swings and misses." No Defend/Ice
-    // Armor/Counter gets consumed either, same reasoning as the
-    // full-dodge early return further down.
-    if let Some(stun) = &mut battle.enemy_stunned {
-        stun.turns_remaining -= 1;
-        let expired = stun.turns_remaining <= 0;
-        if expired {
-            battle.enemy_stunned = None;
-        }
+    // A stunned enemy (Hunter's Stun or Feint) doesn't attack at all this
+    // turn - checked ahead of even the Evasion check below, since this is
+    // "the enemy never swings" rather than "the enemy swings and misses."
+    // No Defend/Ice Armor/Counter gets consumed either, same reasoning as
+    // the full-dodge early return further down.
+    if stun::check_and_tick(battle) {
         battle.push_log("The enemy is stunned and can't act.".to_string());
         battle.player_defending = false;
         return;
     }
 
-    // Evasion check first (base Evasion stat + any active Dodge-technique
-    // bonus, additive - see components::Evasion / Battle::dodge_bonus). A
-    // full dodge skips the entire rest of this function: no Defend or Ice
-    // Armor gets consumed and no Counter triggers, since nothing actually
-    // landed to defend against or counter.
-    let dodge_chance = entity_evasion(ecs, battle.player)
-        + battle.dodge_bonus.as_ref().map_or(0, |d| d.chance_percent);
+    // Evasion check (base Evasion stat + any active Dodge-technique bonus,
+    // additive). A full dodge skips the entire rest of this function: no
+    // Defend or Ice Armor gets consumed and no Counter triggers, since
+    // nothing actually landed to defend against or counter.
+    let dodge_chance =
+        entity_evasion(ecs, battle.player) + buff::flat_value(battle, BuffKind::Evasion);
     let mut rng = RandomNumberGenerator::new();
     let evaded = dodge_chance > 0 && rng.range(0, 100) < dodge_chance;
 
-    // The Dodge-technique bonus's duration ticks down once per enemy
-    // attack faced, regardless of whether this particular attack was the
-    // one that got evaded.
-    if let Some(dodge) = &mut battle.dodge_bonus {
-        dodge.turns_remaining -= 1;
-        if dodge.turns_remaining <= 0 {
-            battle.dodge_bonus = None;
-        }
-    }
+    // The Evasion buff's duration ticks down once per enemy attack faced,
+    // regardless of whether this particular attack was the one that got
+    // evaded.
+    buff::tick_on_attack_faced(battle, BuffKind::Evasion);
 
     if evaded {
         battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
@@ -632,30 +590,15 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
         dmg = (dmg - armor.defense_bonus).max(0);
     }
 
-    // Battle Cry (Amazon) - a random 1-2 (or whatever the technique's
-    // configured range is) reduction per hit, on top of any Ice Armor
-    // already subtracted above. Ticks down (and clears once exhausted)
-    // only here, past the evaded-early-return above - a dodge shouldn't
-    // spend a Battle Cry charge, since no damage landed to reduce.
-    if let Some(cry) = &mut battle.war_cry {
-        let mut rng = RandomNumberGenerator::new();
-        let reduction = rng.range(cry.min_reduction, cry.max_reduction + 1);
-        dmg = (dmg - reduction).max(0);
-        cry.attacks_remaining -= 1;
-        if cry.attacks_remaining <= 0 {
-            battle.war_cry = None;
-        }
-    }
+    // War Cry (Amazon) - a Buff of kind DamageReduction: a random
+    // reduction per hit, on top of any Ice Armor already subtracted
+    // above. Ticks down (and clears once exhausted) only here, past the
+    // evaded-early-return above - a dodge shouldn't spend a charge, since
+    // no damage landed to reduce.
+    dmg = buff::tick_and_reduce(battle, BuffKind::DamageReduction, dmg);
 
-    let dmg = apply_damage(ecs, battle.player, dmg);
-    battle.show_player_damage(dmg);
-    battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-    battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-    battle.push_log(if dmg == 0 {
-        "Dodge attack.".to_string()
-    } else {
-        format!("Take {} damage.", dmg)
-    });
+    let dmg = damage::strike(ecs, battle, Combatant::Enemy, dmg);
+    battle.push_log(damage::take_message(dmg));
     battle.player_defending = false;
 
     // Ice Armor wears down by one attack actually absorbed, same "attacks"
@@ -677,23 +620,7 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
         cb.flush(ecs);
     }
 
-    if let Some(counter) = battle.countering.take() {
-        let mut rng = RandomNumberGenerator::new();
-        if rng.range(0, 100) < counter.chance_percent {
-            let counter_dmg = player_attack_damage(ecs, battle.player) * counter.multiplier;
-            let counter_dmg = apply_damage(ecs, battle.enemy, counter_dmg);
-            battle.show_enemy_damage(counter_dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            battle.push_log(if counter_dmg == 0 {
-                "Dodge attack.".to_string()
-            } else {
-                format!("Deal {} damage.", counter_dmg)
-            });
-        } else {
-            battle.push_log("Miss counter.".to_string());
-        }
-    }
+    counter::resolve_on_hit(ecs, battle);
 }
 
 /// An entity's active IceArmored bonus, if any - see resolve_enemy_attack.
@@ -707,50 +634,23 @@ pub fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
 
 /// If a damage-over-time effect is active on the enemy, ticks it down by
 /// one and applies its damage. Called once at the start of each round.
-/// Returns a message describing the tick if it happened, or None if no
-/// effect is active. Generic over whichever technique applied it (Rend,
-/// Burn, or any future one) - see Battle::enemy_dot.
+/// Thin wrapper over battle::dot::tick - kept as a top-level name since
+/// screens/battle.rs already calls it that way.
 pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
-    let (damage, turns_remaining) = match &battle.enemy_dot {
-        Some(dot) => (dot.damage, dot.turns_remaining),
-        None => return None,
-    };
-    if turns_remaining <= 0 {
-        battle.enemy_dot = None;
-        return None;
-    }
-    let damage = apply_damage(ecs, battle.enemy, damage);
-    battle.show_enemy_damage(damage);
-    battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-    let remaining = turns_remaining - 1;
-    if remaining <= 0 {
-        battle.enemy_dot = None;
-    } else if let Some(dot) = &mut battle.enemy_dot {
-        dot.turns_remaining = remaining;
-    }
-    Some(if damage == 0 {
-        "Dodge attack.".to_string()
-    } else {
-        format!("Deal {} damage.", damage)
-    })
-}
-
-/// Restores `amount` HP to an entity, clamped to its max. Used by the
-/// Heal technique effect.
-pub fn heal_entity(ecs: &mut World, entity: Entity, amount: i32) {
-    <(Entity, &mut Health)>::query()
-        .iter_mut(ecs)
-        .filter(|(e, _)| **e == entity)
-        .for_each(|(_, hp)| hp.current = (hp.current + amount).min(hp.max));
+    dot::tick(ecs, battle)
 }
 
 /// Applies a chosen technique's effect on behalf of the player, consuming
 /// one copy of `item` first. This is the single place a technique's
-/// mechanical effect is interpreted - main.rs no longer needs one match
-/// arm per technique. Adding a new class's technique that reuses an
-/// existing TechniqueEffect shape needs zero code changes here (just a
-/// template.ron entry); a genuinely new mechanic needs one new match arm,
-/// not a new component/BattleAction variant/main.rs block like before.
+/// mechanical effect is dispatched - main.rs no longer needs one match
+/// arm per technique, and neither does this function anymore: each
+/// variant's actual mechanics live in its category module (battle::damage,
+/// battle::dot, battle::stun, etc.) above. Adding a new class's technique
+/// that reuses an existing TechniqueEffect shape needs zero code changes
+/// here (just a template.ron entry); a genuinely new mechanic needs one
+/// new module (or one new function in an existing one) plus one new match
+/// arm here, not a new component/BattleAction variant/main.rs block like
+/// before this refactor.
 pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity) -> String {
     let effect = match technique_effect(ecs, item) {
         Some(e) => e,
@@ -764,78 +664,29 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
 
     match effect {
         TechniqueEffect::DamageMultiplier(multiplier) => {
-            let dmg = player_attack_damage(ecs, battle.player) * multiplier;
-            let dmg = apply_damage(ecs, battle.enemy, dmg);
-            battle.show_enemy_damage(dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            if dmg == 0 {
-                "Dodge attack.".to_string()
-            } else {
-                format!("Deal {} damage.", dmg)
-            }
+            damage::damage_multiplier(ecs, battle, multiplier)
         }
-        TechniqueEffect::FlatDamage(amount) => {
-            let dmg = amount + carried_weapon_damage(ecs, battle.player);
-            let dmg = apply_damage(ecs, battle.enemy, dmg);
-            battle.show_enemy_damage(dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            if dmg == 0 {
-                "Dodge attack.".to_string()
-            } else {
-                format!("Deal {} damage.", dmg)
-            }
-        }
-        TechniqueEffect::MultiHit(hits) => {
-            let raw = player_attack_damage(ecs, battle.player);
-            let mut dmg = 0;
-            for _ in 0..hits {
-                dmg = apply_damage(ecs, battle.enemy, raw);
-            }
-            // Only the last hit's damage gets a popup/log line - showing
-            // every hit would need a queue of popups rather than one slot,
-            // which is more than this technique needs right now.
-            battle.show_enemy_damage(dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            if dmg == 0 {
-                "Dodge attack.".to_string()
-            } else {
-                format!("Deal {} damage.", dmg)
-            }
-        }
+        TechniqueEffect::FlatDamage(amount) => damage::flat_damage(ecs, battle, amount),
+        TechniqueEffect::MultiHit(hits) => damage::multi_hit(ecs, battle, hits),
         TechniqueEffect::Counter {
             chance_percent,
             multiplier,
-        } => {
-            battle.countering = Some(CounterState {
-                chance_percent,
-                multiplier,
-            });
-            "Ready counter.".to_string()
-        }
+        } => counter::apply(battle, chance_percent, multiplier),
         TechniqueEffect::DamageOverTime { damage, turns } => {
-            battle.enemy_dot = Some(DotState {
-                damage,
-                turns_remaining: turns,
-                label: name.to_lowercase(),
-            });
+            dot::apply(battle, damage, turns, name.to_lowercase());
             "Apply bleed.".to_string()
         }
-        TechniqueEffect::Heal { amount } => {
-            heal_entity(ecs, battle.player, amount);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            format!("Heal {} HP.", amount)
-        }
+        TechniqueEffect::Heal { amount } => heal::apply(ecs, battle, amount),
         TechniqueEffect::Evade {
             chance_percent,
             turns,
         } => {
-            battle.dodge_bonus = Some(DodgeState {
-                chance_percent,
-                turns_remaining: turns,
-            });
+            buff::apply(
+                battle,
+                BuffKind::Evasion,
+                Magnitude::Flat(chance_percent),
+                turns,
+            );
             "Boost evasion.".to_string()
         }
         TechniqueEffect::WarCry {
@@ -843,11 +694,15 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             max_reduction,
             attacks,
         } => {
-            battle.war_cry = Some(WarCryState {
-                min_reduction,
-                max_reduction,
-                attacks_remaining: attacks,
-            });
+            buff::apply(
+                battle,
+                BuffKind::DamageReduction,
+                Magnitude::Random {
+                    min: min_reduction,
+                    max: max_reduction,
+                },
+                attacks,
+            );
             "Rally your courage.".to_string()
         }
         TechniqueEffect::PoisonStrike {
@@ -855,16 +710,9 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             dot_damage,
             dot_turns,
         } => {
-            let dmg = initial + carried_weapon_damage(ecs, battle.player);
-            let dmg = apply_damage(ecs, battle.enemy, dmg);
-            battle.show_enemy_damage(dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_dot = Some(DotState {
-                damage: dot_damage,
-                turns_remaining: dot_turns,
-                label: name.to_lowercase(),
-            });
+            let total = initial + carried_weapon_damage(ecs, battle.player);
+            let dmg = damage::strike(ecs, battle, Combatant::Player, total);
+            dot::apply(battle, dot_damage, dot_turns, name.to_lowercase());
             if dmg == 0 {
                 "Dodge attack. Poison lingers.".to_string()
             } else {
@@ -874,29 +722,8 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
         TechniqueEffect::Stun {
             chance_percent,
             turns,
-        } => {
-            let mut rng = RandomNumberGenerator::new();
-            if rng.range(0, 100) < chance_percent {
-                battle.enemy_stunned = Some(StunState {
-                    turns_remaining: turns,
-                });
-                "Stun the enemy.".to_string()
-            } else {
-                "Stun fails.".to_string()
-            }
-        }
-        TechniqueEffect::Feint => {
-            // Always lands, unlike Stun above - but only holds for the
-            // enemy's next single attack (see StunState/
-            // resolve_enemy_attack). Overwrites any Stun already in
-            // progress rather than extending it, same "just overwrite"
-            // refresh behavior every other reusable status in this file
-            // uses (Ice Armor, Invisible, Stealthed) - a rare enough
-            // overlap that a fresh, shorter feint replacing a longer
-            // stun isn't worth the extra bookkeeping to prevent.
-            battle.enemy_stunned = Some(StunState { turns_remaining: 1 });
-            "Feint - the enemy holds back its attack.".to_string()
-        }
+        } => stun::roll(battle, chance_percent, turns),
+        TechniqueEffect::Feint => stun::feint(battle),
     }
 }
 

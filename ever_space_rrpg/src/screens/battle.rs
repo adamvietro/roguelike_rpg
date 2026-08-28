@@ -274,13 +274,18 @@ impl State {
         // pixel y=480 / row 60, so a status line at row 60 would sit
         // directly under the portrait on console 3 (registered after
         // console 2) and never actually be visible - row 57 keeps clear.
-        if let Some(dot) = &battle.enemy_dot {
+        if let Some(ActiveStatus::Dot {
+            label,
+            turns_remaining,
+            ..
+        }) = battle.enemy_statuses.get(StatusKind::Dot)
+        {
             ctx.print_color(
                 96,
                 43,
                 RED,
                 BLACK,
-                &format!("{} ({} turns left)", dot.label, dot.turns_remaining),
+                &format!("{} ({} turns left)", label, turns_remaining),
             );
         }
 
@@ -291,16 +296,14 @@ impl State {
         if let Some(armor) = entity_ice_armor(&self.ecs, battle.player) {
             player_statuses.push(format!("Ice Armor ({} left)", armor.attacks_remaining));
         }
-        if let Some(cry) = &battle.war_cry {
-            player_statuses.push(format!("Battle Cry ({} left)", cry.attacks_remaining));
+        if let Some(remaining) = buff::remaining(&battle, BuffKind::DamageReduction) {
+            player_statuses.push(format!("Battle Cry ({} left)", remaining));
         }
-        if let Some(dodge) = &battle.dodge_bonus {
-            player_statuses.push(format!(
-                "Dodge (+{}% evasion, {} left)",
-                dodge.chance_percent, dodge.turns_remaining
-            ));
+        if let Some(remaining) = buff::remaining(&battle, BuffKind::Evasion) {
+            let chance = buff::flat_value(&battle, BuffKind::Evasion);
+            player_statuses.push(format!("Dodge (+{}% evasion, {} left)", chance, remaining));
         }
-        if battle.countering.is_some() {
+        if battle.player_statuses.is_active(StatusKind::Counter) {
             player_statuses.push("Countering".to_string());
         }
         if !player_statuses.is_empty() {
@@ -539,17 +542,13 @@ impl State {
                                 if battle.sneak_attack {
                                     dmg *= 3;
                                 }
-                                let dmg = apply_damage(&mut self.ecs, battle.enemy, dmg);
-                                battle.show_enemy_damage(dmg);
-                                battle.player_flash =
-                                    Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-                                battle.enemy_flash =
-                                    Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-                                battle.push_log(if dmg == 0 {
-                                    "Dodge attack.".to_string()
-                                } else {
-                                    format!("Deal {} damage.", dmg)
-                                });
+                                let dmg = damage::strike(
+                                    &mut self.ecs,
+                                    &mut battle,
+                                    Combatant::Player,
+                                    dmg,
+                                );
+                                battle.push_log(damage::strike_message(dmg));
                             }
                             BattleAction::Defend => {
                                 battle.player_defending = true;

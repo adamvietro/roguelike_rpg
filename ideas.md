@@ -274,5 +274,6 @@ Bosses will guarantee Loot.
 
 ## Refactors
 Main into distinct Modules
+Battle into different modules based on ins-battle and out.
 
 

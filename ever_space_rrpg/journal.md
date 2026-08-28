@@ -1913,6 +1913,7 @@ Good, still there from earlier. Let's regenerate the pinned lockfile for checkin
 One thing worth trying once you've got it in-game: I sized the box from each class's actual label lengths rather than a fixed guess, so Barbarian's box will be visibly wider than Archer's — let me know if that inconsistency across classes feels off, versus a single fixed width that's just "big enough for everyone."
 
 # Hunter Class
+
 Now let's make the components.rs edits — new `FreezeTrap`/`Frozen` components and the two new effect enum variants:Now let's view and edit the `ProvidesEffect` and `TechniqueEffect` enums:Now the `TechniqueEffect` enum — add `Stun` and `Feint`:Now let's edit `battle.rs`: add `StunState`, `Battle.enemy_stunned`, the `resolve_enemy_attack` early-out, and the two new `apply_player_technique` arms.Now add the `enemy_stunned` field to the `Battle` struct and its constructor:Now the `resolve_enemy_attack` early-out for stun:Now the two new `apply_player_technique` match arms — add them right after `PoisonStrike`:Now let's update `systems/traps.rs` to also handle `FreezeTrap`:Good, both expected. Let's fix the borrow issue first:Now let's implement `PlaceFreezeTrap` in `use_items.rs`:Now let's wire up `chasing.rs` to skip frozen enemies, and `end_turn.rs` to tick `Frozen` down:Now `end_turn.rs`:Now let's update `entity_render.rs`'s `tinted_color` to handle `Frozen` on any entity (blue tint):A real `BLUE` constant exists — let's use it instead of `CYAN` since the user asked for blue specifically:Let's fix the leftover comment referencing CYAN:All clean. Now let's do the class rename: `spawner/mod.rs` and `screens/title.rs`, plus the stale doc comment in `spawner/template.rs`.Now the CLASS_ROSTER entry in `title.rs`:Now the stale `spawner/template.rs` doc comment mentioning Archer:Now the starting kit:Now let's do a full compile check including RON deserialization (which happens at runtime, not compile-time — but let's at least confirm the Rust side compiles, then write a tiny standalone check to validate the RON parses correctly):Good — it just reads `resources/template.ron` relative to the working directory at runtime. Let's write a tiny throwaway test binary to actually parse both RON files and catch any deserialization errors:I got most of the way through implementing the Hunter class before hitting the tool limit. Here's exactly where things stand:
 
 **Fully implemented and compiling clean** (`cargo check` passes with zero warnings) as of my last successful check:
@@ -1958,3 +1959,68 @@ It compiled — visibility worked out. Now let's actually run it:Both RON files 
 I verified this end-to-end: `cargo build` clean with zero warnings, and I wrote a temporary test (since RON parse errors are a runtime panic, not a compile error) that actually loaded both `.ron` files and confirmed all 8 Hunter templates and the starting kit parsed correctly — then removed the test before packaging, since this project doesn't otherwise have a test suite.
 
 One thing worth deciding: right now a frozen enemy is fully invisible to the chasing AI but still targetable if *you* walk into it. Also, the Amazon spear glyph mismatch I flagged last time is still there and unrelated to this — let me know if you want that looked at next.
+
+# Battle Refactor
+This will be the work to make the Battle system for robust for adding in new abilities and then later the out of battle systems.
+
+Good, that confirms the exact scope — `resolve_enemy_attack`, `tick_dot`, and `apply_player_technique` are the only entry points `screens/battle.rs` calls by name, so I can keep those three as thin orchestrators in `battle/mod.rs` and move everything else into category modules without touching call sites. Let's build it.Now `evade.rs`, `warcry.rs`, and `counter.rs`, using the same borrow-safe pattern:Now update `screens/battle.rs` for the new status accessors, and remove the old flat `battle.rs`.Now the `Attack` menu arm — routing it through `damage::strike` for consistency with every other pure-damage path:Now let's remove the old flat `battle.rs` and compile.Good, only doc-comment mentions of the old names remain. Now let's compile.Clean build, zero warnings. Now restoring your real `Cargo.lock` (I had to downgrade `rayon`/`rayon-core` locally just to get this sandbox's older Rust toolchain to compile at all — that's not something you should apply).All LF. Now packaging for delivery.## In-battle effects refactor — done, compiles clean
+
+**Big change first: `src/battle.rs` becomes a directory, `src/battle/`.** Delete the old `src/battle.rs` and add these files in its place — no `main.rs` change needed, `mod battle;` resolves to `battle/mod.rs` automatically.
+
+| File in this chat       | Real path               | New / Modified                     |
+| ----------------------- | ----------------------- | ---------------------------------- |
+| `src_battle_mod.rs`     | `src/battle/mod.rs`     | New (replaces old `src/battle.rs`) |
+| `src_battle_status.rs`  | `src/battle/status.rs`  | New                                |
+| `src_battle_damage.rs`  | `src/battle/damage.rs`  | New                                |
+| `src_battle_dot.rs`     | `src/battle/dot.rs`     | New                                |
+| `src_battle_stun.rs`    | `src/battle/stun.rs`    | New                                |
+| `src_battle_evade.rs`   | `src/battle/evade.rs`   | New                                |
+| `src_battle_warcry.rs`  | `src/battle/warcry.rs`  | New                                |
+| `src_battle_counter.rs` | `src/battle/counter.rs` | New                                |
+| `src_battle_heal.rs`    | `src/battle/heal.rs`    | New                                |
+| `src_screens_battle.rs` | `src/screens/battle.rs` | Modified                           |
+
+**What changed, and why:**
+
+1. **Storage unified.** `Battle` used to have five separate bespoke fields (`countering`, `enemy_dot`, `dodge_bonus`, `war_cry`, `enemy_stunned`), each its own struct. Now there's just `player_statuses: StatusSet` and `enemy_statuses: StatusSet` — one generic container holding an `ActiveStatus` enum. A brand-new status type from here on is one new enum variant, not a new `Battle` field.
+2. **Split into category modules**, matching the shape you described: `damage.rs` (pure damage — Attack, DamageMultiplier, FlatDamage, MultiHit all funnel through one shared `strike()`), `dot.rs`, `stun.rs`, `evade.rs`, `warcry.rs`, `counter.rs`, `heal.rs`. Each owns its own apply/tick logic.
+3. **`resolve_enemy_attack` and `apply_player_technique` are now thin orchestrators** in `mod.rs` — they show *the order* effects check (stun → evasion → defend → ice armor → war cry → counter) and *which module* handles each `TechniqueEffect` variant, but the actual mechanics live in the modules.
+4. **`screens/battle.rs`** — updated the four status-line reads (dot/war cry/dodge/counter) to the new `StatusSet` accessors, and the plain `Attack` menu action now calls `damage::strike` instead of repeating the same apply-damage/popup/flash block a sixth time.
+
+**Verified with a real `cargo check`** — clean, zero warnings. One caveat: this sandbox only has Rust 1.75 via `apt`, and your real dependency tree (`rayon-core` etc.) needs 1.80+, so I had to temporarily downgrade `rayon`/`rayon-core` in a scratch copy just to get a compiler that would touch your `legion`/`bracket-lib` versions at all. **I did not change your `Cargo.lock`** — don't apply any lockfile diff from this, there isn't one to apply. Worth a normal `cargo check` on your end too.
+
+**Out-of-combat effects (traps/ranged/stun) are next**, per the order you picked — `ProvidesEffect` in `use_items.rs` has the same "one big match" shape and is a good candidate for the same treatment. Want to keep going now, or check this compiles/plays correctly on your end first?
+
+## Warcry or Generalized Buffs
+Right — and that maps cleanly onto the code: `DodgeBonus` (Evasion) and `WarCry` (DamageReduction) are both **passive stat buffs** — they just sit there modifying a number every relevant turn. `Counter` is mechanically different — it's dormant until a specific trigger (getting hit), then fires a one-time extra action. So Counter stays its own category; Stun and Dot are enemy-side effects, not player buffs, so they're not part of this either.
+
+I'll build the full generalization: one `Buff` category with a `BuffKind` (`Evasion`, `DamageReduction` today) and a `Magnitude` (flat or random-range), so a future Attack/Defense/Speed buff is a new `BuffKind` variant, not a new module.Now creating `buff.rs` to replace both `evade.rs` and `warcry.rs`:Now update `status.rs` to use the generalized `Buff` variant:Now update `mod.rs`: module declarations, re-exports, `resolve_enemy_attack`, and `apply_player_technique`.Now the `apply_player_technique` dispatch arms for `Evade` and `WarCry`:Now `screens/battle.rs`'s status-line rendering:Now let's compile again (re-applying the sandbox's older-toolchain lockfile workaround).That's just a doc comment reference and the unrelated `TechniqueEffect::WarCry` variant name (the ability itself, "Battle Cry" — still a `template.ron`-facing identifier, separate from the internal status representation I renamed). Let me fix the stale doc comment.Easy fix — screens/battle.rs holds `battle` directly (not a reference) at that point.Clean, zero warnings. Restoring the real `Cargo.lock` and packaging.## Buff generalization — done, compiles clean
+
+**Delete these two files** — they're absorbed into the new one:
+- `src/battle/evade.rs`
+- `src/battle/warcry.rs`
+
+**New/updated files:**
+
+| File in this chat       | Real path               | New / Modified                          |
+| ----------------------- | ----------------------- | --------------------------------------- |
+| `src_battle_buff.rs`    | `src/battle/buff.rs`    | New — replaces `evade.rs` + `warcry.rs` |
+| `src_battle_mod.rs`     | `src/battle/mod.rs`     | Modified                                |
+| `src_battle_status.rs`  | `src/battle/status.rs`  | Modified                                |
+| `src_screens_battle.rs` | `src/screens/battle.rs` | Modified                                |
+
+(`counter.rs`, `damage.rs`, `dot.rs`, `stun.rs`, `heal.rs` from last round are untouched — no need to re-download those.)
+
+**What changed:**
+
+- `ActiveStatus::DodgeBonus` and `ActiveStatus::WarCry` collapsed into one `ActiveStatus::Buff { kind, magnitude, remaining }`.
+- `BuffKind` is the extensible part: `Evasion` and `DamageReduction` today, and a future Attack/Defense/Speed buff is a new variant here — not a new module.
+- `Magnitude` separates *how* a buff's value is determined: `Flat(i32)` (Evasion's stable chance bonus) vs `Random { min, max }` (Battle Cry's per-hit roll) — since those two genuinely differ, that distinction stays explicit rather than getting flattened away.
+- Two buffs of different `BuffKind` can be active simultaneously (each is its own `StatusKind::Buff(kind)` internally), so nothing changes about Rogue's Dodge and Amazon's Battle Cry being independent even though they now share a type.
+- The tick-trigger difference is preserved as two functions, not folded together: `tick_on_attack_faced` (Evasion — ticks whether or not the attack lands) vs `tick_and_reduce` (DamageReduction — only ticks on a landed hit, and does the reduction math in the same call). A future buff picks whichever matches its own semantics.
+
+`TechniqueEffect::WarCry` — the RON-facing enum variant that names Amazon's specific *ability* ("Battle Cry") — is untouched; only the internal status representation was generalized, so `template.ron` needs no changes.
+
+Verified with a real `cargo check` — clean, zero warnings, same sandbox-toolchain caveat as before (I temporarily downgrade `rayon`/`rayon-core` locally to compile at all; your real `Cargo.lock` is untouched).
+
+Ready for the out-of-combat pass (traps/ranged/stun in `use_items.rs`) whenever you want to move on, or happy to pause here if you'd rather test this in-game first.
