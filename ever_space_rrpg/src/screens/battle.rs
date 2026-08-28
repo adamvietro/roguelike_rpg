@@ -390,10 +390,89 @@ impl State {
         // the same list.
         let actions = available_actions(&self.ecs, battle.player);
 
+        // Two columns instead of one long stacked list, which used to
+        // blend the always-available capability actions in with the
+        // class's technique roster - hard to scan at a glance,
+        // especially once a class has 3-4 techniques. Left column: the
+        // 3 capability actions (Attack/Defend/Flee), identified by
+        // BattleAction variant rather than position, since Flee sits at
+        // the END of the underlying Vec, after every technique (see
+        // battle::available_actions) - it still needs to land in the
+        // left column visually. Right column: the class's technique
+        // roster, owned or not. Splitting is purely a DRAWING decision -
+        // `i` below is still each entry's real index into `actions`, so
+        // PlayerMenu's number-key selection further down (which does
+        // `actions.get(i)`) is completely unaffected by which column
+        // something is drawn in.
+        let is_main_action = |entry: &&BattleMenuEntry| {
+            matches!(
+                entry.action,
+                Some(BattleAction::Attack) | Some(BattleAction::Defend) | Some(BattleAction::Flee)
+            )
+        };
+        let main_actions: Vec<(usize, &BattleMenuEntry)> = actions
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| is_main_action(entry))
+            .collect();
+        let other_actions: Vec<(usize, &BattleMenuEntry)> = actions
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| !is_main_action(entry))
+            .collect();
+
+        // Dropped the old "(locked)" suffix on an unowned technique - the
+        // greyed-out DARK_GRAY color already says the same thing, and
+        // the suffix was some of the longest text in the whole menu,
+        // which was its own part of the "everything blends together"
+        // problem.
+        fn menu_row_label(i: usize, entry: &BattleMenuEntry) -> (String, RGB) {
+            if entry.action.is_some() {
+                let label = match entry.count {
+                    Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
+                    None => format!("{}) {}", i + 1, entry.label),
+                };
+                (label, GREEN.into())
+            } else {
+                (format!("{}) {}", i + 1, entry.label), DARK_GRAY.into())
+            }
+        }
+
+        // Column widths sized to THIS class's own current labels (not a
+        // fixed guess), so the box fits snugly whether it's Archer (no
+        // techniques - right column stays empty) or Barbarian (4). Left
+        // column labels are always short ("N) Defend"), but computing it
+        // the same way keeps both sides consistent if that ever changes.
+        let left_width = main_actions
+            .iter()
+            .map(|(i, entry)| menu_row_label(*i, entry).0.chars().count())
+            .max()
+            .unwrap_or(0) as i32;
+        // max()'d against "Techniques".len() too - every current class's
+        // technique labels are already longer than that header once a
+        // number prefix/count suffix is added, but this keeps the header
+        // from ever overflowing the box if a future class's techniques
+        // all happen to have very short names.
+        let right_width = other_actions
+            .iter()
+            .map(|(i, entry)| menu_row_label(*i, entry).0.chars().count())
+            .max()
+            .unwrap_or(0)
+            .max(if other_actions.is_empty() {
+                0
+            } else {
+                "Techniques".len()
+            }) as i32;
+        const COLUMN_GAP: i32 = 3;
+        let right_col_x_offset = left_width + COLUMN_GAP;
+
         const BOX_X: i32 = 44;
-        const BOX_WIDTH: i32 = 26;
         const BOX_Y: i32 = 40;
-        let box_height = actions.len() as i32 + 4;
+        // +2 for the left/right border columns, +1 so the right column's
+        // text never touches the right border.
+        let box_width = right_col_x_offset + right_width + 3;
+        let box_content_rows = main_actions.len().max(other_actions.len()) as i32;
+        let box_height = box_content_rows + 4;
         // Clamp so a tall action list (more techniques than fit below row
         // 40) never runs off the bottom of the console.
         let box_y = BOX_Y.min(HUD_ROWS - box_height);
@@ -404,7 +483,7 @@ impl State {
             &mut menu_batch,
             BOX_X,
             box_y,
-            BOX_WIDTH,
+            box_width,
             box_height,
             ColorPair::new(GREEN, BLACK),
         );
@@ -412,22 +491,31 @@ impl State {
 
         ctx.set_active_console(HUD_CONSOLE);
         ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
-        for (i, entry) in actions.iter().enumerate() {
-            // Every action this class could ever have is always listed
-            // (see battle::available_actions) - one not currently owned
-            // shows greyed out and isn't selectable, rather than
-            // disappearing from the menu entirely, so the list stays a
-            // stable reference of what the class can eventually do.
-            let (label, color) = if entry.action.is_some() {
-                let label = match entry.count {
-                    Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
-                    None => format!("{}) {}", i + 1, entry.label),
-                };
-                (label, GREEN)
-            } else {
-                (format!("{}) {} (locked)", i + 1, entry.label), DARK_GRAY)
-            };
-            ctx.print_color(BOX_X + 1, box_y + 3 + i as i32, color, BLACK, &label);
+        for (row, (i, entry)) in main_actions.iter().enumerate() {
+            let (label, color) = menu_row_label(*i, entry);
+            ctx.print_color(BOX_X + 1, box_y + 3 + row as i32, color, BLACK, &label);
+        }
+        // Only label the right column if this class actually has any
+        // techniques at all (Archer/Debug don't) - an empty "Techniques"
+        // header over nothing would just be more clutter, not less.
+        if !other_actions.is_empty() {
+            ctx.print_color(
+                BOX_X + 1 + right_col_x_offset,
+                box_y + 1,
+                YELLOW,
+                BLACK,
+                "Techniques",
+            );
+        }
+        for (row, (i, entry)) in other_actions.iter().enumerate() {
+            let (label, color) = menu_row_label(*i, entry);
+            ctx.print_color(
+                BOX_X + 1 + right_col_x_offset,
+                box_y + 3 + row as i32,
+                color,
+                BLACK,
+                &label,
+            );
         }
         // Restore console 2 - the enemy/player name+HP text above and
         // every match arm below assume it's active (it's set once, above

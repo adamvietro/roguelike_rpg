@@ -11,6 +11,13 @@ Whirlwind - For the next 3 turns auto attack with 2 extra attack damage
 Mage
 
 
+### Hunter
+Speed - 8
+health- 12
+defense - 0
+attack - 1
+Evasion- 10%
+
 
 
 Amazon
@@ -33,12 +40,8 @@ Passive/identity
 Momentum — a passive that gives a small damage or evasion bonus while at full HP, encouraging hit-and-run play.
 Keen Eyes — a small passive bonus specifically to Throw Spear's targeting range or bonus damage, making the ranged kit scale with level progression later.
 
-Bosses will guarantee Loot.
-
 
 Make the player or the Enemy stunned after a flee
-
-Wiggle when attacking
 
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
@@ -72,6 +75,7 @@ battle messages in a list
 Move the action box up
 battle messages damage centered right and message centered left
 30% change to absorb 50% of the damage when you defend.
+Wiggle when attacking
 
 ### Bosses
 Implemented a boss for each level.
@@ -176,6 +180,7 @@ More Prefabs
 
 ## Balance
 Starting Items
+Bosses will guarantee Loot.
 
 ## Refactors
 Main into distinct Modules

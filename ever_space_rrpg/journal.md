@@ -1902,3 +1902,14 @@ I did **not** commit a regenerated `Cargo.lock` — my sandbox only had Rust 1.7
 
 Want me to also update the project instructions doc (session-end protocol) now, or keep going on something else first?
 
+# Battle Screen 1.1
+Good, still there from earlier. Let's regenerate the pinned lockfile for checking and run `cargo check`:Let's harden the header-width edge case slightly, then re-verify:Clean. Let's also run a full `cargo build` once more to confirm link-level correctness, then package the file:That makes sense, and it's exactly what I built. Quick rundown of what changed in the battle menu:
+
+- **Two columns.** Left side: Attack/Defend/Flee, always in that order. Right side: the class's technique roster (owned or not). This is purely a *drawing* split — the underlying list and number-key selection are unchanged, so pressing "3" still does exactly what it did before, just drawn in a different spot.
+- **Dropped "(locked)".** An unowned technique now just shows as `"N) TechniqueName"` in dark gray — no suffix. The color already carries that meaning, and the suffix was some of the longest text in the box, which was part of why things blended together.
+- **Box now sizes itself to the current class.** Column widths (and the box width/height) are computed from whatever labels the class in this specific battle actually has, so Archer (no techniques yet) gets a tight box with just the left column, while Barbarian (4 techniques) gets a wider one — rather than one fixed size trying to fit everyone.
+- Added a small "Techniques" header over the right column, but only when there's actually something to put under it.**1 file — replaces `src/screens/battle.rs`.** Verified with a full `cargo check` and `cargo build` in my sandbox against the rest of your current codebase; both clean, zero warnings.
+
+One thing worth trying once you've got it in-game: I sized the box from each class's actual label lengths rather than a fixed guess, so Barbarian's box will be visibly wider than Archer's — let me know if that inconsistency across classes feels off, versus a single fixed width that's just "big enough for everyone."
+
+# Hunter Class
