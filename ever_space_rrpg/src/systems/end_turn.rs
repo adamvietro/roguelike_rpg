@@ -7,6 +7,7 @@ use crate::prelude::*;
 #[read_component(AmuletOfYala)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
+#[read_component(Frozen)]
 pub fn end_turn(
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
@@ -50,6 +51,27 @@ pub fn end_turn(
                     *player,
                     Stealthed {
                         moves_remaining: status.moves_remaining - 1,
+                    },
+                );
+            }
+        }
+
+        // Same countdown for Frozen (Hunter's Freeze Trap) on however
+        // many enemies currently carry it - not filtered to the player,
+        // unlike Invisible/Stealthed above, since this is an enemy-side
+        // status. See components::Frozen / systems/chasing.rs.
+        let frozen_updates: Vec<(Entity, i32)> = <(Entity, &Frozen)>::query()
+            .iter(ecs)
+            .map(|(e, status)| (*e, status.turns_remaining))
+            .collect();
+        for (entity, turns_remaining) in frozen_updates {
+            if turns_remaining <= 1 {
+                commands.remove_component::<Frozen>(entity);
+            } else {
+                commands.add_component(
+                    entity,
+                    Frozen {
+                        turns_remaining: turns_remaining - 1,
                     },
                 );
             }

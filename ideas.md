@@ -8,16 +8,11 @@ Riposte - Counter attack for 2x damage
 Barbarian
 Whirlwind - For the next 3 turns auto attack with 2 extra attack damage
 
+
 Mage
 
 
-### Hunter
-Speed - 8
-health- 12
-defense - 0
-attack - 1
-Evasion- 10%
-
+Hunter
 
 
 Amazon
@@ -166,6 +161,28 @@ Poison Spear - Will do 1 dmg then 2 dmg for the next 3 turns
 
 Starting Items
 Trap x1, potion x1, Battle Cry x1
+
+### Hunter
+Glyph - B
+Weapons Icons - 6,7,8
+
+Speed - 8
+health- 12
+defense - 0
+attack - 1
+Evasion- 0%
+
+Actions
+Shoot - Out of combat attack that will do the weapon damage + base damage + 1
+Freeze Trap - Out of Combat ability Will set a trap that will go onto the ground and will freeze the enemy for 40 Turns. It should also turn the enemy blue.
+Feint - In Battle attack that will make it so the enemy can not attack the player until the player makes an action. 
+Poison Shot - Does damage of 2 points for the next 3 turns.
+Stun - 60% to stun the enemy for the next 3 turns. 
+
+Starting Kit
+Freeze Trap - x2
+Potion - x1
+Shoot - x1
 
 
 ## Options

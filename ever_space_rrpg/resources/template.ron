@@ -264,7 +264,7 @@ Templates(
             // class: Amazon. Glyphs w/x/y continue the placeholder
             // numbering/lettering the other tiers started.
             entity_type: Item,
-            name : "Wooden Spear", glyph: 'x', levels: [ 0 ],
+            name : "Wooden Spear", glyph: 'X', levels: [ 0 ],
             frequency: 1,
             base_damage: Some(1),
             class: Some("Amazon"),
@@ -272,7 +272,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Bronze Spear", glyph: 'y', levels: [ 1 ],
+            name : "Bronze Spear", glyph: 'Y', levels: [ 1 ],
             frequency: 1,
             base_damage: Some(2),
             class: Some("Amazon"),
@@ -280,7 +280,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Iron Spear", glyph: 'z', levels: [ 1, 2 ],
+            name : "Iron Spear", glyph: 'Z', levels: [ 1, 2 ],
             frequency: 1,
             base_damage: Some(3),
             class: Some("Amazon"),
@@ -337,6 +337,101 @@ Templates(
             frequency: 0,
             class: Some("Amazon"),
             description: Some("Place a hidden trap on your tile. The first enemy that steps on it takes 5 damage.")
+        ),
+        Template(
+            // Hunter's weapon tier, parallel to the Swords/Staffs/
+            // Daggers/Spears above - same guaranteed prefab slot, same
+            // level gating, but class: Hunter. Glyphs 6/7/8 are the
+            // existing Bow-tier dungeon-font cells (see
+            // Dungeon_Font_Glyph_to_Cell_Map.md) - already custom art,
+            // just never wired up to an actual item until now.
+            entity_type: Item,
+            name : "Wooden Bow", glyph: '6', levels: [ 0 ],
+            frequency: 1,
+            base_damage: Some(1),
+            class: Some("Hunter"),
+            prefab_only: true
+        ),
+        Template(
+            entity_type: Item,
+            name : "Hunting Bow", glyph: '7', levels: [ 1 ],
+            frequency: 1,
+            base_damage: Some(2),
+            class: Some("Hunter"),
+            prefab_only: true
+        ),
+        Template(
+            entity_type: Item,
+            name : "Great Bow", glyph: '8', levels: [ 1, 2 ],
+            frequency: 1,
+            base_damage: Some(3),
+            class: Some("Hunter"),
+            prefab_only: true
+        ),
+        Template(
+            // Hunter out-of-combat item, same shape as Amazon's Throw
+            // Spear above - see ProvidesEffect::RangedStrike /
+            // systems/use_items.rs. Damages the nearest visible enemy
+            // for weapon + base damage + 1, no fight starts.
+            entity_type: Item,
+            name : "Shoot", glyph: '?', levels: [ ],
+            effect: Some(RangedStrike(1)),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("Fire at the nearest visible enemy for your attack + weapon damage + 1 - no battle starts.")
+        ),
+        Template(
+            // Hunter out-of-combat item - see
+            // components::ProvidesEffect::PlaceFreezeTrap /
+            // components::FreezeTrap / systems/traps.rs. Same
+            // placed-hazard shape as Amazon's Trap above, but freezes
+            // instead of damaging - see components::Frozen /
+            // systems/chasing.rs (a frozen enemy can't move or attack)
+            // and systems/entity_render.rs (frozen enemies render blue).
+            entity_type: Item,
+            name : "Freeze Trap", glyph: 'T', levels: [ ],
+            effect: Some(PlaceFreezeTrap(40)),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("Place a hidden trap on your tile. The first enemy that steps on it is frozen solid for 40 turns.")
+        ),
+        Template(
+            // In-battle technique - see
+            // components::TechniqueEffect::DamageOverTime. Reuses the
+            // exact same DOT machinery Rend/Burn/Garrote already use -
+            // no code change needed, just this data entry.
+            entity_type: Item,
+            name : "Poison Shot", glyph: '?', levels: [ ],
+            technique: Some(DamageOverTime(damage: 2, turns: 3)),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("A venomous arrow: 2 damage per turn for the next 3 turns.")
+        ),
+        Template(
+            // In-battle technique - see
+            // components::TechniqueEffect::Stun / battle::resolve_enemy_attack.
+            // A percent-chance, multi-turn version of the same
+            // "enemy skips its attack" mechanic Feint below uses
+            // guaranteed-but-briefer.
+            entity_type: Item,
+            name : "Stun", glyph: '?', levels: [ ],
+            technique: Some(Stun(chance_percent: 60, turns: 3)),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("60% chance to stun the enemy, preventing it from attacking for the next 3 turns.")
+        ),
+        Template(
+            // In-battle technique - see
+            // components::TechniqueEffect::Feint. Always lands, unlike
+            // Stun above, but only holds off the enemy's very next
+            // single attack - played instead of attacking, to sit out
+            // one hit for free rather than gambling on Defend.
+            entity_type: Item,
+            name : "Feint", glyph: '?', levels: [ ],
+            technique: Some(Feint),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("Play dead to guarantee the enemy's next attack misses entirely.")
         ),
         Template(
             entity_type: Enemy,

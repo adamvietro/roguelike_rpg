@@ -165,6 +165,27 @@ pub fn use_items(
                                 }
                             }
                         }
+                        // Hunter's Freeze Trap - same spawn-at-current-
+                        // position shape as PlaceTrap above, but a
+                        // FreezeTrap entity (components::FreezeTrap)
+                        // instead of a damage Trap, and colored BLUE
+                        // rather than RED so the two are distinguishable
+                        // at a glance on the ground even though they
+                        // share the same 'T' glyph.
+                        ProvidesEffect::PlaceFreezeTrap(turns) => {
+                            if let Ok(user) = ecs.entry_ref(activate.used_by) {
+                                if let Ok(&pos) = user.get_component::<Point>() {
+                                    commands.push((
+                                        pos,
+                                        FreezeTrap { turns },
+                                        Render {
+                                            color: ColorPair::new(BLUE, BLACK),
+                                            glyph: to_cp437('T'),
+                                        },
+                                    ));
+                                }
+                            }
+                        }
                     }
                 }
             }

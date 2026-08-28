@@ -9,6 +9,7 @@ use crate::prelude::*;
 #[read_component(Name)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
+#[read_component(Frozen)]
 pub fn chasing(
     #[resource] map: &Map,
     #[resource] turn_state: &mut TurnState,
@@ -38,7 +39,13 @@ pub fn chasing(
         return;
     }
 
-    let mut movers = <(Entity, &Point, &ChasingPlayer, &FieldOfView)>::query();
+    let mut movers = <(
+        Entity,
+        &Point,
+        &ChasingPlayer,
+        &FieldOfView,
+        Option<&Frozen>,
+    )>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
     let mut player = <(&Point, &Player)>::query();
     let player_pos = player.iter(ecs).nth(0).unwrap().0;
@@ -47,7 +54,15 @@ pub fn chasing(
     let search_targets = vec![player_idx];
     let dijkstra_map = DijkstraMap::new(SCREEN_WIDTH, SCREEN_HEIGHT, &search_targets, map, 1024.0);
 
-    movers.iter(ecs).for_each(|(entity, pos, _, fov)| {
+    movers.iter(ecs).for_each(|(entity, pos, _, fov, frozen)| {
+        // Frozen (Hunter's Freeze Trap - see components::Frozen) is a
+        // full early-out, same shape as player_is_hidden above: a
+        // frozen enemy doesn't reposition toward the player AND can't
+        // bump into them to start a battle either, since both go
+        // through this same movement path.
+        if frozen.is_some() {
+            return;
+        }
         if !fov.visible_tiles.contains(&player_pos) {
             return;
         }

@@ -28,6 +28,7 @@ const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
 #[read_component(Health)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
+#[read_component(Frozen)]
 #[read_component(MovingAnimation)]
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
@@ -140,9 +141,10 @@ fn draw_glyph_fancy(
     );
 }
 
-/// Overrides a dungeon-view entity's color for two player-only status
-/// indicators - non-player entities (enemies, items) always render with
-/// their normal Render.color unchanged. Invisible (stealth) takes
+/// Overrides a dungeon-view entity's color for a few status indicators.
+/// Frozen (Hunter's Freeze Trap) is checked first and applies to ANY
+/// entity, not just the player - see components::Frozen. Everything
+/// after that is player-only, as before: Invisible (stealth) takes
 /// priority over low health, since a stealthed player being visually
 /// flagged as "in danger" would undercut the point of being hidden.
 fn tinted_color(ecs: &SubWorld, entity: Entity, base: ColorPair) -> ColorPair {
@@ -150,6 +152,9 @@ fn tinted_color(ecs: &SubWorld, entity: Entity, base: ColorPair) -> ColorPair {
         Ok(e) => e,
         Err(_) => return base,
     };
+    if entry.get_component::<Frozen>().is_ok() {
+        return ColorPair::new(BLUE, BLACK);
+    }
     if entry.get_component::<Player>().is_err() {
         return base;
     }

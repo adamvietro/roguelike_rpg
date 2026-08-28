@@ -302,6 +302,11 @@ pub struct Battle {
     /// evaded attack didn't deal damage to reduce, so it shouldn't spend
     /// a charge either. None when inactive.
     pub war_cry: Option<WarCryState>,
+    /// An active stun on the enemy (Hunter's Stun or Feint) - see
+    /// StunState. Checked at the very top of resolve_enemy_attack, ahead
+    /// of even the Evasion check, since a stunned enemy doesn't attack
+    /// at all rather than attacking-and-missing. None when inactive.
+    pub enemy_stunned: Option<StunState>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -336,6 +341,7 @@ impl Battle {
             sneak_attack: false,
             dodge_bonus: None,
             war_cry: None,
+            enemy_stunned: None,
         }
     }
 
@@ -419,6 +425,16 @@ pub struct WarCryState {
     pub min_reduction: i32,
     pub max_reduction: i32,
     pub attacks_remaining: i32,
+}
+
+/// An active stun on the enemy (Hunter's Stun or Feint) - see
+/// Battle::enemy_stunned. `turns_remaining` counts down once per enemy
+/// turn faced in resolve_enemy_attack, which skips the attack entirely
+/// while this is active (no Defend/Ice Armor/Counter gets consumed on a
+/// stunned turn, same as a fully-evaded one).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StunState {
+    pub turns_remaining: i32,
 }
 
 /// How long a portrait's post-action color flash lasts, in milliseconds.
@@ -552,6 +568,23 @@ pub fn player_attack_damage(ecs: &World, player: Entity) -> i32 {
 /// vs neither all just reduce the same final number), so there's nothing
 /// left for a caller to do with a returned message.
 pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
+    // A stunned enemy (Hunter's Stun or Feint - see Battle::enemy_stunned)
+    // doesn't attack at all this turn - checked ahead of even the
+    // Evasion check below, since this is "the enemy never swings"
+    // rather than "the enemy swings and misses." No Defend/Ice
+    // Armor/Counter gets consumed either, same reasoning as the
+    // full-dodge early return further down.
+    if let Some(stun) = &mut battle.enemy_stunned {
+        stun.turns_remaining -= 1;
+        let expired = stun.turns_remaining <= 0;
+        if expired {
+            battle.enemy_stunned = None;
+        }
+        battle.push_log("The enemy is stunned and can't act.".to_string());
+        battle.player_defending = false;
+        return;
+    }
+
     // Evasion check first (base Evasion stat + any active Dodge-technique
     // bonus, additive - see components::Evasion / Battle::dodge_bonus). A
     // full dodge skips the entire rest of this function: no Defend or Ice
@@ -837,6 +870,32 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             } else {
                 format!("Deal {} damage. Poison lingers.", dmg)
             }
+        }
+        TechniqueEffect::Stun {
+            chance_percent,
+            turns,
+        } => {
+            let mut rng = RandomNumberGenerator::new();
+            if rng.range(0, 100) < chance_percent {
+                battle.enemy_stunned = Some(StunState {
+                    turns_remaining: turns,
+                });
+                "Stun the enemy.".to_string()
+            } else {
+                "Stun fails.".to_string()
+            }
+        }
+        TechniqueEffect::Feint => {
+            // Always lands, unlike Stun above - but only holds for the
+            // enemy's next single attack (see StunState/
+            // resolve_enemy_attack). Overwrites any Stun already in
+            // progress rather than extending it, same "just overwrite"
+            // refresh behavior every other reusable status in this file
+            // uses (Ice Armor, Invisible, Stealthed) - a rare enough
+            // overlap that a fresh, shorter feint replacing a longer
+            // stun isn't worth the extra bookkeeping to prevent.
+            battle.enemy_stunned = Some(StunState { turns_remaining: 1 });
+            "Feint - the enemy holds back its attack.".to_string()
         }
     }
 }

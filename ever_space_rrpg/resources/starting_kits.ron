@@ -45,5 +45,14 @@ StartingKits(
             class: "Amazon",
             items: [ "Healing Potion", "Trap", "Battle Cry" ],
         ),
+        StartingKit(
+            // Hunter starts with two Freeze Traps (its signature
+            // out-of-combat tool, worth having more than one of right
+            // away), a Healing Potion, and one Shoot - Poison Shot,
+            // Stun, and Feint are left to loot/the guarded fortress
+            // room, same pattern as every other class's kit.
+            class: "Hunter",
+            items: [ "Freeze Trap", "Freeze Trap", "Healing Potion", "Shoot" ],
+        ),
     ],
 )

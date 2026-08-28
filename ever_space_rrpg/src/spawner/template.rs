@@ -180,9 +180,9 @@ impl Templates {
     /// templates whose `levels` includes this dungeon level AND whose
     /// `class` either matches `player_class` or is unset (unrestricted) -
     /// e.g. a Mage only ever finds Staffs here, never a Sword. If a class
-    /// has no matching weapon tier defined yet (Rogue/Amazon/Archer right
-    /// now), the pool comes up empty and nothing spawns this level -
-    /// silent, not an error, same as when spawn_point is None.
+    /// has no matching weapon tier defined yet, the pool comes up empty
+    /// and nothing spawns this level - silent, not an error, same as
+    /// when spawn_point is None.
     pub fn spawn_prefab_weapon(
         &self,
         ecs: &mut World,

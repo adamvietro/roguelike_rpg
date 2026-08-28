@@ -1913,3 +1913,48 @@ Good, still there from earlier. Let's regenerate the pinned lockfile for checkin
 One thing worth trying once you've got it in-game: I sized the box from each class's actual label lengths rather than a fixed guess, so Barbarian's box will be visibly wider than Archer's — let me know if that inconsistency across classes feels off, versus a single fixed width that's just "big enough for everyone."
 
 # Hunter Class
+Now let's make the components.rs edits — new `FreezeTrap`/`Frozen` components and the two new effect enum variants:Now let's view and edit the `ProvidesEffect` and `TechniqueEffect` enums:Now the `TechniqueEffect` enum — add `Stun` and `Feint`:Now let's edit `battle.rs`: add `StunState`, `Battle.enemy_stunned`, the `resolve_enemy_attack` early-out, and the two new `apply_player_technique` arms.Now add the `enemy_stunned` field to the `Battle` struct and its constructor:Now the `resolve_enemy_attack` early-out for stun:Now the two new `apply_player_technique` match arms — add them right after `PoisonStrike`:Now let's update `systems/traps.rs` to also handle `FreezeTrap`:Good, both expected. Let's fix the borrow issue first:Now let's implement `PlaceFreezeTrap` in `use_items.rs`:Now let's wire up `chasing.rs` to skip frozen enemies, and `end_turn.rs` to tick `Frozen` down:Now `end_turn.rs`:Now let's update `entity_render.rs`'s `tinted_color` to handle `Frozen` on any entity (blue tint):A real `BLUE` constant exists — let's use it instead of `CYAN` since the user asked for blue specifically:Let's fix the leftover comment referencing CYAN:All clean. Now let's do the class rename: `spawner/mod.rs` and `screens/title.rs`, plus the stale doc comment in `spawner/template.rs`.Now the CLASS_ROSTER entry in `title.rs`:Now the stale `spawner/template.rs` doc comment mentioning Archer:Now the starting kit:Now let's do a full compile check including RON deserialization (which happens at runtime, not compile-time — but let's at least confirm the Rust side compiles, then write a tiny standalone check to validate the RON parses correctly):Good — it just reads `resources/template.ron` relative to the working directory at runtime. Let's write a tiny throwaway test binary to actually parse both RON files and catch any deserialization errors:I got most of the way through implementing the Hunter class before hitting the tool limit. Here's exactly where things stand:
+
+**Fully implemented and compiling clean** (`cargo check` passes with zero warnings) as of my last successful check:
+
+1. **Class rename**: `Archer` → `Hunter` in `spawner/mod.rs` (stats: health 12, damage 1, speed 8, defense 0, evasion 0, glyph 'B') and `screens/title.rs`'s `CLASS_ROSTER`, plus a stale doc-comment fix in `spawner/template.rs`.
+2. **New components** (`components.rs`): `FreezeTrap { turns }` (ground hazard), `Frozen { turns_remaining }` (enemy status), `ProvidesEffect::PlaceFreezeTrap(i32)`, `TechniqueEffect::Stun { chance_percent, turns }`, `TechniqueEffect::Feint`.
+3. **Battle mechanics** (`battle.rs`): `StunState`, `Battle.enemy_stunned`, an early-out at the top of `resolve_enemy_attack` that skips the enemy's attack entirely while stunned (no Defend/Ice Armor/Counter consumed, matching the full-dodge pattern), and the `Stun`/`Feint` arms in `apply_player_technique`.
+4. **Freeze Trap plumbing**: `traps.rs` extended to check `FreezeTrap` positions and attach `Frozen` instead of dealing damage; `chasing.rs` now skips any entity with `Frozen` entirely (can't move or attack); `end_turn.rs` ticks `Frozen` down once per completed player turn, same cadence as Invisible/Stealthed; `entity_render.rs`'s `tinted_color` now checks `Frozen` on *any* entity first and renders it `BLUE`; `use_items.rs` spawns the `FreezeTrap` hazard (blue-tinted `T`, distinct from Amazon's red damage trap).
+5. **Data** (`resources/template.ron`, `resources/starting_kits.ron`): Bow tier 0/1/2 (Wooden/Hunting/Great Bow, glyphs 6/7/8, dmg 1/2/3, matching the existing weapon-tier convention), Shoot (`RangedStrike(1)`), Freeze Trap (`PlaceFreezeTrap(40)`), Poison Shot (`DamageOverTime(2,3)`, a pure data reuse), Stun (`Stun(60, 3)`), Feint (`Feint`), and Hunter's starting kit (2x Freeze Trap, 1x Healing Potion, 1x Shoot).
+
+**Not yet done:**
+- I was mid-way through writing a throwaway `examples/ron_check.rs` binary to actually parse the two edited RON files at runtime and catch any deserialization mistakes (RON syntax errors don't show up in `cargo check` — they're a runtime `.expect()` panic). I'd just created the file but hadn't wired up the small `template_check` module it references or run it yet.
+- Haven't yet copied the ~9 modified files to outputs or run a final full `cargo build`.
+- Also worth flagging separately (unrelated, spotted while I was in `template.ron`): Amazon's Spear weapon items still reference the old lowercase glyphs `x`/`y` from before this session's sprite-glyph correction — those are now blank/transparent in the font per the glyph map doc, so Amazon's spears likely render invisible in-game. Didn't touch it since it's out of scope for Hunter, but flagging it since it's a real bug.
+
+Want me to pick back up, finish the RON runtime check, and package the files?
+
+It compiled — visibility worked out. Now let's actually run it:Both RON files parse cleanly and all 8 Hunter templates and the starting kit are exactly as intended. Let's also run the *entire* test suite/build once more as a final sanity check, then remove the temporary test scaffolding:Now remove the temporary test module before packaging:There's a trailing blank line — let's trim it to match the original file's ending exactly:Clean. Now let's do the final full build check across all touched files:Clean build, zero warnings. Let's confirm exactly which files changed vs. the original upload, then package everything:Good — that confirms the exact set to redeliver. Let's assemble the full package: the 4 changed-from-before files, plus the entirely new ones.Hunter is done and verified. **12 files** — full replacements at their matching paths:
+
+| File                          | Replaces                       |
+| ----------------------------- | ------------------------------ |
+| `resources_template.ron`      | `resources/template.ron`       |
+| `resources_starting_kits.ron` | `resources/starting_kits.ron`  |
+| `components.rs`               | `src/components.rs`            |
+| `battle.rs`                   | `src/battle.rs`                |
+| `spawner_mod.rs`              | `src/spawner/mod.rs`           |
+| `spawner_template.rs`         | `src/spawner/template.rs`      |
+| `screens_title.rs`            | `src/screens/title.rs`         |
+| `systems_traps.rs`            | `src/systems/traps.rs`         |
+| `systems_chasing.rs`          | `src/systems/chasing.rs`       |
+| `systems_end_turn.rs`         | `src/systems/end_turn.rs`      |
+| `systems_entity_render.rs`    | `src/systems/entity_render.rs` |
+| `systems_use_items.rs`        | `src/systems/use_items.rs`     |
+
+(`main.rs`, `screens/battle.rs`, `screens/end.rs`, `systems/hud.rs`, `systems/map_render.rs`, `systems/tooltips.rs` were touched in earlier sessions but not this one — no need to re-grab those.)
+
+**What's new:**
+- **Hunter** replaces the Archer placeholder: health 12, damage 1, speed 8, defense 0, evasion 0, glyph `B`, Bow weapon tier (Wooden/Hunting/Great Bow, dmg 1/2/3).
+- **Shoot** and **Poison Shot** were pure data — no code changes, just reused `RangedStrike`/`DamageOverTime`.
+- **Stun** and **Feint** share one new mechanic (`Battle.enemy_stunned`): Stun rolls 60% for a 3-turn skip, Feint is a guaranteed 1-turn skip. Both short-circuit `resolve_enemy_attack` before Defend/Ice Armor/Counter even get a chance to matter — same treatment a full dodge already gets.
+- **Freeze Trap** is a new full system: a `FreezeTrap` ground hazard (checked in `traps.rs`, right alongside Amazon's), a `Frozen` status that `chasing.rs` uses to fully skip a frozen enemy's movement *and* its ability to bump-attack the player (same mechanism), a countdown in `end_turn.rs` on the same once-per-player-turn cadence Invisible/Stealthed already use, and a blue tint in `entity_render.rs`. Frozen doesn't carry into battle — walking into a frozen enemy on purpose still starts a normal fight.
+
+I verified this end-to-end: `cargo build` clean with zero warnings, and I wrote a temporary test (since RON parse errors are a runtime panic, not a compile error) that actually loaded both `.ron` files and confirmed all 8 Hunter templates and the starting kit parsed correctly — then removed the test before packaging, since this project doesn't otherwise have a test suite.
+
+One thing worth deciding: right now a frozen enemy is fully invisible to the chasing AI but still targetable if *you* walk into it. Also, the Amazon spear glyph mismatch I flagged last time is still there and unrelated to this — let me know if you want that looked at next.

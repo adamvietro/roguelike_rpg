@@ -42,6 +42,36 @@ pub struct Trap {
     pub damage: i32,
 }
 
+/// A placed hazard entity - Hunter's Freeze Trap (see
+/// ProvidesEffect::PlaceFreezeTrap / systems/use_items.rs, which spawns
+/// one of these at the player's position). Checked by the same
+/// systems/traps.rs pass that already checks Trap above, against every
+/// enemy's position each monster turn - instead of damage, the first
+/// enemy that steps onto its tile is given a Frozen status for `turns`
+/// turns, then this hazard is removed - single use, same as Trap. The
+/// player is never affected by their own (or any) freeze trap; only
+/// entities with an Enemy component are checked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FreezeTrap {
+    pub turns: i32,
+}
+
+/// An enemy currently frozen by a Freeze Trap (see FreezeTrap /
+/// ProvidesEffect::PlaceFreezeTrap) - fully inert for `turns_remaining`
+/// more player turns: systems/chasing.rs skips it entirely (no movement,
+/// so no chasing AND no bumping into the player to start a battle
+/// either, since that's the same mechanism), and entity_render tints it
+/// blue for the duration (see tinted_color). Ticked down once per
+/// completed player turn in systems/end_turn.rs, the same cadence
+/// Invisible/Stealthed already use, and removed once it reaches zero.
+/// Deliberately dungeon-view only - a frozen enemy that the player walks
+/// into anyway still starts a perfectly normal battle, with no
+/// carry-over status once inside it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Frozen {
+    pub turns_remaining: i32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmuletOfYala;
 
@@ -102,6 +132,13 @@ pub enum ProvidesEffect {
     /// that steps onto it - see systems/traps.rs. The i32 is the trap's
     /// damage, not a duration/count like most other effects here.
     PlaceTrap(i32),
+    /// Hunter's Freeze Trap: places a FreezeTrap entity (see
+    /// components::FreezeTrap) at the user's current position - same
+    /// spot/spirit as PlaceTrap above, but the first enemy that steps
+    /// onto it is given a Frozen status for `0` turns instead of taking
+    /// damage (see components::Frozen / systems/traps.rs). The i32 is
+    /// the freeze duration, not a damage amount.
+    PlaceFreezeTrap(i32),
 }
 
 /// Marks an Item entity with its out-of-combat effect. Granted via normal
@@ -179,6 +216,22 @@ pub enum TechniqueEffect {
         dot_damage: i32,
         dot_turns: i32,
     },
+    /// Roll `chance_percent` right now; on success, the enemy is unable
+    /// to attack for its next `turns` turns (see Battle::enemy_stunned /
+    /// battle::resolve_enemy_attack, which skips the attack entirely and
+    /// ticks this down - no Defend/Ice Armor/Counter gets consumed on a
+    /// stunned turn, same as a fully-evaded one). On failure, nothing
+    /// happens - the technique is still consumed either way, same as
+    /// every other one-time item. Hunter's Stun.
+    Stun { chance_percent: i32, turns: i32 },
+    /// Guaranteed (no roll), unlike Stun above, but only for the enemy's
+    /// very next single attack (see resolve_enemy_attack, via the same
+    /// Battle::enemy_stunned field Stun uses - narratively different
+    /// ("playing dead" vs. a hard stun) but mechanically identical: the
+    /// enemy skips N of its own attacks). Hunter's Feint - used instead
+    /// of attacking that round, to sit out the enemy's next hit for
+    /// free rather than gambling on Defend.
+    Feint,
 }
 
 /// Marks an Item entity as a one-time battle technique and carries its

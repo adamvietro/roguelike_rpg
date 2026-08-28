@@ -22,11 +22,10 @@ struct ClassBaseStats {
     glyph: char,
 }
 
-/// Base stats + glyph for a given class name. Amazon/Archer don't have
-/// designed stats yet (still placeholders - see CLASS_ROSTER in screens/title.rs),
-/// so they share the fallback numbers for now - Barbarian, Mage, and
-/// Rogue all have real, distinct numbers. Each class still gets its own
-/// glyph even while sharing stats.
+/// Base stats + glyph for a given class name - every class in
+/// CLASS_ROSTER (screens/title.rs) now has its own designed numbers;
+/// only an unrecognized class name falls through to the generic
+/// fallback at the bottom. Each class still gets its own glyph.
 fn class_base_stats(class: &str) -> ClassBaseStats {
     match class {
         "Barbarian" => ClassBaseStats {
@@ -61,10 +60,10 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             evasion: 5,
             glyph: 'a',
         },
-        "Archer" => ClassBaseStats {
-            health: 10,
+        "Hunter" => ClassBaseStats {
+            health: 12,
             damage: 1,
-            speed: 6,
+            speed: 8,
             defense: 0,
             evasion: 0,
             glyph: 'B',

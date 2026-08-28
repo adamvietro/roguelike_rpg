@@ -47,9 +47,14 @@ const CLASS_ROSTER: [ClassRosterEntry; 5] = [
     ClassRosterEntry {
         key: VirtualKeyCode::Key4,
         key_label: "4",
-        name: "Archer",
+        name: "Hunter",
         icon_glyph: 'B',
-        description: "(Placeholder - Attack/Defend/Flee only, abilities coming soon.)",
+        description: "A ranged fighter wielding bows. Battle techniques: \
+                       Poison Shot, Stun, Feint. Also carries the \
+                       out-of-combat Shoot (damages the nearest visible \
+                       enemy with no fight) and Freeze Trap (a placed \
+                       hazard that freezes the first enemy to step on \
+                       it).",
     },
     ClassRosterEntry {
         key: VirtualKeyCode::Key5,
