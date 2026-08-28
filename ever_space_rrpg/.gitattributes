@@ -1,0 +1,6 @@
+# Enforce LF line endings for all tracked text files in this repo.
+# This project is edited from WSL; CRLF should never be introduced.
+* text=auto eol=lf
+
+# Binary assets — do not touch line endings, do not diff as text.
+*.png binary
