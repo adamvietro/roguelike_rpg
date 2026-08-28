@@ -1,39 +1,112 @@
 # Working 
-New classes
-Rogue
-Vanish - Flee and Stealth at the same time
-Flurry - Multi Hit
-Riposte - Counter attack for 2x damage
+# Future Class Ability Ideas
 
-Barbarian
-Whirlwind - For the next 3 turns auto attack with 2 extra attack damage
+Brainstorm list only - nothing here is scoped, designed in detail, or
+scheduled. Pull individual items into a real session when ready to build
+them. Mixes the user's own list with additional ideas brainstormed
+alongside it; no distinction is made below between the two once merged.
+
+---
+
+## Rogue
+
+- **Vanish** - Flee and Stealth at the same time.
+- **Flurry** - Multi-hit attack.
+- **Riposte** - Counter attack for 2x damage.
+- **Backstab** - Bonus damage specifically when the attack comes from
+  Stealth (ties into the existing Stealthed component).
+- **Smoke Bomb** - A flee that also blinds/slows whatever you're fleeing
+  from.
+- **Shiv** - A cheap, low-commitment quick hit (contrast to Flurry's
+  bigger multi-hit).
+- **Pickpocket** - Out-of-combat: lift an item off a nearby enemy without
+  a fight.
+
+## Barbarian
+
+- **Whirlwind** - For the next 3 turns, auto-attack with 2 extra attack
+  damage.
+- **Rampage** - Damage scales up as your own HP drops (desperation-style).
+- **Second Wind** - Self-heal technique.
+- **Reckless Swing** - A big hit that costs you some HP as recoil.
+- **Berserk (passive)** - Bonus damage below some HP threshold.
+
+## Mage
+
+- **Frost Bolt** - Chance to freeze the enemy briefly - an in-battle
+  cousin to Hunter's Freeze Trap.
+- **Chain Lightning** - A multi-hit spell.
+- **Mana Shield** - An absorb/block effect, parallel to Ice Armor but
+  reactive.
+- **Arcane Missile** - Guaranteed hit, ignores evasion.
+- **Meteor** - Skip a turn to wind up, then one big guaranteed hit.
+- **Drain Life** - Damage plus self-heal in one action.
+
+## Hunter
+
+- **Multi-shot** - Bow's own multi-hit.
+- **Trueshot** - Ignores some/all Defense - ranged cousin to Amazon's
+  Pierce Thrust idea below.
+- **Snare Shot** - Immobilize/reduce accuracy instead of a flat stun, so
+  it reads differently from Stun mechanically.
+- **Camouflage** - A lighter, out-of-combat stealth without full
+  Invisibility.
+
+## Amazon
+
+Animation:
+
+- Animation for the Throw Spear.
+
+In-battle techniques:
+
+- **Javelin Volley** - Throw multiple spears in one turn (like a ranged
+  version of Quick Attack's multi-hit).
+- **Pierce Thrust** - A spear jab that ignores some or all of the enemy's
+  Defense, rewarding you for facing armored enemies.
+- **Retreating Shot** - Deal damage and immediately guarantee your next
+  Defend/Flee succeeds better, playing into "hit and create distance"
+  instead of trading blows.
+- **Called Shot** - A slower wind-up attack (skip this turn) that
+  guarantees a big hit next turn - a ranged cousin to Counter Attack.
+- **Weakpoint Strike** - A variant on Pierce Thrust that trades accuracy
+  for a Defense-ignoring hit.
+
+Out-of-combat tools:
+
+- **Net Trap** - A second trap variant: instead of damage, it roots/slows
+  the first enemy that steps on it for a few turns (crowd control rather
+  than damage).
+- **Scout (Eagle Eye)** - Temporarily increases your FOV radius, letting
+  you spot enemies (and Throw Spear targets) from farther away.
+- **Reposition/Vault** - A short instant dash a few tiles, useful for
+  breaking line of sight or repositioning before a fight.
+
+Passive/identity:
+
+- **Momentum** - A passive that gives a small damage or evasion bonus
+  while at full HP, encouraging hit-and-run play.
+- **Keen Eyes** - A small passive bonus specifically to Throw Spear's
+  targeting range or bonus damage, making the ranged kit scale with level
+  progression later.
+
+- **Spear Wall** - Temporary Defense boost, same shape as Ice Armor but
+  Amazon-flavored.
+
+---
+
+## Cross-class note
+
+Several of the ideas above (Whirlwind, Rampage, Berserk, Momentum, Keen
+Eyes) are "always-on while a condition holds" passives - a genuinely new
+mechanical category. Right now every effect in the game is either a
+one-time consumable (Technique, used once in battle) or a one-time
+out-of-combat use (Effect, used once from the item list). A true passive
+- always active, no consumption, gated on an ongoing condition like
+"at full HP" - doesn't fit either shape yet and would need its own
+system whenever the first one of these actually gets built.
 
 
-Mage
-
-
-Hunter
-
-
-Amazon
-animation for the throw spear
-In-battle techniques
-
-Javelin Volley — throw multiple spears in one turn (like a ranged version of Quick Attack's multi-hit).
-Pierce Thrust — a spear jab that ignores some or all of the enemy's Defense, rewarding you for facing armored enemies.
-Retreating Shot — deal damage and immediately guarantee your next Defend/Flee succeeds better, playing into "hit and create distance" instead of trading blows.
-Called Shot — a slower wind-up attack (skip this turn) that guarantees a big hit next turn, a ranged cousin to Counter Attack.
-
-Out-of-combat tools
-
-Net Trap — a second trap variant: instead of damage, it roots/slows the first enemy that steps on it for a few turns (crowd control rather than damage).
-Scout (Eagle Eye) — temporarily increases your FOV radius, letting you spot enemies (and Throw Spear targets) from farther away.
-Reposition/Vault — a short instant dash a few tiles, useful for breaking line of sight or repositioning before a fight.
-
-Passive/identity
-
-Momentum — a passive that gives a small damage or evasion bonus while at full HP, encouraging hit-and-run play.
-Keen Eyes — a small passive bonus specifically to Throw Spear's targeting range or bonus damage, making the ranged kit scale with level progression later.
 
 
 Make the player or the Enemy stunned after a flee
