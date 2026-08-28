@@ -107,10 +107,6 @@ out-of-combat use (Effect, used once from the item list). A true passive
 system whenever the first one of these actually gets built.
 
 
-
-
-Make the player or the Enemy stunned after a flee
-
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
 Sounds and Music
@@ -256,6 +252,9 @@ Starting Kit
 Freeze Trap - x2
 Potion - x1
 Shoot - x1
+
+## Dungeon
+Auto pick-up items
 
 
 ## Options

@@ -38,34 +38,6 @@ pub fn player_input(
             VirtualKeyCode::Right => Point::new(1, 0),
             VirtualKeyCode::Up => Point::new(0, -1),
             VirtualKeyCode::Down => Point::new(0, 1),
-            VirtualKeyCode::G => {
-                let (player, player_pos) = players
-                    .iter(ecs)
-                    .find_map(|(entity, pos)| Some((*entity, *pos)))
-                    .unwrap();
-
-                let mut items = <(Entity, &Item, &Point)>::query();
-                items
-                    .iter(ecs)
-                    .filter(|(_entity, _item, &item_pos)| item_pos == player_pos)
-                    .for_each(|(entity, _item, _item_pos)| {
-                        commands.remove_component::<Point>(*entity);
-                        commands.add_component(*entity, Carried(player));
-
-                        if let Ok(e) = ecs.entry_ref(*entity) {
-                            if e.get_component::<Weapon>().is_ok() {
-                                // (1)
-                                <(Entity, &Carried, &Weapon)>::query()
-                                    .iter(ecs)
-                                    .filter(|(_, c, _)| c.0 == player)
-                                    .for_each(|(e, _c, _w)| {
-                                        commands.remove(*e); // (2)
-                                    })
-                            }
-                        }
-                    });
-                Point::new(0, 0)
-            }
             VirtualKeyCode::Key1 => use_item(0, ecs, commands),
             VirtualKeyCode::Key2 => use_item(1, ecs, commands),
             VirtualKeyCode::Key3 => use_item(2, ecs, commands),

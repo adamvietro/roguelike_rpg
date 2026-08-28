@@ -2024,3 +2024,25 @@ I'll build the full generalization: one `Buff` category with a `BuffKind` (`Evas
 Verified with a real `cargo check` — clean, zero warnings, same sandbox-toolchain caveat as before (I temporarily downgrade `rayon`/`rayon-core` locally to compile at all; your real `Cargo.lock` is untouched).
 
 Ready for the out-of-combat pass (traps/ranged/stun in `use_items.rs`) whenever you want to move on, or happy to pause here if you'd rather test this in-game first.
+
+# Auto Pickup Items
+No controls legend to update either. Let's make the change: remove the `G` handler and move pickup into `movement.rs`, gated on an actual successful move.Good — those `#[read_component]` declarations are still needed (transitively, by `usable_item_slots` inside `use_item`), so leaving them alone. Now the actual auto-pickup logic in `movement.rs`:Now let's compile.Clean, zero warnings. Restoring your `Cargo.lock` and packaging.## Auto-pickup — done, compiles clean
+
+**Two modified files:**
+
+| File in this chat             | Real path                     |
+| ----------------------------- | ----------------------------- |
+| `src_systems_movement.rs`     | `src/systems/movement.rs`     |
+| `src_systems_player_input.rs` | `src/systems/player_input.rs` |
+
+**What changed:**
+
+- Removed the `G` key handler from `player_input.rs` entirely — there's no separate pickup action anymore.
+- Moved the pickup logic into `movement.rs`, inside the block that already runs only for the player entity (right where it updates the camera and reveals FOV tiles on a successful move). It's gated behind the exact same `map.can_enter_tile(...)` check the whole move already sits inside, so it can only ever fire on a real, committed step onto a tile — never on a blocked move (bumping a wall does nothing, same as before).
+- The actual pickup mechanics are unchanged: an item's `Point` is removed, `Carried(player)` is added, and picking up a `Weapon` still replaces (discards) whatever weapon was previously carried — same one-equipped-weapon rule as before, just triggered by landing on the tile instead of a keypress.
+- Enemies don't auto-pick-up anything — the check is still specifically gated to the `Player` component, same as the old G-key handler only ever looked at the player's own position.
+
+Verified with `cargo check` — clean, zero warnings.
+
+One thing I didn't add since you didn't ask for it: there's no "Picked up X" message or log line anywhere right now — pickup was silent before and stays silent now. If you want a HUD flash or log entry when something's picked up, that's a quick follow-up whenever you want it.
+
