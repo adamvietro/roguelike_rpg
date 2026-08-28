@@ -173,7 +173,7 @@ impl State {
     pub fn title_screen(&mut self, ctx: &mut BTerm) {
         self.tick_background(ctx);
 
-        ctx.set_active_console(5);
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(6, YELLOW, BLACK, "EVER SPACE RRPG");
 
         ctx.set_active_console(2);
@@ -204,7 +204,7 @@ impl State {
     pub fn class_select(&mut self, ctx: &mut BTerm) {
         self.tick_background(ctx);
 
-        ctx.set_active_console(5);
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(0, YELLOW, BLACK, "Choose Your Class");
 
         let mut icons = DrawBatch::new();
@@ -233,32 +233,33 @@ impl State {
                 &format!("{}) {}", entry.key_label, entry.name.to_uppercase()),
             );
 
-            // Descriptions render on console 4 (the HUD console, ~12px
+            // Descriptions render on HUD_CONSOLE (~12px
             // cells - bigger than console 2's 8px fine text, smaller than
             // the headline's 32px) and wrap across multiple lines instead
             // of running off the right edge - Mage's description in
             // particular is long enough to overflow a single line.
             //
-            // Console 4 (107x67) and console 5 (40x25, where headline_row
-            // lives) cover the same physical 1280x800 window but at
-            // different row counts, so converting the headline's pixel
-            // bottom edge - not just its row index - into a console-4 row
-            // is what actually guarantees no overlap: (headline_row + 1)
-            // rows of 32px each, converted to console 4's ~11.94px rows,
+            // HUD_CONSOLE (107x67) and BIG_TEXT_CONSOLE (40x25, where
+            // headline_row lives) cover the same physical 1280x800 window
+            // but at different row counts, so converting the headline's
+            // pixel bottom edge - not just its row index - into a
+            // HUD_CONSOLE row is what actually guarantees no overlap:
+            // (headline_row + 1) rows of 32px each, converted to
+            // HUD_CONSOLE's ~11.94px rows,
             // rounded UP so the description never starts a fraction of a
             // row too early.
             const DESC_X: i32 = 24;
             const DESC_WRAP_WIDTH: usize = 65;
             let headline_bottom_px = (headline_row + 1) * 32;
             let desc_row_start = (headline_bottom_px * 67 + 799) / 800;
-            ctx.set_active_console(4);
+            ctx.set_active_console(HUD_CONSOLE);
             for (line_i, line) in wrap_text(entry.description, DESC_WRAP_WIDTH)
                 .iter()
                 .enumerate()
             {
                 ctx.print_color(DESC_X, desc_row_start + line_i as i32, WHITE, BLACK, line);
             }
-            ctx.set_active_console(5);
+            ctx.set_active_console(BIG_TEXT_CONSOLE);
 
             draw_portrait(
                 &mut icons,

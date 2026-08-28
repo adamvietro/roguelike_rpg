@@ -33,22 +33,71 @@ mod prelude {
     pub const HUD_ROWS: i32 = 67;
     // Console indices, in BTermBuilder registration order (see main()):
     // 0 dungeon tiles+bg, 1 dungeon entities, 2 fine 8px text (battle/
-    // game-over/victory/pause), 3 battle portraits, 4 HUD, 5 big title/
-    // class-select text below (console 5 - referenced as a plain literal
-    // at call sites, matching how every other console index in this file
-    // is already written, since set_active_console's exact parameter type
-    // isn't confirmed here). Big text console: same physical 1280x800
-    // window, DISPLAY_WIDTH x DISPLAY_HEIGHT cols/rows (the dungeon view's
-    // own grid) on the small text font instead of the dungeon font - lands
-    // at 32x32px cells, 4x console 2's 8px text.
-    /// Console 6: a "fancy console" (supports DrawBatch::set_fancy, incl.
-    /// rotation) - same DISPLAY_WIDTH x DISPLAY_HEIGHT grid and dungeonfont
-    /// as console 0, so cells are the same 32x32px squares, giving a clean
-    /// (non-stretched) rotation. Used only by
-    /// draw_end_screen_fallen_portrait for the GameOver screen's fallen
-    /// hero - see main()'s builder chain and State::tick's console-clear
-    /// block.
-    pub const END_SCREEN_FALLEN_CONSOLE: usize = 6;
+    // game-over/victory/pause), 3 battle portraits, 4 MAP_SCROLL_CONSOLE,
+    // 5 ENTITY_SCROLL_CONSOLE, 6 HUD_CONSOLE, 7 BIG_TEXT_CONSOLE, 8
+    // END_SCREEN_FALLEN_CONSOLE, 9 GLIDE_CONSOLE, 10
+    // BATTLE_PORTRAIT_WIGGLE_CONSOLE. HUD_CONSOLE and BIG_TEXT_CONSOLE
+    // used to be plain literals 4 and 5 - promoted to named constants
+    // (like everything from END_SCREEN_FALLEN_CONSOLE on already was)
+    // specifically because MAP_SCROLL_CONSOLE/ENTITY_SCROLL_CONSOLE
+    // needed to be inserted BEFORE them in registration order (see their
+    // own doc comments below for why), which pushed every console from
+    // the old 4 onward up by two - a plain-literal "4" or "5" anywhere
+    // in the codebase would have silently kept meaning the OLD console
+    // after this change, not the new one at that slot.
+    /// Console 4: a "fancy console" (supports DrawBatch::set_fancy), same
+    /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid and dungeonfont as console 0,
+    /// with an opaque background exactly like console 0's (unlike every
+    /// other fancy console in this file, which deliberately uses a
+    /// transparent one - see GLIDE_CONSOLE). Used only by map_render
+    /// (systems/map_render.rs) for the small fraction of frames where
+    /// camera_render_offset (components.rs) returns Some - i.e. the
+    /// player is mid-glide and the camera itself needs to visibly pan
+    /// rather than snap. A plain console like console 0 can only ever be
+    /// drawn to at integer cell positions, so there's no way to give it a
+    /// sub-pixel scroll offset directly; every tile has to be redrawn via
+    /// set_fancy at a fractional position instead, which needs a fancy
+    /// console the same way the entity glide did. Registered right after
+    /// console 3 (battle portraits) and before HUD_CONSOLE specifically
+    /// so it keeps sitting BELOW the HUD in z-order exactly like console
+    /// 0 always has - registering it after HUD_CONSOLE instead would have
+    /// meant the (fully opaque, full-screen) scrolling map painting over
+    /// the health bar and item list on every single step.
+    pub const MAP_SCROLL_CONSOLE: usize = 4;
+    /// Console 5: a second new "fancy console", same grid as console 4
+    /// above, transparent background (the GLIDE_CONSOLE trick). Used by
+    /// entity_render (systems/entity_render.rs) on the same frames as
+    /// MAP_SCROLL_CONSOLE, for the same reason: once the camera itself is
+    /// panning, EVERY entity - not just one that's individually
+    /// mid-glide - needs to be drawn at a fractional position derived
+    /// from that same pan, or a stationary entity would stay rigidly
+    /// snapped to its old integer screen cell while the map slides
+    /// underneath it. Kept as its own console rather than reusing
+    /// GLIDE_CONSOLE because GLIDE_CONSOLE is registered AFTER
+    /// HUD_CONSOLE/BIG_TEXT_CONSOLE/etc. (see those consoles' own
+    /// history) and this needs to land in the same "below the HUD" slot
+    /// as MAP_SCROLL_CONSOLE just above it - the two are only ever drawn
+    /// to on the same frames as each other, never mixed with
+    /// GLIDE_CONSOLE's own (different) use case in a single frame.
+    pub const ENTITY_SCROLL_CONSOLE: usize = 5;
+    /// Console 6 (was console 4 before MAP_SCROLL_CONSOLE/
+    /// ENTITY_SCROLL_CONSOLE were inserted above it): the dungeon HUD -
+    /// health bar, item lists, tooltips. See HUD_COLS/HUD_ROWS above.
+    pub const HUD_CONSOLE: usize = 6;
+    /// Console 7 (was console 5): big title/class-select text, and the
+    /// large text used by the end/victory screens - DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT cols/rows (the dungeon view's own grid) on the
+    /// small text font instead of the dungeon font, landing at 32x32px
+    /// cells, 4x console 2's 8px text.
+    pub const BIG_TEXT_CONSOLE: usize = 7;
+    /// Console 8 (was console 6): a "fancy console" (supports
+    /// DrawBatch::set_fancy, incl. rotation) - same DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT grid and dungeonfont as console 0, so cells are the
+    /// same 32x32px squares, giving a clean (non-stretched) rotation.
+    /// Used only by draw_end_screen_fallen_portrait for the GameOver
+    /// screen's fallen hero - see main()'s builder chain and State::tick's
+    /// console-clear block.
+    pub const END_SCREEN_FALLEN_CONSOLE: usize = 8;
     /// How much to blow up the fallen hero's glyph on the GameOver screen
     /// - set_fancy's `scale` parameter, a multiplier on the glyph's native
     /// 32x32px size (uniform x/y so a 90-degree rotation stays square,
@@ -59,40 +108,44 @@ mod prelude {
     /// available on a fancy console (positions there aren't snapped to a
     /// grid the way draw_portrait's are).
     pub const END_SCREEN_FALLEN_SCALE: f32 = 6.0;
-    /// Console 7: a second "fancy console", same DISPLAY_WIDTH x
-    /// DISPLAY_HEIGHT grid/32x32px cells as console 0/1/6. Used by
-    /// entity_render (systems/entity_render.rs) to draw any entity
-    /// currently mid-tile-glide (see components::gliding_position /
-    /// MovingAnimation) at a sub-pixel position instead of snapping
-    /// straight to its destination tile on console 1. Registered last in
-    /// the builder chain (see main()), so it paints over console 1 - the
-    /// gliding entity is deliberately NOT also drawn there for the same
+    /// Console 9 (was console 7): a second "fancy console", same
+    /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid/32x32px cells as console
+    /// 0/1/8. Used by entity_render (systems/entity_render.rs) to draw
+    /// any entity currently mid-tile-glide (see
+    /// components::gliding_position / MovingAnimation) at a sub-pixel
+    /// position instead of snapping straight to its destination tile on
+    /// console 1, for the (more common) case where the camera ITSELF
+    /// isn't panning - see camera_render_offset and
+    /// ENTITY_SCROLL_CONSOLE above for the "camera is also panning"
+    /// case, which uses a different console instead of this one.
+    /// Registered after console 1, so it paints over it - the gliding
+    /// entity is deliberately NOT also drawn on console 1 for the same
     /// frame, so there's no double-draw, just a handoff between the two
     /// consoles for the duration of the glide. Relies on the same
     /// genuinely-transparent-background trick END_SCREEN_FALLEN_CONSOLE
     /// proved out (RGBA alpha 0) - without it, a fancy console's normally
     /// opaque background quad would paint a visible box sliding over the
     /// map every time something moved.
-    pub const GLIDE_CONSOLE: usize = 7;
-    /// Console 8: a third "fancy console", sharing BATTLE_PORTRAIT_COLS x
-    /// BATTLE_PORTRAIT_ROWS's coarse 5x5 grid with console 3 (same font,
-    /// same physical window) - since a low column/row count over the same
-    /// window automatically yields huge cells (that's the entire "big
-    /// portrait" trick console 3 already uses), this needs no separate
-    /// scale factor the way END_SCREEN_FALLEN_CONSOLE did. Used only by
-    /// draw_battle_arena (screens/battle.rs) to give the currently
-    /// "Attacking" portrait a small shake (see
-    /// render_helpers::attack_wiggle_offset) via sub-pixel positioning -
-    /// something console 3's plain per-cell `set()` can't do. Relies on
-    /// the same transparent-background trick as GLIDE_CONSOLE/
-    /// END_SCREEN_FALLEN_CONSOLE (RGBA alpha 0): this was tried once
-    /// before, early in this project, and abandoned specifically because
-    /// a fancy console's normally-opaque background revealed a visibly
-    /// sliding box over the static arena behind it - see the
-    /// battle-portrait jiggle history in journal.md. That's the one
-    /// thing that's changed since; the rest of this console's setup is
-    /// otherwise identical in spirit to that first attempt.
-    pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 8;
+    pub const GLIDE_CONSOLE: usize = 9;
+    /// Console 10 (was console 8): a third "fancy console", sharing
+    /// BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS's coarse 5x5 grid with
+    /// console 3 (same font, same physical window) - since a low
+    /// column/row count over the same window automatically yields huge
+    /// cells (that's the entire "big portrait" trick console 3 already
+    /// uses), this needs no separate scale factor the way
+    /// END_SCREEN_FALLEN_CONSOLE did. Used only by draw_battle_arena
+    /// (screens/battle.rs) to give the currently "Attacking" portrait a
+    /// small shake (see render_helpers::attack_wiggle_offset) via
+    /// sub-pixel positioning - something console 3's plain per-cell
+    /// `set()` can't do. Relies on the same transparent-background trick
+    /// as GLIDE_CONSOLE/END_SCREEN_FALLEN_CONSOLE (RGBA alpha 0): this
+    /// was tried once before, early in this project, and abandoned
+    /// specifically because a fancy console's normally-opaque background
+    /// revealed a visibly sliding box over the static arena behind it -
+    /// see the battle-portrait jiggle history in journal.md. That's the
+    /// one thing that's changed since; the rest of this console's setup
+    /// is otherwise identical in spirit to that first attempt.
+    pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 10;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -297,9 +350,13 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(3);
         ctx.cls();
-        ctx.set_active_console(4);
+        ctx.set_active_console(MAP_SCROLL_CONSOLE);
         ctx.cls();
-        ctx.set_active_console(5);
+        ctx.set_active_console(ENTITY_SCROLL_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(HUD_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.cls();
         ctx.set_active_console(END_SCREEN_FALLEN_CONSOLE);
         ctx.cls();
@@ -311,7 +368,7 @@ impl GameState for State {
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
-        ctx.set_active_console(4);
+        ctx.set_active_console(HUD_CONSOLE);
         self.resources
             .insert(HudMousePos(Point::from_tuple(ctx.mouse_pos())));
         ctx.set_active_console(0);
@@ -383,24 +440,42 @@ fn main() -> BError {
             BATTLE_PORTRAIT_ROWS,
             "dungeonfont.png",
         )
+        // Console 4 (MAP_SCROLL_CONSOLE): a "fancy console" - supports
+        // DrawBatch::set_fancy, unlike every plain "simple console" above.
+        // Same DISPLAY_WIDTH x DISPLAY_HEIGHT grid/32x32px cells and
+        // dungeonfont as console 0, WITH a background (unlike every other
+        // fancy console below) so it can fully replace console 0 for a
+        // frame without anything showing through around the edges of a
+        // tile. Deliberately registered here, right after console 3 and
+        // before HUD_CONSOLE, so it stays below the HUD in z-order the
+        // same way console 0 always has - see MAP_SCROLL_CONSOLE's own
+        // doc comment in the prelude module above for why that ordering
+        // matters. Used only by map_render, only on frames where the
+        // camera itself is panning.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
+        // Console 5 (ENTITY_SCROLL_CONSOLE): a second new "fancy
+        // console", same grid as console 4 above, transparent background
+        // (the same RGBA-alpha-0 trick GLIDE_CONSOLE uses below). Used
+        // only by entity_render, on the same frames as MAP_SCROLL_CONSOLE
+        // - see its own doc comment in the prelude module above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
-        // Console 6 (END_SCREEN_FALLEN_CONSOLE): a "fancy console" -
+        // Console 8 (END_SCREEN_FALLEN_CONSOLE): a "fancy console" -
         // supports DrawBatch::set_fancy (sub-pixel position + rotation +
-        // scale), unlike every other console above which is a plain
-        // "simple console". Same square 32x32px cells as console 0/1
-        // (dungeonfont at native size on the DISPLAY_WIDTH x
-        // DISPLAY_HEIGHT grid), so a 90-degree rotation doesn't
-        // stretch/squash the glyph. Used only by
+        // scale), unlike every "simple console" above. Same square
+        // 32x32px cells as console 0/1 (dungeonfont at native size on the
+        // DISPLAY_WIDTH x DISPLAY_HEIGHT grid), so a 90-degree rotation
+        // doesn't stretch/squash the glyph. Used only by
         // draw_end_screen_fallen_portrait for the GameOver screen.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
-        // Console 7 (GLIDE_CONSOLE): a second "fancy console", same grid
-        // and cell size as console 6 above. Used by entity_render to draw
+        // Console 9 (GLIDE_CONSOLE): a second "fancy console", same grid
+        // and cell size as console 8 above. Used by entity_render to draw
         // any entity mid-tile-glide at a sub-pixel position with a
         // genuinely transparent background, instead of console 1's
         // integer-snapped grid - see the GLIDE_CONSOLE doc comment.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
-        // Console 8 (BATTLE_PORTRAIT_WIGGLE_CONSOLE): a third "fancy
+        // Console 10 (BATTLE_PORTRAIT_WIGGLE_CONSOLE): a third "fancy
         // console", sharing console 3's coarse BATTLE_PORTRAIT_COLS x
         // BATTLE_PORTRAIT_ROWS grid (so cells are automatically just as
         // big, no separate scale needed). Used by draw_battle_arena to

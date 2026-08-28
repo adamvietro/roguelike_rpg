@@ -156,22 +156,22 @@ impl State {
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
         self.draw_end_screen_fallen_portrait(RED.into());
 
-        // Header on the big-text console (console 5, 32px cells - same
+        // Header on BIG_TEXT_CONSOLE (32px cells - same
         // one the title screen's "EVER SPACE RRPG" uses). Body text below
-        // it moved from console 2 (fine 8px) to console 4 (the HUD
+        // it moved from console 2 (fine 8px) to HUD_CONSOLE (the HUD
         // console, ~12px cells - the same "1.5x bigger" text already used
         // for the dungeon HUD) so it isn't dwarfed by the header, and row
         // positions are worked out in pixels (not row counts) so nothing
         // overlaps across these differently-scaled consoles: header row 2
-        // on console 5 bottoms out at (2+1)*32 = 96px -> console 4 row 9
+        // on BIG_TEXT_CONSOLE bottoms out at (2+1)*32 = 96px -> HUD_CONSOLE row 9
         // (~108px) clears it; the fallen portrait (see
         // draw_end_screen_fallen_portrait) is centered at y=400px and, at
-        // END_SCREEN_FALLEN_SCALE, spans roughly 304-496px -> console 4
+        // END_SCREEN_FALLEN_SCALE, spans roughly 304-496px -> HUD_CONSOLE
         // row 45 (~537px) clears its bottom edge with margin.
-        ctx.set_active_console(5);
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(2, RED, BLACK, "Your quest has ended.");
 
-        ctx.set_active_console(4);
+        ctx.set_active_console(HUD_CONSOLE);
         ctx.print_color_centered(
             10,
             WHITE,
@@ -211,16 +211,16 @@ impl State {
         self.draw_end_screen_amulet(3, YELLOW.into());
 
         // Same layout approach as game_over: header on the big-text
-        // console (console 5, 32px cells), body on console 4 (the HUD
+        // console (BIG_TEXT_CONSOLE, 32px cells), body on HUD_CONSOLE (the HUD
         // console, ~12px cells) positioned in real pixels to clear the
         // header above and the hero/Amulet icons below - see game_over's
         // comment for the exact pixel math this mirrors. "Press 1..." is
         // pushed down near the bottom of the screen instead of sitting
         // right under the body text.
-        ctx.set_active_console(5);
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
 
-        ctx.set_active_console(4);
+        ctx.set_active_console(HUD_CONSOLE);
         ctx.print_color_centered(
             10,
             WHITE,

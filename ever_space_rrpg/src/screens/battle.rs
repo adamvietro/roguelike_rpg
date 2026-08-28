@@ -335,12 +335,13 @@ impl State {
             ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 1 + i as i32, WHITE, BLACK, line);
         }
 
-        // --- Floating damage numbers: bigger (console 5's 32px cells,
+        // --- Floating damage numbers: bigger (BIG_TEXT_CONSOLE's 32px cells,
         // same "big text" console used for title/class-select screens),
         // and centered directly over each portrait now rather than off to
         // the side - big enough now to read clearly on top of the sprite
-        // instead of needing to dodge it. Console 5 is registered last, so
-        // it renders above the portraits, and every console gets
+        // instead of needing to dodge it. BIG_TEXT_CONSOLE is registered after
+        // the portrait console, so it renders above the portraits, and
+        // every console gets
         // ctx.cls()'d at the top of every frame (see State::tick), so
         // nothing lingers once a popup's timer expires.
         //
@@ -351,7 +352,7 @@ impl State {
         // draws left-to-right from the given column, so the start column
         // is nudged left by half the number's length to actually center
         // it rather than just its left edge.
-        ctx.set_active_console(5);
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
         if let Some(popup) = &battle.enemy_damage_popup {
             let text = format!("-{}", popup.amount);
             let start_col = 28 - (text.chars().count() as i32) / 2;
@@ -398,7 +399,7 @@ impl State {
         let box_y = BOX_Y.min(HUD_ROWS - box_height);
 
         let mut menu_batch = DrawBatch::new();
-        menu_batch.target(4);
+        menu_batch.target(HUD_CONSOLE);
         draw_ascii_box(
             &mut menu_batch,
             BOX_X,
@@ -409,7 +410,7 @@ impl State {
         );
         menu_batch.submit(0).expect("Batch error");
 
-        ctx.set_active_console(4);
+        ctx.set_active_console(HUD_CONSOLE);
         ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
         for (i, entry) in actions.iter().enumerate() {
             // Every action this class could ever have is always listed

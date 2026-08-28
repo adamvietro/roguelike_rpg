@@ -490,6 +490,58 @@ pub fn gliding_position(ecs: &SubWorld, entity: Entity) -> Option<(f32, f32)> {
     ))
 }
 
+/// Returns the fractional world-space point map_render/entity_render
+/// should currently treat as "camera center" for actual DRAWING - as
+/// opposed to Camera's own left_x/top_y/right_x/bottom_y, which
+/// Camera::on_player_move snaps to the player's destination tile the
+/// instant a move is committed (see systems/movement.rs) and which
+/// drive what world region counts as "in view" for tile iteration and
+/// FOV, not how any of it lands on screen.
+///
+/// While the player's own MovingAnimation is in flight, this reuses its
+/// eased in-between position (see gliding_position above) - the exact
+/// same data entity_render already reads for any OTHER gliding entity -
+/// minus half the display, so the screen visibly pans from the old
+/// center to the new one over MOVE_ANIM_DURATION_MS instead of
+/// snapping. See MAP_SCROLL_CONSOLE/ENTITY_SCROLL_CONSOLE in main.rs
+/// for the two fancy consoles this drives. Returns None once the
+/// player isn't animating (including "never has" and "glide already
+/// expired"), telling callers to fall back to Camera's own integer
+/// left_x/top_y - the cheap, by-far-more-common path, taken every frame
+/// the player isn't actively mid-step.
+///
+/// Deliberately recomputed fresh from the ECS on every call rather than
+/// cached on Camera and refreshed by some dedicated per-frame system: a
+/// cached field is only ever as fresh as whatever schedule last wrote
+/// it, and not every schedule that calls map_render runs the same
+/// systems ahead of it (build_pause_scheduler, for one, runs map_render
+/// completely alone). Recomputing here means there's no stale-value
+/// case to reason about - whatever this returns is true for the exact
+/// instant it's called, in any schedule, always.
+///
+/// Returns a raw (f32, f32) tuple rather than a PointF, for the same
+/// reason gliding_position does above: nothing in this codebase has
+/// ever read x/y fields back off a PointF, so there's no confirmed way
+/// to subtract one from a Point/(i32,i32) pair. Callers build the final
+/// PointF themselves after doing that subtraction in plain f32 math.
+///
+/// Uses `(DISPLAY_WIDTH / 2)` / `(DISPLAY_HEIGHT / 2)` - integer
+/// division, then cast to f32 - rather than dividing as floats, to
+/// deliberately match Camera::new/on_player_move's own math exactly:
+/// DISPLAY_HEIGHT is odd (25), so integer division rounds down to 12
+/// while float division would give 12.5. Using the float version here
+/// would make this function disagree with Camera's own left_x/top_y by
+/// half a cell at the exact moments a glide starts and ends - precisely
+/// when the two are supposed to hand off to each other seamlessly.
+pub fn camera_render_offset(ecs: &SubWorld) -> Option<(f32, f32)> {
+    let mut player = <(Entity, &Point)>::query().filter(component::<Player>());
+    let player_entity = player.iter(ecs).nth(0).map(|(e, _)| *e)?;
+    let (fx, fy) = gliding_position(ecs, player_entity)?;
+    let half_w = (DISPLAY_WIDTH / 2) as f32;
+    let half_h = (DISPLAY_HEIGHT / 2) as f32;
+    Some((fx - half_w, fy - half_h))
+}
+
 /// Computes the same ColorPair/glyph a tile would be drawn with in
 /// map_render.rs, for a single point - shared so entity_render can paint
 /// the real floor/wall tile underneath a mid-glide entity (see

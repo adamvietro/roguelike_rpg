@@ -119,6 +119,27 @@ pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) -> Entity {
     commands.add_component(player, Class(class.to_string()));
     commands.add_component(player, Defense(stats.defense));
     commands.add_component(player, Evasion(stats.evasion));
+    // Pre-seed an already-expired MovingAnimation, exactly like
+    // spawn_entity does for every enemy (see spawner/template.rs) and
+    // for the same reason - except this now matters for the player too,
+    // where it never used to: camera_render_offset (components.rs)
+    // reads the player's own gliding_position every frame to decide
+    // whether the camera should be panning, so the player's very first
+    // move of a level is no longer purely cosmetic the way the old
+    // camera-snaps-instantly design left it. Without this, that first
+    // step would still work, but as a genuinely new component being
+    // attached (a structural ECS change other systems can read one
+    // frame late), it could show the same one-frame hiccup enemies used
+    // to show on their own first step, before template.rs's spawn_entity
+    // got this same fix. Pre-seeding closes that gap here too.
+    commands.add_component(
+        player,
+        MovingAnimation {
+            start: pos,
+            end: pos,
+            elapsed_ms: MOVE_ANIM_DURATION_MS,
+        },
+    );
     commands.flush(ecs);
     player
 }

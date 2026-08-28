@@ -4,49 +4,21 @@ use crate::prelude::*;
 /// red - see tinted_color.
 const LOW_HEALTH_THRESHOLD: f32 = 0.3;
 
-/// Empirically-confirmed correction for GLIDE_CONSOLE's vertical
-/// positioning: a glyph drawn via set_fancy at the same (x, y) that
-/// places it correctly via the plain console's set() renders exactly one
-/// full cell too far north, consistently, regardless of movement
-/// direction, and without drifting further off over a longer glide -
-/// confirmed by direct testing, not documentation (bracket-lib's source
-/// isn't available to consult here). That signature - a constant,
-/// direction-independent, non-accumulating one-cell error - points at
-/// set_fancy anchoring a glyph's position from the bottom of its cell
-/// rather than the top the way set() does, not at anything wrong in the
-/// movement/lerp/camera math feeding it. Added to fy before it reaches
-/// set_fancy to compensate. If a future bracket-lib upgrade changes this
-/// anchoring behavior, this is the one place to adjust.
+/// Empirically-confirmed set_fancy quirk: a glyph placed via set_fancy
+/// at the same (x, y) that places it correctly via a plain console's
+/// set() renders exactly one full cell too far north, consistently,
+/// regardless of movement direction - see the fuller writeup that used
+/// to live on this same constant name (still true, just no longer
+/// specific to a single console), and the matching
+/// WIGGLE_CONSOLE_Y_ANCHOR_OFFSET in render_helpers.rs /
+/// MAP_SCROLL_Y_ANCHOR_OFFSET in map_render.rs (three independent
+/// confirmations of the same bracket-lib behavior now). Used by both
+/// fancy-console paths below - GLIDE_CONSOLE (one entity gliding while
+/// the camera itself sits still) and ENTITY_SCROLL_CONSOLE (every
+/// entity, while the camera itself is panning) are the same underlying
+/// set_fancy draw, just fed different offsets - see
+/// components::camera_render_offset for where those offsets come from.
 const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
-
-/// The player is excluded from the glide (see entity_render below) for a
-/// reason specific to this camera design, not a rendering limitation:
-/// Camera::on_player_move recenters left_x/top_y the instant a move is
-/// processed, so the camera always keeps the player exactly at display
-/// center once a move completes - the camera's whole job is to chase the
-/// player. Animating the player's OWN glyph on top of a camera that's
-/// simultaneously trying to keep that same glyph centered means the
-/// glyph's start-of-glide screen position (still the OLD world point, now
-/// read against the ALREADY-recentered camera) lands on the opposite side
-/// of center from the direction just traveled - confirmed by measuring
-/// actual rendered pixel positions frame-by-frame during a real move: the
-/// glyph appeared one full cell off-center, opposite the direction of
-/// travel, then eased back to center over the following few frames.
-/// That's not a bug in the interpolation math - it's a structural
-/// conflict between "this entity is being smoothly animated" and "the
-/// camera is simultaneously locked onto this exact entity." Enemies have
-/// no such conflict (the camera never centers on them), so they keep the
-/// normal glide. Fixing this properly for the player too would mean
-/// making the camera's own rendering offset scroll smoothly in lockstep
-/// with the same eased position, which would require the entire map
-/// (map_render.rs, currently a plain integer-grid console) to render at
-/// sub-pixel precision too - a much bigger change than this bug warrants
-/// right now.
-fn is_player(ecs: &SubWorld, entity: Entity) -> bool {
-    ecs.entry_ref(entity)
-        .ok()
-        .map_or(false, |e| e.get_component::<Player>().is_ok())
-}
 
 #[system]
 #[read_component(Point)]
@@ -60,65 +32,112 @@ fn is_player(ecs: &SubWorld, entity: Entity) -> bool {
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
-    let mut draw_batch = DrawBatch::new();
-    draw_batch.target(1);
-    // Any entity currently mid-glide (see components::gliding_position)
-    // draws here instead of on console 1 above - a "fancy console" on the
-    // same grid/cell size (see GLIDE_CONSOLE), with a genuinely
-    // transparent background, so a sub-pixel position doesn't reveal a
-    // background seam the way a fancy console's normal opaque quad would
-    // (this is the same fix END_SCREEN_FALLEN_CONSOLE's fallen-hero
-    // portrait needed). Registered last in main()'s builder chain, so it
-    // paints on top of console 1 - correct, since a gliding entity is
-    // deliberately skipped below rather than drawn on both consoles at
-    // once.
-    let mut glide_batch = DrawBatch::new();
-    glide_batch.target(GLIDE_CONSOLE);
-    let offset = Point::new(camera.left_x, camera.top_y);
-
     let player_fov = fov.iter(ecs).nth(0).unwrap();
 
-    renderables
-        .iter(ecs)
-        .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
-        .for_each(|(entity, pos, render)| {
-            let color = tinted_color(ecs, *entity, render.color);
-            // The player is deliberately excluded from the glide - see
-            // is_player below. Every other entity still glides normally.
-            let glide_target = if is_player(ecs, *entity) {
-                None
-            } else {
-                gliding_position(ecs, *entity)
-            };
-            match glide_target {
-                Some((fx, fy)) => {
-                    let draw_pos = PointF::new(
-                        fx - offset.x as f32,
-                        fy - offset.y as f32 + GLIDE_CONSOLE_Y_ANCHOR_OFFSET,
-                    );
-                    // Fully transparent background (RGBA alpha 0) - same
-                    // proven trick as the GameOver fallen portrait. Only
-                    // the foreground changes vs. the plain-console draw
-                    // below; color.fg carries the same low-health/stealth
-                    // tinting tinted_color() already computed above.
-                    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
-                    glide_batch.set_fancy(
-                        draw_pos,
-                        0,
-                        Degrees::new(0.0),
-                        PointF::new(1.0, 1.0),
-                        ColorPair::new(color.fg, bg_transparent),
-                        render.glyph,
-                    );
-                }
-                None => {
-                    draw_batch.set(*pos - offset, color, render.glyph);
-                }
-            }
-        });
+    match camera_render_offset(ecs) {
+        None => {
+            // Camera at rest. A per-entity gliding_position check
+            // decides whether THIS entity draws on the sub-pixel
+            // GLIDE_CONSOLE (a monster taking its own step while the
+            // player stands still - the only way to reach this branch
+            // with anything actually gliding) or the plain integer
+            // console 1 (everything else). The player is never
+            // mid-glide whenever this branch runs - see
+            // camera_render_offset's doc comment - so it always lands
+            // in the plain-console case here, with no special-casing
+            // needed for it.
+            let offset = Point::new(camera.left_x, camera.top_y);
+            let mut draw_batch = DrawBatch::new();
+            draw_batch.target(1);
+            let mut glide_batch = DrawBatch::new();
+            glide_batch.target(GLIDE_CONSOLE);
 
-    draw_batch.submit(5000).expect("Batch error");
-    glide_batch.submit(5100).expect("Batch error");
+            renderables
+                .iter(ecs)
+                .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
+                .for_each(|(entity, pos, render)| {
+                    let color = tinted_color(ecs, *entity, render.color);
+                    match gliding_position(ecs, *entity) {
+                        Some((fx, fy)) => draw_glyph_fancy(
+                            &mut glide_batch,
+                            fx - offset.x as f32,
+                            fy - offset.y as f32,
+                            color,
+                            render.glyph,
+                        ),
+                        None => {
+                            draw_batch.set(*pos - offset, color, render.glyph);
+                        }
+                    }
+                });
+
+            draw_batch.submit(5000).expect("Batch error");
+            glide_batch.submit(5100).expect("Batch error");
+        }
+        Some((ox, oy)) => {
+            // The camera itself is panning - the player is mid-glide
+            // (see camera_render_offset). Every entity, moving or not,
+            // now needs a fractional position derived from this same
+            // (ox, oy), or a stationary one would stay snapped to its
+            // old integer screen cell while the map slides underneath
+            // it - see ENTITY_SCROLL_CONSOLE's doc comment in main.rs.
+            //
+            // This includes the player, which is no longer a special
+            // case: substituting the player's own gliding_position into
+            // "screen pos = world pos - (ox, oy)" lands on exactly the
+            // screen center for every frame of its own glide, since
+            // (ox, oy) is itself defined as "the player's eased
+            // position minus screen center" (see camera_render_offset).
+            // That identity is what actually fixes the old jump/
+            // snap-back bug this file used to work around by excluding
+            // the player from its own glide entirely - it isn't a
+            // special case anymore, just the same formula every other
+            // entity already used.
+            let mut scroll_batch = DrawBatch::new();
+            scroll_batch.target(ENTITY_SCROLL_CONSOLE);
+
+            renderables
+                .iter(ecs)
+                .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
+                .for_each(|(entity, pos, render)| {
+                    let color = tinted_color(ecs, *entity, render.color);
+                    let (fx, fy) =
+                        gliding_position(ecs, *entity).unwrap_or((pos.x as f32, pos.y as f32));
+                    draw_glyph_fancy(&mut scroll_batch, fx - ox, fy - oy, color, render.glyph);
+                });
+
+            scroll_batch.submit(5000).expect("Batch error");
+        }
+    }
+}
+
+/// Shared by both branches above: draws one glyph onto a fancy console
+/// (already `.target()`ed by the caller) with a fully transparent
+/// background and the Y-anchor correction applied - the same proven
+/// trick END_SCREEN_FALLEN_CONSOLE's fallen-hero portrait needed,
+/// without which a fancy console's normally-opaque background quad
+/// would paint a visible box sliding over the map every time something
+/// moved. `sx`/`sy` are already camera-relative (world position minus
+/// whichever offset is active this frame) - callers do that subtraction
+/// themselves, since the two branches above get their offset from
+/// different places (a fixed integer Point vs. a fractional (f32, f32)
+/// pair).
+fn draw_glyph_fancy(
+    batch: &mut DrawBatch,
+    sx: f32,
+    sy: f32,
+    color: ColorPair,
+    glyph: FontCharType,
+) {
+    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    batch.set_fancy(
+        PointF::new(sx, sy + GLIDE_CONSOLE_Y_ANCHOR_OFFSET),
+        0,
+        Degrees::new(0.0),
+        PointF::new(1.0, 1.0),
+        ColorPair::new(color.fg, bg_transparent),
+        glyph,
+    );
 }
 
 /// Overrides a dungeon-view entity's color for two player-only status
