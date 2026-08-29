@@ -189,7 +189,21 @@ impl MapBuilder {
             .collect();
 
         let mut spawns = Vec::new();
-        for _ in 0..NUM_MONSTERS {
+        // Capped at however many candidate tiles actually exist, rather
+        // than always looping a fixed NUM_MONSTERS times. A small or
+        // tightly-packed cave can easily have fewer than 50 tiles more
+        // than 10 units from the player's start - previously this kept
+        // looping anyway, and random_slice_index on an empty slice
+        // returns None, which the unconditional .unwrap() below turned
+        // into an outright panic once spawnable_tiles ran out. Spawning
+        // fewer monsters on a small map is the correct behavior, not a
+        // bug to route around - CellularAutomataArchitect's connectivity
+        // fix (see automata.rs's cull_unreachable_areas) made this
+        // reachable a lot more often, by shrinking the reachable floor
+        // area on some maps, but the underlying fragility was already
+        // here regardless of map size.
+        let spawn_count = NUM_MONSTERS.min(spawnable_tiles.len());
+        for _ in 0..spawn_count {
             let target_index = rng.random_slice_index(&spawnable_tiles).unwrap();
             spawns.push(spawnable_tiles[target_index].clone());
             spawnable_tiles.remove(target_index);

@@ -2192,3 +2192,29 @@ This bug genuinely didn't exist with the old G-key system — pressing G was a *
 
 I didn't just trust the type-check on this one, given the same class of bug already slipped past me once — wrote a throwaway test (removed before delivery) that builds a minimal world with a player, the amulet, and an ordinary item on the same tile, runs the real movement system, and confirms: the amulet keeps its `Point` and never becomes `Carried`, while the ordinary item still gets picked up normally. Passed.
 
+# Map Creation Bugs
+Found it precisely. Let me confirm the exact mechanics before fixing.Let's also quickly confirm Rooms and Drunkard's Walk are actually safe (matching the user's suspicion that it's specifically Automata), before I fix just the one file.Confirmed exactly what I expected, and even better — this project already has the *correct* pattern for this problem, just not applied to the Automata builder:
+
+- **`RoomsArchitect`**: connects every room in a chain via `build_corridors`, so it's structurally guaranteed connected.
+- **`DrunkardsWalkArchitect`**: already self-corrects — after each carve, it builds a `DijkstraMap` from the start point and walls off anything too far/unreachable.
+- **`CellularAutomataArchitect`**: has **no** such step at all. It smooths random noise into caves and just... trusts that it came out as one connected blob, which cellular automata generation doesn't actually guarantee. This is the one builder capable of producing exactly what you saw.
+
+Fix: apply the same DijkstraMap-based culling `DrunkardsWalkArchitect` already uses, seeded from the actual start point, right after the map is generated.Now the actual culling function:Now let's compile, then write a real test that actually generates a map and verifies full connectivity — same standard as everything else this session.The test caught something real — and it's not about my fix being wrong, it's a *different* latent bug my fix exposed. Let's look:All 200 seeds pass — every remaining floor tile is genuinely reachable now, verified by an independent BFS, not just by trusting the same `DijkstraMap` the fix itself uses. Let's also sanity-check the other two builders didn't regress, then remove the scratch test.Now removing the scratch test before delivery:Clean, zero warnings. Restoring `Cargo.lock` and packaging.## Unreachable map region — fixed, verified across 200 seeds, compiles clean
+
+Your hunch was exactly right — it was the Cellular Automata builder.
+
+**2 modified files:**
+
+| File in this chat             | Real path                     |
+| ----------------------------- | ----------------------------- |
+| `src_map_builder_automata.rs` | `src/map_builder/automata.rs` |
+| `src_map_builder_mod.rs`      | `src/map_builder/mod.rs`      |
+
+**Root cause:** `CellularAutomataArchitect` smooths random noise into cave shapes but never checks whether the result is actually *one* connected cave. Your other two map builders don't have this problem — `RoomsArchitect` chains every room together via corridors, and `DrunkardsWalkArchitect` already re-checks reachability after every carve and walls off anything too far. Automata was the one builder with no such safeguard, so an unlucky smoothing pass could leave a second, fully wall-locked cave elsewhere on the map — still getting real monster/item spawns, just permanently unreachable.
+
+**Fix:** applied the same pattern `DrunkardsWalkArchitect` already uses — a `DijkstraMap` seeded from the actual start point, walling off anything not reachable from it, right after generation finishes.
+
+**Along the way, the fix exposed a second, separate bug:** `spawn_monsters` always tried to place exactly 50 monsters and would panic outright if a map didn't have 50 candidate tiles far enough from the start. This was already possible before my change on a small/tight cave, but culling unreachable regions shrinks the reachable floor area on some maps, making it noticeably easier to trigger. My 200-seed regression test caught this directly — it wasn't guesswork, the test crashed with a real stack trace pointing right at it. Fixed by capping the spawn count at however many candidates actually exist instead of assuming there's always 50.
+
+I didn't just trust the type-check here — I wrote a throwaway test (removed before delivery) that generates 200 Automata maps across different seeds and verifies, via an independent plain BFS flood-fill (not reusing the same `DijkstraMap` tool the fix itself relies on), that every single floor tile is genuinely reachable from the player's start. All 200 pass. Ran the full test suite afterward too — clean.
+
