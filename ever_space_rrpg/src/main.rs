@@ -3,6 +3,7 @@
 mod battle;
 mod camera;
 mod components;
+mod keymap;
 mod map;
 mod map_builder;
 mod render_helpers;
@@ -149,6 +150,7 @@ mod prelude {
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
+    pub use crate::keymap::*;
     pub use crate::map::*;
     pub use crate::map_builder::*;
     pub use crate::render_helpers::*;
@@ -178,6 +180,20 @@ struct State {
     /// actually runs once this passes BACKGROUND_MOVE_INTERVAL_MS, then
     /// it resets to 0 - see title_screen/class_select.
     background_move_timer_ms: f32,
+    /// Which Action the Options screen is currently waiting for a new
+    /// key for, if any - None means the screen is just showing the list
+    /// (see screens/options.rs). Kept as a plain State field rather than
+    /// an ECS resource since it's transient screen-navigation state, not
+    /// anything gameplay systems need to see, and State's other
+    /// Resources::default() reset points (start_game/return_to_title)
+    /// have no reason to touch it either way.
+    options_awaiting: Option<Action>,
+    /// Which screen Options should return to on Escape - TitleScreen or
+    /// Paused, whichever one it was opened from (see title.rs's and
+    /// pause.rs's 'O' handlers, which both set this right before
+    /// entering TurnState::Options). Same "plain State field, not a
+    /// resource" reasoning as options_awaiting above.
+    options_return_to: TurnState,
 }
 
 impl State {
@@ -193,6 +209,13 @@ impl State {
         // Option<Battle> at all, so its absence here was harmless; it no
         // longer is.
         resources.insert(None::<Battle>);
+        // Loaded once here and re-inserted after every Resources::default()
+        // reset point below (start_game/return_to_title also wipe every
+        // resource) - Keymap::load reads from disk each time, so a rebind
+        // made in one run is still there after starting a fresh one or
+        // returning to the title screen, without needing a separate
+        // long-lived copy on State itself.
+        resources.insert(Keymap::load());
         let mut state = Self {
             ecs: World::default(),
             resources,
@@ -203,6 +226,8 @@ impl State {
             background_systems: build_title_background_scheduler(),
             background_movement_systems: build_title_background_movement_scheduler(),
             background_move_timer_ms: 0.0,
+            options_awaiting: None,
+            options_return_to: TurnState::TitleScreen,
         };
         state.spawn_title_background();
         state
@@ -238,6 +263,7 @@ impl State {
         self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
+        self.resources.insert(Keymap::load());
     }
 
     /// Tears down the current run (if any) and returns to the title
@@ -258,6 +284,7 @@ impl State {
         // background_movement_systems.execute() call, same reasoning as
         // State::new().
         self.resources.insert(None::<Battle>);
+        self.resources.insert(Keymap::load());
         self.background_move_timer_ms = 0.0;
     }
 
@@ -392,6 +419,9 @@ impl GameState for State {
                 .execute(&mut self.ecs, &mut self.resources),
             TurnState::Paused => {
                 self.paused_tick(ctx);
+            }
+            TurnState::Options => {
+                self.options_tick(ctx);
             }
             TurnState::InBattle => {
                 self.battle_tick(ctx);

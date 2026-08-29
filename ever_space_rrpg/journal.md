@@ -2046,3 +2046,74 @@ Verified with `cargo check` — clean, zero warnings.
 
 One thing I didn't add since you didn't ask for it: there's no "Picked up X" message or log line anywhere right now — pickup was silent before and stays silent now. If you want a HUD flash or log entry when something's picked up, that's a quick follow-up whenever you want it.
 
+# Hotkeys and Persistent Data
+`saves/` is already gitignored — the project was set up for this ahead of time. Now let's build the keymap module.Now update `turn_state.rs`:Now `pause.rs` — add the Options entry point:Now add the `options_awaiting` field to `State`:Now update `State::new()`, `start_game()`, and `return_to_title()` to load/re-insert the `Keymap` resource and init the new field:Now add the `TurnState::Options` dispatch arm in `tick()`:Good, `GRAY` is a valid constant already used elsewhere. Now let's fix the borrow-checker issue I anticipated:Now update `player_input.rs` to use the keymap for movement instead of hardcoded arrow keys:## Hotkey rebinding — done, compiles clean
+
+**2 new files, 5 modified:**
+
+| File in this chat             | Real path                     | New / Modified |
+| ----------------------------- | ----------------------------- | -------------- |
+| `src_keymap.rs`               | `src/keymap.rs`               | New            |
+| `src_screens_options.rs`      | `src/screens/options.rs`      | New            |
+| `src_main.rs`                 | `src/main.rs`                 | Modified       |
+| `src_turn_state.rs`           | `src/turn_state.rs`           | Modified       |
+| `src_screens_mod.rs`          | `src/screens/mod.rs`          | Modified       |
+| `src_screens_pause.rs`        | `src/screens/pause.rs`        | Modified       |
+| `src_systems_player_input.rs` | `src/systems/player_input.rs` | Modified       |
+
+**How it works:**
+
+- **`Action` enum** — scoped to just the 4 movement directions for now (the classic "arrows vs WASD" ask). Escape/pause and the number-key item/technique selectors stay hardcoded on purpose: they're positional (1-9) or a hardware convention, not things people usually rebind, and keeping Escape fixed means a bad rebind can never lock the pause menu away.
+- **`Keymap`** — maps each `Action` to whichever `VirtualKeyCode` currently triggers it. Rebinding is limited to arrow keys + A–Z (covers arrows, WASD, IJKL, HJKL, etc.) rather than the full ~150-key set, to keep the save-file round-trip simple — I didn't want to lean on bracket-lib's own serde support since it's feature-gated and not currently enabled in your `Cargo.toml`, so I wrote a small plain-text name round-trip instead rather than pulling in a new feature flag.
+- **Persistence** — `saves/keymap.ron` (that directory's already in your `.gitignore`, good call setting that up ahead of time). Saved immediately on every rebind, loaded fresh at every game-start/reset point, so a rebind survives starting a new run or returning to the title screen.
+- **Options screen** — reachable from Pause (`O`). Press 1-4 to pick an action, then press the new key; Escape cancels a pending rebind or exits back to Pause.
+- **`player_input.rs`** now asks `keymap.action_for_key(key)` instead of matching `VirtualKeyCode::Up/Down/Left/Right` directly — a rebind takes effect immediately, no restart needed.
+
+Verified with `cargo check` — clean, zero warnings.
+
+Next up per your priority: **kill/run history stats**, persisted the same lightweight way (a small struct written to `saves/`, updated on specific events like an enemy dying) — no full mid-run save involved, exactly as you wanted. Want me to move on to that now, or test the rebinding in-game first?
+
+## Title Screen as Well
+Now `pause.rs` — set the return target before entering Options:Now `title.rs` — carve out `O` before the "any key starts the game" fallthrough:Now update `options.rs` to return to the stored target instead of hardcoded `Paused`:Now let's compile.Clean, zero warnings. Restoring `Cargo.lock` and packaging.## Options from the title screen too — done, compiles clean
+
+**4 modified files:**
+
+| File in this chat        | Real path                |
+| ------------------------ | ------------------------ |
+| `src_main.rs`            | `src/main.rs`            |
+| `src_screens_pause.rs`   | `src/screens/pause.rs`   |
+| `src_screens_title.rs`   | `src/screens/title.rs`   |
+| `src_screens_options.rs` | `src/screens/options.rs` |
+
+**What changed:**
+
+- Title screen: `O` now opens Options, carved out ahead of the "any other key starts the game" fallthrough (same way `Escape` already was, for quitting). Hint text updated to `(O for Options, Esc to quit)`.
+- Added `options_return_to: TurnState` on `State` — set to `Paused` or `TitleScreen` right before entering the Options screen from either place, so Escape from the browsing list sends you back to wherever you actually came from instead of always landing on Pause.
+- The Options screen itself needed no real logic change — it already just redraws whatever map/camera/theme resources are currently sitting in `Resources` underneath it (via `pause_systems`, map-render only). From the title screen that's the same decorative background `title_screen`/`class_select` already show, since `spawn_title_background` sets those up once and they stick around until a real run starts or you return to the title screen again.
+
+Verified with `cargo check` — clean, zero warnings.
+
+Ready for kill/run history stats whenever you want to move on.
+
+## Crash on Double Rebind/Reset
+Found it — confirmed the actual crash. Let me trace it precisely.Exactly what I expected — `rebind()` evicts the other action's entry from the `HashMap` entirely (via `retain`), but `key_for()` and `save()` both index directly into that map (`self.bindings[&action]`), which panics the instant an entry is missing. So binding a key onto one already in use didn't just misbehave, it flat-out removed data other code assumed would always be there. Real bug, not a display glitch — good catch.
+
+Fix: make `rebind` a true **swap** (nobody ever loses a binding), and make the lookups panic-proof as a second layer of safety. Plus the reset-all-keys feature.Now fix `save()`, which had the same direct-indexing panic risk:Now wire "reset all keys" into the Options screen:Now let's compile.Let's actually verify the swap logic behaves correctly, not just compiles — a quick scratch test (removed before delivery, per your project's own convention for anything a compile check alone wouldn't catch):Test passes — confirms the swap logic actually works (no crash, no lost bindings, dedup check confirms no two actions ever share a key). Removing the scratch test before delivery.Clean, zero warnings. Restoring `Cargo.lock` and packaging.## Crash fixed + reset-all-keys added — compiles clean, logic verified
+
+**2 modified files** (same names as before — replace both, whichever filename you're using for the keymap one):
+
+| File in this chat        | Real path                                                     |
+| ------------------------ | ------------------------------------------------------------- |
+| `src_keymap.rs`          | `src/keymap.rs` (or `key_map.rs`, matching whatever you have) |
+| `src_screens_options.rs` | `src/screens/options.rs`                                      |
+
+**Root cause of the crash:** the old `rebind()` evicted the other action's entry from the map entirely when two actions collided on one key. But `key_for()` and `save()` both indexed the map directly with `[]`, which panics the instant an entry is missing. So the crash wasn't really "rebinding to a used key" — it was "any code path that reads an action's key right after that eviction happens," which was basically every subsequent frame.
+
+**Fix:**
+- `rebind()` is now a real **swap** — if a key is already claimed by another action, that action gets the *old* key of the one being rebound. Nobody ever ends up with zero bindings.
+- `key_for()` also got a safety-net fallback to the default key, so even a hypothetical future gap can't panic there again.
+- `save()` now goes through `key_for()` instead of indexing the map raw, for the same reason.
+
+I didn't just trust the compile check on this one — I wrote a throwaway `#[cfg(test)]` (removed before delivery, same pattern your project notes already use for `.ron`-adjacent logic that a type-check alone wouldn't catch) that actually rebinds a colliding key, confirms both actions end up with distinct valid bindings, confirms rebinding onto your own current key is a harmless no-op, and confirms reset restores the original arrow layout. It passed.
+
+**Reset all keys:** press `R` from the Options browsing list (alongside 1-4 for individual rebinds) — restores every action to its default arrow-key binding and saves immediately.

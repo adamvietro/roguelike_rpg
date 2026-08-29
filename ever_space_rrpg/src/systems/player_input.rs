@@ -16,6 +16,7 @@ pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
     #[resource] key: &Option<VirtualKeyCode>,
+    #[resource] keymap: &Keymap,
     #[resource] turn_state: &mut TurnState,
     #[resource] battle: &mut Option<Battle>,
 ) {
@@ -28,27 +29,37 @@ pub fn player_input(
         // only ever runs during TurnState::AwaitingInput (dungeon
         // exploration), so pausing mid-battle isn't reachable: battle_tick
         // handles its own keys entirely separately and never calls this.
+        // Escape stays hardcoded rather than going through Keymap - see
+        // keymap.rs's module comment on why pause/Escape is deliberately
+        // not rebindable.
         if key == VirtualKeyCode::Escape {
             *turn_state = TurnState::Paused;
             return;
         }
 
-        let delta = match key {
-            VirtualKeyCode::Left => Point::new(-1, 0),
-            VirtualKeyCode::Right => Point::new(1, 0),
-            VirtualKeyCode::Up => Point::new(0, -1),
-            VirtualKeyCode::Down => Point::new(0, 1),
-            VirtualKeyCode::Key1 => use_item(0, ecs, commands),
-            VirtualKeyCode::Key2 => use_item(1, ecs, commands),
-            VirtualKeyCode::Key3 => use_item(2, ecs, commands),
-            VirtualKeyCode::Key4 => use_item(3, ecs, commands),
-            VirtualKeyCode::Key5 => use_item(4, ecs, commands),
-            VirtualKeyCode::Key6 => use_item(5, ecs, commands),
-            VirtualKeyCode::Key7 => use_item(6, ecs, commands),
-            VirtualKeyCode::Key8 => use_item(7, ecs, commands),
-            VirtualKeyCode::Key9 => use_item(8, ecs, commands),
-            VirtualKeyCode::Key0 => use_item(9, ecs, commands),
-            _ => Point::new(0, 0),
+        // Movement keys go through Keymap now instead of a hardcoded
+        // VirtualKeyCode match, so a rebind made in the Options screen
+        // (see screens/options.rs) takes effect immediately - the
+        // mapping from key to Action lives in keymap.rs, this just asks
+        // "what does the CURRENTLY bound key for this press mean."
+        let delta = match keymap.action_for_key(key) {
+            Some(Action::MoveUp) => Point::new(0, -1),
+            Some(Action::MoveDown) => Point::new(0, 1),
+            Some(Action::MoveLeft) => Point::new(-1, 0),
+            Some(Action::MoveRight) => Point::new(1, 0),
+            None => match key {
+                VirtualKeyCode::Key1 => use_item(0, ecs, commands),
+                VirtualKeyCode::Key2 => use_item(1, ecs, commands),
+                VirtualKeyCode::Key3 => use_item(2, ecs, commands),
+                VirtualKeyCode::Key4 => use_item(3, ecs, commands),
+                VirtualKeyCode::Key5 => use_item(4, ecs, commands),
+                VirtualKeyCode::Key6 => use_item(5, ecs, commands),
+                VirtualKeyCode::Key7 => use_item(6, ecs, commands),
+                VirtualKeyCode::Key8 => use_item(7, ecs, commands),
+                VirtualKeyCode::Key9 => use_item(8, ecs, commands),
+                VirtualKeyCode::Key0 => use_item(9, ecs, commands),
+                _ => Point::new(0, 0),
+            },
         };
 
         let (player_entity, destination) = players

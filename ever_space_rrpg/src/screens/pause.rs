@@ -15,11 +15,16 @@ impl State {
         ctx.set_active_console(2);
         ctx.print_color_centered(45, YELLOW, BLACK, "-- Paused --");
         ctx.print_color_centered(48, WHITE, BLACK, "Press ESC to resume");
-        ctx.print_color_centered(49, WHITE, BLACK, "Press Q to quit to the title screen");
+        ctx.print_color_centered(49, WHITE, BLACK, "Press O for Options");
+        ctx.print_color_centered(50, WHITE, BLACK, "Press Q to quit to the title screen");
 
         match ctx.key {
             Some(VirtualKeyCode::Escape) => {
                 self.resources.insert(TurnState::AwaitingInput);
+            }
+            Some(VirtualKeyCode::O) => {
+                self.options_return_to = TurnState::Paused;
+                self.resources.insert(TurnState::Options);
             }
             Some(VirtualKeyCode::Q) => {
                 self.return_to_title();
