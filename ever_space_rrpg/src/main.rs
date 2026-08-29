@@ -9,6 +9,7 @@ mod map_builder;
 mod render_helpers;
 mod screens;
 mod spawner;
+mod stats;
 mod systems;
 mod turn_state;
 
@@ -155,6 +156,7 @@ mod prelude {
     pub use crate::map_builder::*;
     pub use crate::render_helpers::*;
     pub use crate::spawner::*;
+    pub use crate::stats::*;
     pub use crate::systems::*;
     pub use crate::turn_state::*;
 }
@@ -194,6 +196,12 @@ struct State {
     /// entering TurnState::Options). Same "plain State field, not a
     /// resource" reasoning as options_awaiting above.
     options_return_to: TurnState,
+    /// Which class's ability-usage breakdown the History screen is
+    /// currently showing, if any - None means the overview list (overall
+    /// and per-class win rates, kills, deepest level). See
+    /// screens/stats_view.rs. Same "plain State field, not a resource"
+    /// reasoning as options_awaiting.
+    stats_selected_class: Option<String>,
 }
 
 impl State {
@@ -216,6 +224,7 @@ impl State {
         // returning to the title screen, without needing a separate
         // long-lived copy on State itself.
         resources.insert(Keymap::load());
+        resources.insert(Stats::load());
         let mut state = Self {
             ecs: World::default(),
             resources,
@@ -228,6 +237,7 @@ impl State {
             background_move_timer_ms: 0.0,
             options_awaiting: None,
             options_return_to: TurnState::TitleScreen,
+            stats_selected_class: None,
         };
         state.spawn_title_background();
         state
@@ -264,6 +274,13 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
+
+        // Counts as "this class was chosen" the instant a run actually
+        // begins, regardless of how it later ends (won, lost, or
+        // abandoned via quit-to-title) - see Stats::record_game_started.
+        let mut stats = Stats::load();
+        stats.record_game_started(class);
+        self.resources.insert(stats);
     }
 
     /// Tears down the current run (if any) and returns to the title
@@ -273,7 +290,25 @@ impl State {
     /// place a run actually begins. spawn_title_background is defined in
     /// screens/title.rs (a descendant module), which is why it needed to
     /// be marked `pub` - see that file's comment on the same fn.
+    ///
+    /// Also the single place a run's outcome gets recorded into Stats -
+    /// every run-ending path (Victory/GameOver's "press 1" handlers, and
+    /// Pause's Q quit-early handler) calls this one function, so none of
+    /// those three callers need to know anything about Stats themselves.
     fn return_to_title(&mut self) {
+        // Read what play-history needs BEFORE wiping ecs/resources below -
+        // both are gone the instant World::default()/Resources::default()
+        // run. A run ended via Pause's early quit still has `outcome` at
+        // whatever TurnState it was mid-run (AwaitingInput/Paused/etc,
+        // never Victory) - that's correctly treated as "no win recorded"
+        // below, while the deepest level reached still counts, since the
+        // player genuinely got that far.
+        let outcome = self.resources.get::<TurnState>().map(|t| *t);
+        let player_info = <(&Player, &Class)>::query()
+            .iter(&self.ecs)
+            .next()
+            .map(|(p, c)| (p.map_level, c.0.clone()));
+
         self.ecs = World::default();
         self.resources = Resources::default();
         self.spawn_title_background();
@@ -285,6 +320,16 @@ impl State {
         // State::new().
         self.resources.insert(None::<Battle>);
         self.resources.insert(Keymap::load());
+
+        let mut stats = Stats::load();
+        if let Some((map_level, class)) = player_info {
+            if outcome == Some(TurnState::Victory) {
+                stats.record_win(&class);
+            }
+            stats.record_deepest_level(&class, map_level);
+        }
+        self.resources.insert(stats);
+
         self.background_move_timer_ms = 0.0;
     }
 
@@ -422,6 +467,9 @@ impl GameState for State {
             }
             TurnState::Options => {
                 self.options_tick(ctx);
+            }
+            TurnState::StatsView => {
+                self.stats_view_tick(ctx);
             }
             TurnState::InBattle => {
                 self.battle_tick(ctx);

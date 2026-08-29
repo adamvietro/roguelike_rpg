@@ -2117,3 +2117,78 @@ Fix: make `rebind` a true **swap** (nobody ever loses a binding), and make the l
 I didn't just trust the compile check on this one — I wrote a throwaway `#[cfg(test)]` (removed before delivery, same pattern your project notes already use for `.ron`-adjacent logic that a type-check alone wouldn't catch) that actually rebinds a colliding key, confirms both actions end up with distinct valid bindings, confirms rebinding onto your own current key is a harmless no-op, and confirms reset restores the original arrow layout. It passed.
 
 **Reset all keys:** press `R` from the Options browsing list (alongside 1-4 for individual rebinds) — restores every action to its default arrow-key binding and saves immediately.
+
+## Stats Tracker
+Extracting the four duplicated "enemy died in battle" blocks into one helper while I'm already touching every one of them — good opportunity since I need to add the kill-stat there anyway. Let's look at the exact `Technique` dispatch site too:Now let's create the `Stats` module, mirroring `keymap.rs`'s patterns:Now wire it into `main.rs` — module declaration, prelude re-export, and the three resource lifecycle points:Now let's view the current `State::new`, `start_game`, and `return_to_title` in full to make precise edits:Now `use_items.rs` — needs the `Stats` resource, ability-usage recording, and enemy-killed recording for the ranged-strike death path:Now add the ability-usage recording right after the effect match, and the enemy-killed recording at the ranged-strike death site:Now `screens/battle.rs` — extracting the duplicated victory-handling block and adding both stat hooks:Let's add the helper method right after `draw_battle_arena`'s closing point, then find and replace all 4 occurrences.Now replace all 4 duplicated blocks with calls to the new helper:All 4 sites consolidated. Now the `Technique` ability-usage hook:Now the three `main.rs` lifecycle hooks:Now `return_to_title`:Let's compile what we have so far before adding the viewing screen.Compiles with just one unused-import warning. Let's fix it, then build the viewing screen (needed to actually see this data — matches the original "history or stats screen" framing).Now the viewing screen — need this so the tracked data is actually visible somewhere, matching your original "history or stats screen" framing.Now add the `TurnState::StatsView` dispatch arm:Now `screens/mod.rs`:Now `title.rs` — add the `H` entry point alongside `O`:Now the actual `stats_view.rs` screen:Now let's compile everything.## Kill/run history — done, compiles clean
+
+This turned into a genuinely large change, so here's the rundown before I hand off files.
+
+**New tracking system (`src/stats.rs`):**
+- `Stats` — overall `games_played`/`games_won`, `enemies_killed`, and a `per_class: HashMap<String, ClassStats>`.
+- `ClassStats` — per-class `games_played`/`games_won` (your n of m), `enemies_killed`, `deepest_level` (only ever raised, never lowered), and `ability_uses: HashMap<String, u32>` keyed by ability name.
+- Persisted to `saves/stats.ron`, saved on every recording call (small file, cheap writes, and it means an ability-use or kill isn't lost even if the game closes mid-run rather than through a clean exit).
+
+**Hooked into every place these events actually happen:**
+- **Games started** — `start_game()`, the moment a class is chosen.
+- **Wins + deepest level** — consolidated into `return_to_title()`, since *every* run-ending path (dismissing Victory, dismissing Game Over, or quitting early from Pause) already funnels through that one function. It reads the player's class/level *before* the ECS gets wiped.
+- **Enemies killed** — three separate death paths in your code: battle victory, a damage Trap, and a ranged strike (Throw Spear/Shoot). I hooked all three, since only counting battle kills would've made the stat quietly wrong.
+- **Ability usage** — battle Technique use and out-of-combat Effect use, both keyed off the *item's own* Class (not just "whatever the player currently is"), and deliberately skipping unrestricted items like Healing Potion — those aren't a class's "ability."
+
+**Along the way:** I found the same "grant loot / remove enemy / set BattleVictory" block pasted at all four places an enemy can die mid-battle in `screens/battle.rs`. Since I had to add the kill-stat call to all four anyway, I consolidated them into one `finish_battle_victory` helper instead of pasting a fifth line into four separate copies.
+
+**New History screen** — reachable from the title screen (`H`, alongside `O` for Options): overall win rate, then one row per class actually played, with a number-key drill-down into that class's ability-use breakdown.
+
+Verified with `cargo check` — clean, zero warnings, on the last full pass I ran.
+
+**I'm out of tool calls for this turn**, so I haven't done the final restore-`Cargo.lock`-and-package-for-download step yet. Everything above is implemented and confirmed compiling in my sandbox copy — just say the word and I'll deliver the files (`src/stats.rs`, plus modified `src/main.rs`, `src/turn_state.rs`, `src/screens/mod.rs`, `src/screens/title.rs`, `src/screens/battle.rs`, `src/screens/stats_view.rs`, `src/systems/traps.rs`, `src/systems/use_items.rs`) in the next message.
+
+All clean LF. One more sanity re-check before packaging, since I made a lot of edits across many files this turn:## Kill/run history — done, compiles clean, files ready
+
+**2 new files, 7 modified:**
+
+| File in this chat           | Real path                   | New / Modified |
+| --------------------------- | --------------------------- | -------------- |
+| `src_stats.rs`              | `src/stats.rs`              | New            |
+| `src_screens_stats_view.rs` | `src/screens/stats_view.rs` | New            |
+| `src_main.rs`               | `src/main.rs`               | Modified       |
+| `src_turn_state.rs`         | `src/turn_state.rs`         | Modified       |
+| `src_screens_mod.rs`        | `src/screens/mod.rs`        | Modified       |
+| `src_screens_title.rs`      | `src/screens/title.rs`      | Modified       |
+| `src_screens_battle.rs`     | `src/screens/battle.rs`     | Modified       |
+| `src_systems_traps.rs`      | `src/systems/traps.rs`      | Modified       |
+| `src_systems_use_items.rs`  | `src/systems/use_items.rs`  | Modified       |
+
+Recap of what's in this drop (full details were in my previous message, cut off before I could deliver):
+
+- **`Stats`/`ClassStats`** in `stats.rs` — overall and per-class win rates, enemies killed, deepest level reached, and per-ability usage counts. Persisted to `saves/stats.ron`.
+- Hooked into every actual event: run start (`start_game`), win + deepest-level (consolidated into `return_to_title`, since every run-ending path already funnels through there), and enemies killed across all three death paths (battle, trap, ranged strike).
+- Consolidated four copies of the same "enemy died in battle" block in `screens/battle.rs` into one `finish_battle_victory` helper while adding the kill-stat hook to it.
+- New **History screen**, reachable from the title screen (`H`) — overall win rate, per-class rows, number-key drill-down into ability usage per class.
+
+Verified clean with `cargo check`, zero warnings, confirmed again just now after restoring your real `Cargo.lock`.
+
+One thing worth testing on your end specifically: I couldn't playtest this (no game window in this sandbox), so the History screen's layout/spacing is my best guess at fitting rows 47–60ish on console 2 without overlap — if a class list runs long or text collides with something, that's a quick fix once you can actually see it rendered.
+
+### Broken Amulet
+Good catch — this is almost certainly a side effect of the auto-pickup change from a few turns back. Let me check.Confirmed — and it's a real regression from the auto-pickup feature, not something you did wrong.
+
+The Amulet of Yala entity has an `Item` component (so it can render/exist consistently with other items), and it has always relied on this exact flow: the player steps onto its tile, and `end_turn.rs` checks "is the player's position the same as the amulet's position?" to trigger Victory.
+
+The auto-pickup logic I added runs *earlier in the same frame*, in `movement.rs`. It now picks up **any** entity with an `Item` component standing on the destination tile — including the amulet. It strips the amulet's `Point` component and makes it `Carried` before `end_turn.rs` ever gets to check "is the player standing on the amulet." By the time that check runs, the amulet has no position anymore, so it silently never matches.
+
+This bug genuinely didn't exist with the old G-key system — pressing G was a *separate* keypress on a *later* turn, and Victory always used to trigger on the very same turn the player stepped onto the amulet, before a second keypress was ever possible. Auto-pickup collapsed those into the same frame and exposed the gap.
+
+**Fix:** the amulet was never meant to be inventory-managed in the first place — its entire mechanic is "stand on it, you win," not "carry it around." So the right fix is excluding it from auto-pickup entirely, not just papering over the ordering.Easy — the closure parameter is a double reference in this position. Let's apply exactly what the compiler suggests:Let's verify this is actually correct, not just type-checked — same practice as before, given this exact bug class already slipped through once.`Map::new()` gives an all-floor map by default — good, minimal harness is easy.Just my test scaffolding needing minor adjustment (`Carried` isn't `Copy`/`Debug`) — not a real bug. Fixing the test itself:Test passes — confirms the amulet keeps its `Point` (so `end_turn.rs`'s victory check works), stays un-`Carried`, and an ordinary item on the same kind of tile still auto-picks-up normally. Removing the scratch test before delivery.Clean, zero warnings. Restoring `Cargo.lock` and packaging.## Amulet Victory bug — fixed, verified, compiles clean
+
+**1 modified file:**
+
+| File in this chat         | Real path                 |
+| ------------------------- | ------------------------- |
+| `src_systems_movement.rs` | `src/systems/movement.rs` |
+
+**Root cause:** the Amulet of Yala entity has always carried an `Item` component (for rendering purposes), and auto-pickup — added a few turns back — swept up *any* `Item` on the destination tile, including it. That strips the amulet's `Point` component before `end_turn.rs` ever gets to check "is the player standing on the amulet," so the check silently stops matching. This is a real regression from the auto-pickup feature, not anything you did — the old G-key system never hit it, since it needed a separate keypress on a separate turn that was never actually reachable (stepping onto the amulet already won the game before a second keypress was possible).
+
+**Fix:** auto-pickup now explicitly skips any entity with an `AmuletOfYala` component. The amulet was never meant to be inventory-managed anyway — its whole mechanic is "stand on this tile," not "carry it around" — so excluding it is the correct fix, not just a workaround for the ordering.
+
+I didn't just trust the type-check on this one, given the same class of bug already slipped past me once — wrote a throwaway test (removed before delivery) that builds a minimal world with a player, the amulet, and an ordinary item on the same tile, runs the real movement system, and confirms: the amulet keeps its `Point` and never becomes `Carried`, while the ordinary item still gets picked up normally. Passed.
+

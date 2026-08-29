@@ -131,6 +131,37 @@ impl State {
         wiggle.submit(1).expect("Batch error");
     }
 
+    /// Shared "the enemy just died in battle" ending - grants loot,
+    /// removes the enemy entity, records an enemies_killed stat for the
+    /// player's class, and transitions to TurnState::BattleVictory. This
+    /// exact sequence used to be pasted at all four points in battle_tick
+    /// where an enemy's Health can drop below 1 (the player's own attack,
+    /// a Counter Attack reacting to an enemy hit whichever order the
+    /// round went, and a DoT tick before initiative is even decided) -
+    /// one shared landing point instead of four copies that would
+    /// otherwise all need the same one more line added to them.
+    fn finish_battle_victory(&mut self, battle: &Battle) {
+        let mut rng = RandomNumberGenerator::new();
+        let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy);
+
+        if let Some(class) = entity_class(&self.ecs, battle.player) {
+            if let Some(mut stats) = self.resources.get_mut::<Stats>() {
+                stats.record_enemy_killed(&class);
+            }
+        }
+
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.remove(battle.enemy);
+        cb.flush(&mut self.ecs);
+        self.resources.insert(Some(BattleVictory {
+            player: battle.player,
+            enemy_name: battle.enemy_name.clone(),
+            loot,
+        }));
+        self.resources.insert(None::<Battle>);
+        self.resources.insert(TurnState::BattleVictory);
+    }
+
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
     pub fn battle_tick(&mut self, ctx: &mut BTerm) {
         let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
@@ -184,19 +215,7 @@ impl State {
 
             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
             if enemy_hp_now < 1 {
-                let mut rng = RandomNumberGenerator::new();
-                let loot =
-                    grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy);
-                let mut cb = CommandBuffer::new(&mut self.ecs);
-                cb.remove(battle.enemy);
-                cb.flush(&mut self.ecs);
-                self.resources.insert(Some(BattleVictory {
-                    player: battle.player,
-                    enemy_name: battle.enemy_name.clone(),
-                    loot,
-                }));
-                self.resources.insert(None::<Battle>);
-                self.resources.insert(TurnState::BattleVictory);
+                self.finish_battle_victory(&battle);
                 return;
             }
 
@@ -559,6 +578,20 @@ impl State {
                                 battle.push_log("Flee.".to_string());
                             }
                             BattleAction::Technique(item) => {
+                                // Recorded BEFORE apply_player_technique
+                                // runs - it removes `item` from the ECS
+                                // as part of consuming it, so its Name/
+                                // Class have to be read while it's still
+                                // there. Keyed off the item's own class,
+                                // same reasoning as
+                                // Stats::record_ability_used's doc
+                                // comment.
+                                if let Some(class) = entity_class(&self.ecs, item) {
+                                    let name = entity_name(&self.ecs, item);
+                                    if let Some(mut stats) = self.resources.get_mut::<Stats>() {
+                                        stats.record_ability_used(&class, &name);
+                                    }
+                                }
                                 let result =
                                     apply_player_technique(&mut self.ecs, &mut battle, item);
                                 battle.push_log(result);
@@ -602,23 +635,7 @@ impl State {
                             // letting the enemy retaliate.
                             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
                             if enemy_hp_now < 1 {
-                                let mut rng = RandomNumberGenerator::new();
-                                let loot = grant_random_battle_loot(
-                                    &mut self.ecs,
-                                    &mut rng,
-                                    battle.player,
-                                    battle.enemy,
-                                );
-                                let mut cb = CommandBuffer::new(&mut self.ecs);
-                                cb.remove(battle.enemy);
-                                cb.flush(&mut self.ecs);
-                                self.resources.insert(Some(BattleVictory {
-                                    player: battle.player,
-                                    enemy_name: battle.enemy_name.clone(),
-                                    loot,
-                                }));
-                                self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::BattleVictory);
+                                self.finish_battle_victory(&battle);
                                 return;
                             }
                             resolve_enemy_attack(&mut self.ecs, &mut battle);
@@ -642,23 +659,7 @@ impl State {
                             // an already-dead enemy.
                             let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
                             if enemy_hp_now < 1 {
-                                let mut rng = RandomNumberGenerator::new();
-                                let loot = grant_random_battle_loot(
-                                    &mut self.ecs,
-                                    &mut rng,
-                                    battle.player,
-                                    battle.enemy,
-                                );
-                                let mut cb = CommandBuffer::new(&mut self.ecs);
-                                cb.remove(battle.enemy);
-                                cb.flush(&mut self.ecs);
-                                self.resources.insert(Some(BattleVictory {
-                                    player: battle.player,
-                                    enemy_name: battle.enemy_name.clone(),
-                                    loot,
-                                }));
-                                self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::BattleVictory);
+                                self.finish_battle_victory(&battle);
                                 return;
                             }
 
@@ -692,23 +693,7 @@ impl State {
                     }
 
                     if enemy_hp_now < 1 {
-                        let mut rng = RandomNumberGenerator::new();
-                        let loot = grant_random_battle_loot(
-                            &mut self.ecs,
-                            &mut rng,
-                            battle.player,
-                            battle.enemy,
-                        );
-                        let mut cb = CommandBuffer::new(&mut self.ecs);
-                        cb.remove(battle.enemy);
-                        cb.flush(&mut self.ecs);
-                        self.resources.insert(Some(BattleVictory {
-                            player: battle.player,
-                            enemy_name: battle.enemy_name.clone(),
-                            loot,
-                        }));
-                        self.resources.insert(None::<Battle>);
-                        self.resources.insert(TurnState::BattleVictory);
+                        self.finish_battle_victory(&battle);
                         return;
                     }
 

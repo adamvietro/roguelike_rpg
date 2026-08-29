@@ -22,8 +22,10 @@ use crate::prelude::*;
 #[read_component(Trap)]
 #[read_component(FreezeTrap)]
 #[read_component(Defense)]
+#[read_component(Player)]
+#[read_component(Class)]
 #[write_component(Health)]
-pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer) {
+pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] stats: &mut Stats) {
     let trap_positions: Vec<(Entity, Point, i32)> = <(Entity, &Point, &Trap)>::query()
         .iter(ecs)
         .map(|(e, pos, trap)| (*e, *pos, trap.damage))
@@ -57,6 +59,18 @@ pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer) {
                 };
                 if died {
                     commands.remove(*enemy);
+                    // Only the player ever places a Trap (see
+                    // ProvidesEffect::PlaceTrap in systems/use_items.rs),
+                    // so attributing this kill to the player's current
+                    // class is always correct, not just a convenient
+                    // default.
+                    if let Some(class) = <&Class>::query()
+                        .filter(component::<Player>())
+                        .iter(ecs)
+                        .next()
+                    {
+                        stats.record_enemy_killed(&class.0);
+                    }
                 }
             }
             // Single-use, whether or not the enemy actually had Health to

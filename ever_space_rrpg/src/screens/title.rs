@@ -189,7 +189,12 @@ impl State {
             "A roguelike adventure into the dungeons below.",
         );
         ctx.print_color_centered(90, GREEN, BLACK, "Press any key to begin");
-        ctx.print_color_centered(92, DARK_GRAY, BLACK, "(O for Options, Esc to quit)");
+        ctx.print_color_centered(
+            92,
+            DARK_GRAY,
+            BLACK,
+            "(O for Options, H for History, Esc to quit)",
+        );
 
         if let Some(key) = ctx.key {
             if key == VirtualKeyCode::Escape {
@@ -197,6 +202,9 @@ impl State {
             } else if key == VirtualKeyCode::O {
                 self.options_return_to = TurnState::TitleScreen;
                 self.resources.insert(TurnState::Options);
+            } else if key == VirtualKeyCode::H {
+                self.stats_selected_class = None;
+                self.resources.insert(TurnState::StatsView);
             } else {
                 self.resources.insert(TurnState::ClassSelect);
             }

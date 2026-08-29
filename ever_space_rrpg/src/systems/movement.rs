@@ -7,6 +7,7 @@ use crate::prelude::*;
 #[read_component(Item)]
 #[read_component(Weapon)]
 #[read_component(Carried)]
+#[read_component(AmuletOfYala)]
 pub fn movement(
     entity: &Entity,
     want_move: &WantsToMove,
@@ -59,9 +60,32 @@ pub fn movement(
                     // remove-Point/add-Carried mechanics the old G-key
                     // handler in player_input.rs used, just triggered by
                     // the move landing instead of a separate keypress.
+                    //
+                    // The Amulet of Yala is deliberately EXCLUDED here,
+                    // even though it has an Item component - it was never
+                    // meant to be carried/inventory-managed, its entire
+                    // mechanic is "stand on this tile, you win" (see
+                    // systems/end_turn.rs, which checks the player's
+                    // position against the amulet entity's own Point).
+                    // Auto-pickup runs earlier in this same schedule than
+                    // end_turn's victory check - if it swept the amulet
+                    // up like a normal item, the amulet would lose its
+                    // Point (and gain Carried) before end_turn ever got
+                    // to compare positions, and Victory would silently
+                    // never trigger. The old G-key system never hit this,
+                    // since it needed a SEPARATE keypress on a LATER
+                    // turn - one that was never reachable, because
+                    // stepping onto the amulet already triggered Victory
+                    // that same turn, before the player could press G at
+                    // all.
                     let items_here: Vec<Entity> = <(Entity, &Item, &Point)>::query()
                         .iter(ecs)
                         .filter(|(_, _, &pos)| pos == want_move.destination)
+                        .filter(|(e, _, _)| {
+                            ecs.entry_ref(**e)
+                                .map(|entry| entry.get_component::<AmuletOfYala>().is_err())
+                                .unwrap_or(true)
+                        })
                         .map(|(e, _, _)| *e)
                         .collect();
                     for item_entity in items_here {

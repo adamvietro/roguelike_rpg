@@ -9,12 +9,16 @@ use crate::prelude::*;
 #[read_component(Damage)]
 #[read_component(Carried)]
 #[read_component(Defense)]
+#[read_component(Name)]
+#[read_component(Class)]
+#[read_component(Player)]
 #[write_component(Health)]
 pub fn use_items(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
     #[resource] map: &mut Map,
     #[resource] turn_state: &mut TurnState,
+    #[resource] stats: &mut Stats,
 ) {
     let mut healing_to_apply = Vec::<(Entity, i32)>::new();
     // Amazon's Throw Spear - collected here (during the read-only pass
@@ -187,6 +191,18 @@ pub fn use_items(
                             }
                         }
                     }
+
+                    // Records usage against the ITEM's own class (not
+                    // just whatever class the player currently is) - see
+                    // Stats::record_ability_used. An unrestricted item
+                    // (Healing Potion, Dungeon Map) has no Class
+                    // component and is deliberately NOT recorded here -
+                    // it isn't any one class's ability.
+                    if let (Ok(name), Ok(class)) =
+                        (item.get_component::<Name>(), item.get_component::<Class>())
+                    {
+                        stats.record_ability_used(&class.0, &name.0);
+                    }
                 }
             }
 
@@ -222,6 +238,17 @@ pub fn use_items(
             };
             if died {
                 commands.remove(*target);
+                // Only the player ever fires a ranged strike (Throw
+                // Spear/Shoot - see ProvidesEffect::RangedStrike above),
+                // so the player's current class is always the right
+                // attribution here.
+                if let Some(class) = <&Class>::query()
+                    .filter(component::<Player>())
+                    .iter(ecs)
+                    .next()
+                {
+                    stats.record_enemy_killed(&class.0);
+                }
             }
         }
     }
