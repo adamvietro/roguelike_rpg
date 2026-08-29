@@ -107,6 +107,20 @@ out-of-combat use (Effect, used once from the item list). A true passive
 system whenever the first one of these actually gets built.
 
 
+## Battle Arena
+This will be a wave based dungeon style it will just be a circular dungeon where you need to kill all the enemies in order to advance. There will be a Store where you can buy abilities and potions. 
+
+There will be increasingly difficult enemies and numbers. You can finish the last wave before the store by killing the Boss of the arena. Killing the boss will then move you to an Item shop that will have abilities and Potions for sale.
+
+Starting Kits for this will need to be set very carefully. As you will not have much of a chance for potions within the arena. 
+
+I want to be sure that the entire area is within LOS so that the player can see all the enemies. They will need to be spawned at the edge of the arena. 
+
+We will need to add in the ability to choose the adventure type. We will need to add an other screen/map for the shop. The shop could just be a screen but I like the idea of moving around the shop then heading to the stairs to move to the next set of waves.
+
+## Multi Battle
+If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
+
 Battle has a more timed feel where it automatically ticks similar to FF7 
 
 Sounds and Music
