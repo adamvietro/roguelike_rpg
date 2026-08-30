@@ -438,6 +438,11 @@ pub struct BattleVictory {
     pub player: Entity,
     pub enemy_name: String,
     pub loot: Option<String>,
+    /// Gold earned from this kill, Battle Arena only - None for a
+    /// Dungeon Crawl kill (gold doesn't exist there at all) or if this
+    /// kill somehow granted none. See screens/battle.rs's
+    /// finish_battle_victory, the only place this is ever set.
+    pub gold_earned: Option<i32>,
 }
 
 // --- Shared lookups/helpers used by the battle screen -----------------------

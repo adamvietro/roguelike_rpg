@@ -8,12 +8,14 @@ use crate::prelude::*;
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
 #[read_component(Frozen)]
+#[read_component(Enemy)]
 pub fn end_turn(
     ecs: &SubWorld,
     commands: &mut CommandBuffer,
     #[resource] turn_state: &mut TurnState,
     #[resource] map: &Map,
     #[resource] arena_run: &Option<ArenaRun>,
+    #[resource] shopping: &Option<ShoppingActive>,
 ) {
     let mut player_hp = <(&Health, &Point)>::query().filter(component::<Player>());
     let mut amulet = <&Point>::query().filter(component::<AmuletOfYala>());
@@ -98,6 +100,29 @@ pub fn end_turn(
             };
         }
     });
+
+    // Catches an Arena kill that happened OUTSIDE the normal battle-
+    // victory flow - a ranged strike (Throw Spear/Shoot) or a Trap can
+    // kill the map's last enemy without ever opening a BattleVictory
+    // screen, so nothing else would notice the wave/boss encounter was
+    // actually just cleared. Only checked when an Arena wave/boss fight
+    // could genuinely be in progress: ShoppingActive being present means
+    // we're browsing a shop instead (zero enemies there is normal, not a
+    // "wave cleared" signal), and this deliberately doesn't clobber a
+    // more urgent outcome (GameOver/Victory/a real Exit tile) that the
+    // checks above may have already set this same tick - new_state is
+    // only eligible here if it's still one of the ordinary "keep playing"
+    // states.
+    if arena_run.is_some()
+        && shopping.is_none()
+        && matches!(
+            new_state,
+            TurnState::AwaitingInput | TurnState::PlayerTurn | TurnState::MonsterTurn
+        )
+        && <&Enemy>::query().iter(ecs).count() == 0
+    {
+        new_state = TurnState::ArenaWaveCleared;
+    }
 
     *turn_state = new_state;
 }

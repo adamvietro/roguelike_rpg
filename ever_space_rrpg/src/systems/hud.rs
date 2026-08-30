@@ -9,17 +9,25 @@ use crate::prelude::*;
 #[read_component(BattleItem)]
 #[read_component(Weapon)]
 #[read_component(Description)]
+#[read_component(Gold)]
+#[read_component(ShopStock)]
+#[read_component(Price)]
+#[read_component(Point)]
 pub fn hud(
     ecs: &SubWorld,
     #[resource] hud_mouse_pos: &HudMousePos,
     #[resource] shopping: &Option<ShoppingActive>,
+    #[resource] arena_run: &Option<ArenaRun>,
+    #[resource] shop_message: &Option<ShopMessage>,
 ) {
     let mut health_query = <&Health>::query().filter(component::<Player>());
     let player_health = health_query.iter(ecs).nth(0).unwrap();
 
     let mut draw_batch = DrawBatch::new();
     draw_batch.target(HUD_CONSOLE);
-    if shopping.is_some() {
+    if let Some(ShopMessage(text)) = shop_message {
+        draw_batch.print_color_centered(1, text, ColorPair::new(RED, BLACK));
+    } else if shopping.is_some() {
         draw_batch.print_centered(1, "Stand next to an item, press ENTER to buy it.");
     } else {
         draw_batch.print_centered(1, "Explore the Dungeon. Cursor keys to move.");
@@ -45,12 +53,29 @@ pub fn hud(
         .find_map(|(entity, player)| Some((*entity, player.map_level)))
         .unwrap();
 
-    draw_batch.print_color_right(
-        // (2)
-        Point::new(HUD_COLS, 1),
-        format!("Dungeon Level: {}", map_level + 1), // (3)
-        ColorPair::new(YELLOW, BLACK),
-    );
+    // Battle Arena shows Gold in this corner instead of Dungeon Level -
+    // map_level is a dungeon-crawl-only concept Arena code never touches
+    // (it stays stuck at whatever it was spawned with), so showing it
+    // during an Arena run would just be a stale, meaningless number.
+    if arena_run.is_some() {
+        let gold = <&Gold>::query()
+            .filter(component::<Player>())
+            .iter(ecs)
+            .nth(0)
+            .map_or(0, |g| g.0);
+        draw_batch.print_color_right(
+            Point::new(HUD_COLS, 1),
+            format!("Gold: {}", gold),
+            ColorPair::new(YELLOW, BLACK),
+        );
+    } else {
+        draw_batch.print_color_right(
+            // (2)
+            Point::new(HUD_COLS, 1),
+            format!("Dungeon Level: {}", map_level + 1), // (3)
+            ColorPair::new(YELLOW, BLACK),
+        );
+    }
 
     // Items carried, usable via number keys - left side. Draws from
     // usable_item_slots, the same fixed-identity list player_input's
@@ -76,6 +101,30 @@ pub fn hud(
             "Items carried",
             ColorPair::new(YELLOW, BLACK),
         );
+    }
+
+    // Shop stock + prices - left side, below "Items carried" - only while
+    // ShoppingActive. Every ShopStock entity currently on the map (a real
+    // Point + Name + ShopStock + Price - see spawner::spawn_shop_stock_at),
+    // not filtered by proximity, so the player can see the whole counter's
+    // prices at a glance rather than only whatever they're standing next
+    // to.
+    if shopping.is_some() {
+        let mut shop_row = row + 1;
+        let mut stock_query = <(&ShopStock, &Name, &Price)>::query();
+        let mut any_stock = false;
+        for (stock, name, price) in stock_query.iter(ecs) {
+            any_stock = true;
+            draw_batch.print_color(
+                Point::new(3, shop_row),
+                format!("{} x{} - {}g", name.0, stock.0, price.0),
+                ColorPair::new(GREEN, BLACK),
+            );
+            shop_row += 1;
+        }
+        if any_stock {
+            draw_batch.print_color(Point::new(3, row), "Shop", ColorPair::new(YELLOW, BLACK));
+        }
     }
 
     // Battle attacks, grouped by name with a count - right side, upper.

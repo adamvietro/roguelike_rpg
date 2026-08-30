@@ -14,6 +14,8 @@ use crate::prelude::*;
 #[read_component(Stealthed)]
 #[read_component(AmuletOfYala)]
 #[read_component(ShopStock)]
+#[read_component(Price)]
+#[read_component(Gold)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -22,6 +24,7 @@ pub fn player_input(
     #[resource] turn_state: &mut TurnState,
     #[resource] battle: &mut Option<Battle>,
     #[resource] shopping: &Option<ShoppingActive>,
+    #[resource] shop_message: &mut Option<ShopMessage>,
 ) {
     let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
@@ -39,6 +42,13 @@ pub fn player_input(
             *turn_state = TurnState::Paused;
             return;
         }
+
+        // Cleared on EVERY keypress, then re-set below only if this
+        // specific keypress is a buy attempt that fails - so a stale "Not
+        // enough gold!" from a previous attempt never lingers once the
+        // player's moved on to something else (including a successful
+        // buy, which never re-sets it at all).
+        *shop_message = None;
 
         // Movement keys go through Keymap now instead of a hardcoded
         // VirtualKeyCode match, so a rebind made in the Options screen
@@ -61,7 +71,9 @@ pub fn player_input(
                 VirtualKeyCode::Key8 => use_item(7, ecs, commands),
                 VirtualKeyCode::Key9 => use_item(8, ecs, commands),
                 VirtualKeyCode::Key0 => use_item(9, ecs, commands),
-                VirtualKeyCode::Return if shopping.is_some() => buy_nearby_item(ecs, commands),
+                VirtualKeyCode::Return if shopping.is_some() => {
+                    buy_nearby_item(ecs, commands, shop_message)
+                }
                 _ => Point::new(0, 0),
             },
         };
@@ -139,9 +151,10 @@ pub fn player_input(
 /// (orthogonally) adjacent to it - the manual counterpart to
 /// movement.rs's auto-pickup, enabled only while ShoppingActive
 /// suppresses that automatic version (see player_input's Return match
-/// arm above). Free for now, same as every item this project has ever
-/// handed out - a real currency check is a later pass (see the project's
-/// Battle Arena backlog notes).
+/// arm above). Checks the item's Price against the player's own Gold
+/// before granting anything - insufficient funds sets `shop_message`
+/// instead of completing the purchase, and neither the stock nor the
+/// player's gold changes at all in that case.
 ///
 /// Shop items are ShopStock counter markers, not real Items sitting on
 /// the floor (see spawner::spawn_shop_stock_at) - the counter row is a
@@ -152,7 +165,11 @@ pub fn player_input(
 /// one column over - a real bug in an earlier version of this function,
 /// back when items sat on walkable floor tiles a player could stand on
 /// or slip between.
-fn buy_nearby_item(ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
+fn buy_nearby_item(
+    ecs: &mut SubWorld,
+    commands: &mut CommandBuffer,
+    shop_message: &mut Option<ShopMessage>,
+) -> Point {
     let player = <(Entity, &Point)>::query()
         .iter(ecs)
         .find_map(|(entity, pos)| Some((*entity, *pos)));
@@ -169,37 +186,63 @@ fn buy_nearby_item(ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
         Point { x: 1, y: 0 },
     ];
 
-    let found = <(Entity, &ShopStock, &Point, &Name)>::query()
+    let found = <(Entity, &ShopStock, &Point, &Name, &Price)>::query()
         .iter(ecs)
-        .filter(|(_, _, &pos, _)| ADJACENT.iter().any(|&d| pos == player_pos + d))
-        .map(|(e, stock, _, name)| (*e, stock.0, name.0.clone()))
+        .filter(|(_, _, &pos, _, _)| ADJACENT.iter().any(|&d| pos == player_pos + d))
+        .map(|(e, stock, _, name, price)| (*e, stock.0, name.0.clone(), price.0))
         .next();
 
-    if let Some((stock_entity, remaining, name)) = found {
-        let granted_weapon = item_is_weapon(&name);
-        spawn_named_item_via_commands(&name, player_entity, commands);
+    let (stock_entity, remaining, name, price) = match found {
+        Some(f) => f,
+        None => return Point::zero(),
+    };
 
-        // Same one-equipped-weapon-at-a-time rule auto-pickup enforces -
-        // buying a new weapon discards whatever was previously carried.
-        // Checked against components already in the world, not the copy
-        // just queued above - CommandBuffer edits aren't visible until
-        // flush, same deferred-command reasoning movement.rs relies on.
-        if granted_weapon {
-            <(Entity, &Carried, &Weapon)>::query()
-                .iter(ecs)
-                .filter(|(_, c, _)| c.0 == player_entity)
-                .for_each(|(e, _, _)| {
-                    commands.remove(*e);
-                });
-        }
+    let current_gold = ecs
+        .entry_ref(player_entity)
+        .ok()
+        .and_then(|e| e.get_component::<Gold>().ok().copied());
 
-        if remaining <= 1 {
-            // Last one - the counter marker disappears entirely rather
-            // than sitting there advertising "0 remaining".
-            commands.remove(stock_entity);
-        } else {
-            commands.add_component(stock_entity, ShopStock(remaining - 1));
-        }
+    let affordable = match current_gold {
+        Some(Gold(amount)) => amount >= price,
+        // No Gold component at all shouldn't happen while ShoppingActive
+        // (only reachable in the Battle Arena, where every player has
+        // one from start_arena onward), but treat it as "can't afford
+        // it" rather than granting a free item if it ever did.
+        None => false,
+    };
+
+    if !affordable {
+        *shop_message = Some(ShopMessage("Not enough gold!".to_string()));
+        return Point::zero();
+    }
+
+    if let Some(Gold(amount)) = current_gold {
+        commands.add_component(player_entity, Gold(amount - price));
+    }
+
+    let granted_weapon = item_is_weapon(&name);
+    spawn_named_item_via_commands(&name, player_entity, commands);
+
+    // Same one-equipped-weapon-at-a-time rule auto-pickup enforces -
+    // buying a new weapon discards whatever was previously carried.
+    // Checked against components already in the world, not the copy
+    // just queued above - CommandBuffer edits aren't visible until
+    // flush, same deferred-command reasoning movement.rs relies on.
+    if granted_weapon {
+        <(Entity, &Carried, &Weapon)>::query()
+            .iter(ecs)
+            .filter(|(_, c, _)| c.0 == player_entity)
+            .for_each(|(e, _, _)| {
+                commands.remove(*e);
+            });
+    }
+
+    if remaining <= 1 {
+        // Last one - the counter marker disappears entirely rather
+        // than sitting there advertising "0 remaining".
+        commands.remove(stock_entity);
+    } else {
+        commands.add_component(stock_entity, ShopStock(remaining - 1));
     }
 
     Point::zero()

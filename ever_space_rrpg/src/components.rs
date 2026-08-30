@@ -298,6 +298,30 @@ pub struct ChasingPlayer;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorativeOnly;
 
+/// How much gold the player currently holds. Attached ONLY at Battle
+/// Arena start (see State::start_arena) - a Dungeon Crawl player never
+/// gets this component at all, which every gold-granting/spending
+/// codepath (systems/use_items.rs, systems/traps.rs, battle::finish_battle_victory,
+/// player_input.rs's buy_nearby_item) relies on directly: checking for
+/// this component's PRESENCE is what decides "does this kill/purchase
+/// even involve gold", not a separate Option<ArenaRun> check - simpler,
+/// and it can't drift out of sync with which mode actually granted it.
+/// Lives directly on the player entity, so it automatically survives
+/// every Arena world-rebuild that preserves the player (wave transitions,
+/// shop transitions - see State::arena_rebuild_keep_player) with no
+/// separate carry-over logic needed, the same way Health/Carried items
+/// already survive those rebuilds for free.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gold(pub i32);
+
+/// The gold cost to buy ONE unit of a shop counter item - a companion
+/// component on the same ShopStock counter-marker entity (see
+/// spawner::spawn_shop_stock_at), not on the eventual real item
+/// spawn_named_item_via_commands grants once bought. See
+/// arena::{HEALING_POTION_PRICE, ABILITY_PRICE, WEAPON_TIER_PRICES}.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Price(pub i32);
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WantsToMove {
     pub entity: Entity,

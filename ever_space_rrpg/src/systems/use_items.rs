@@ -12,6 +12,8 @@ use crate::prelude::*;
 #[read_component(Name)]
 #[read_component(Class)]
 #[read_component(Player)]
+#[read_component(Boss)]
+#[read_component(Gold)]
 #[write_component(Health)]
 pub fn use_items(
     ecs: &mut SubWorld,
@@ -231,10 +233,34 @@ pub fn use_items(
     // battle::apply_damage's logic (which can't be called directly here -
     // it takes &mut World, not the restricted &mut SubWorld a #[system]
     // gets).
+    //
+    // Gold: read the player's CURRENT total once, up front, rather than
+    // re-reading it after each kill - a ranged strike only ever fires
+    // once per turn, so this loop can kill at most one enemy, but reading
+    // once here (instead of once per kill) keeps this the same safe shape
+    // as traps.rs's version, which genuinely can process several kills in
+    // one pass. Accumulating into a local and applying ONE combined
+    // add_component at the end (rather than one per kill) avoids a
+    // last-write-wins bug: two commands.add_component(player, Gold(..))
+    // calls queued in the same tick would otherwise both compute their
+    // new total from the SAME pre-kill amount (CommandBuffer edits aren't
+    // visible until flush), so the second would silently clobber the
+// first instead of adding to it. A `None` here (no Gold component at 
+    // all) means a Dungeon Crawl player - see Gold's own doc comment for
+    // why that presence, not a separate mode check, is the source of
+    // truth for whether a kill is gold-worthy at all.
+    let player_gold = <(Entity, &Gold)>::query()
+        .filter(component::<Player>())
+        .iter(ecs)
+        .next()
+        .map(|(e, g)| (*e, g.0));
+    let mut gold_earned = 0;
+
     for (target, amount) in ranged_strikes_to_apply.iter() {
         if let Ok(mut entry) = ecs.entry_mut(*target) {
             let defense = entry.get_component::<Defense>().map_or(0, |d| d.0);
             let actual = (*amount - defense).max(0);
+            let is_boss = entry.get_component::<Boss>().is_ok();
             let died = if let Ok(health) = entry.get_component_mut::<Health>() {
                 health.current -= actual;
                 health.current < 1
@@ -254,7 +280,16 @@ pub fn use_items(
                 {
                     stats.record_enemy_killed(&class.0);
                 }
+                if player_gold.is_some() {
+                    gold_earned += gold_reward_for_kill(is_boss);
+                }
             }
+        }
+    }
+
+    if let Some((player_entity, starting_gold)) = player_gold {
+        if gold_earned > 0 {
+            commands.add_component(player_entity, Gold(starting_gold + gold_earned));
         }
     }
 }

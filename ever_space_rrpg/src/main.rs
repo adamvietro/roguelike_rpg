@@ -239,6 +239,18 @@ impl State {
         // RESOURCE SLOT ITSELF has to exist, or the fetch panics
         // outright, even though the type being fetched is an Option.
         resources.insert(None::<ArenaRun>);
+        // player_input_system and hud_system (both part of
+        // build_input_scheduler, run during TurnState::AwaitingInput) now
+        // read Option<ShopMessage> - unlike Option<Battle>/ArenaRun/
+        // ShoppingActive above, that scheduler never runs during the
+        // title-background schedules, so this isn't strictly needed here
+        // for THAT reason, but every full Resources::default() reset point
+        // gets it anyway for the same defensive consistency (start_game/
+        // start_arena/return_to_title all do too) - cheap insurance
+        // against the exact "forgot one reset point" class of startup
+        // panic this project has already hit once for a different
+        // resource.
+        resources.insert(None::<ShopMessage>);
         // Loaded once here and re-inserted after every Resources::default()
         // reset point below (start_game/return_to_title also wipe every
         // resource) - Keymap::load reads from disk each time, so a rebind
@@ -302,6 +314,7 @@ impl State {
         // "unknown". start_arena is the only place this is ever Some.
         self.resources.insert(None::<ArenaRun>);
         self.resources.insert(None::<ShoppingActive>);
+        self.resources.insert(None::<ShopMessage>);
 
         // Counts as "this class was chosen" the instant a run actually
         // begins, regardless of how it later ends (won, lost, or
@@ -370,6 +383,11 @@ impl State {
         full_fov.is_dirty = false;
         let mut commands = legion::systems::CommandBuffer::new(&self.ecs);
         commands.add_component(player, full_fov);
+        // Only a Battle Arena player ever gets a Gold component at all -
+        // see Gold's own doc comment for why every gold codepath treats
+        // that presence, not a separate mode check, as the source of
+        // truth.
+        commands.add_component(player, Gold(ARENA_STARTING_GOLD));
         commands.flush(&mut self.ecs);
 
         // Shopkeeper - purely decorative for now (no dialogue/trade
@@ -409,6 +427,7 @@ impl State {
         self.resources.insert(Keymap::load());
         self.resources.insert(Some(arena_run));
         self.resources.insert(Some(ShoppingActive));
+        self.resources.insert(None::<ShopMessage>);
 
         let mut stats = Stats::load();
         stats.record_game_started(class, AdventureMode::BattleArena);
@@ -419,12 +438,13 @@ impl State {
     /// arena::roll_arena_shop_items, which runs BEFORE the room is even
     /// built, so MapBuilder::new_arena_shop can size the counter to fit)
     /// onto `item_points` - one ShopStock counter marker per entry, in
-    /// order. Split out of start_arena so the next slice (a shop reached
-    /// after a boss kill, not just the starting one) can call this same
-    /// logic against a freshly-built shop map without duplicating it.
-    fn spawn_arena_shop_items(&mut self, items: &[(String, i32)], item_points: &[Point]) {
-        for ((name, quantity), &pt) in items.iter().zip(item_points.iter()) {
-            spawn_shop_stock_at(&mut self.ecs, name, pt, *quantity);
+    /// order, each carrying its own Price. Split out of start_arena so the
+    /// next slice (a shop reached after a boss kill, not just the starting
+    /// one) can call this same logic against a freshly-built shop map
+    /// without duplicating it.
+    fn spawn_arena_shop_items(&mut self, items: &[(String, i32, i32)], item_points: &[Point]) {
+        for ((name, quantity, price), &pt) in items.iter().zip(item_points.iter()) {
+            spawn_shop_stock_at(&mut self.ecs, name, pt, *quantity, *price);
         }
     }
 
@@ -443,6 +463,24 @@ impl State {
             .clone()
             .expect("ArenaTransition reached without an active ArenaRun");
         self.arena_begin_wave(run.level, 1);
+    }
+
+    /// Reached when systems/end_turn.rs detects the last Enemy died via a
+    /// non-battle mechanism (a Throw Spear/Shoot ranged strike, or a
+    /// placed Trap) while an Arena wave or boss encounter was active -
+    /// see TurnState::ArenaWaveCleared's own doc comment for the full
+    /// reasoning. Just reuses handle_arena_kill, the exact same
+    /// orchestration the normal battle-victory dismissal path already
+    /// runs - this is only a different way of REACHING that call, not a
+    /// second copy of its logic.
+    fn arena_wave_cleared_tick(&mut self) {
+        let run = self
+            .resources
+            .get::<Option<ArenaRun>>()
+            .unwrap()
+            .clone()
+            .expect("ArenaWaveCleared reached without an active ArenaRun");
+        self.handle_arena_kill(run);
     }
 
     /// Removes every entity except the player and whatever they're
@@ -525,6 +563,7 @@ impl State {
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(None::<ShoppingActive>);
+        self.resources.insert(None::<ShopMessage>);
         self.resources.insert(Some(ArenaRun {
             level,
             wave,
@@ -637,14 +676,18 @@ impl State {
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(Some(ArenaRun::new(next_level)));
         self.resources.insert(Some(ShoppingActive));
+        self.resources.insert(None::<ShopMessage>);
     }
 
     /// The single decision point for what happens after an Arena kill -
     /// called from battle.rs's battle_victory_tick when ArenaRun is
     /// active, once the player dismisses the "You defeated X!" screen.
-    /// Counts surviving Enemy entities directly (rather than a separate
-    /// hand-maintained counter) so this can never drift out of sync with
-    /// what's actually still alive on the map.
+    /// ALSO called from arena_wave_cleared_tick below, for a kill that
+    /// happened outside of battle entirely - both are just different
+    /// TRIGGERS for this same orchestration. Counts surviving Enemy
+    /// entities directly (rather than a separate hand-maintained counter)
+    /// so this can never drift out of sync with what's actually still
+    /// alive on the map.
     fn handle_arena_kill(&mut self, run: ArenaRun) {
         let enemies_left = <&Enemy>::query().iter(&self.ecs).count();
         if enemies_left > 0 {
@@ -721,6 +764,7 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<ShoppingActive>);
         self.resources.insert(None::<ArenaRun>);
+        self.resources.insert(None::<ShopMessage>);
         self.resources.insert(Keymap::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
 
@@ -905,6 +949,9 @@ impl GameState for State {
             }
             TurnState::ArenaTransition => {
                 self.arena_transition_tick(ctx);
+            }
+            TurnState::ArenaWaveCleared => {
+                self.arena_wave_cleared_tick();
             }
             TurnState::GameOver => {
                 self.game_over(ctx);

@@ -227,10 +227,10 @@ pub fn grant_starting_items(ecs: &mut World, player: Entity, class: &str) {
 }
 
 /// Places a shop-counter stock marker at `pt` for `quantity` units of
-/// `name` - see Templates::spawn_shop_stock_at.
-pub fn spawn_shop_stock_at(ecs: &mut World, name: &str, pt: Point, quantity: i32) {
+/// `name`, priced at `price` gold per unit - see Templates::spawn_shop_stock_at.
+pub fn spawn_shop_stock_at(ecs: &mut World, name: &str, pt: Point, quantity: i32, price: i32) {
     let template = Templates::load();
-    template.spawn_shop_stock_at(ecs, name, pt, quantity);
+    template.spawn_shop_stock_at(ecs, name, pt, quantity, price);
 }
 
 /// Grants `player` a real copy of `name` via a CommandBuffer - see

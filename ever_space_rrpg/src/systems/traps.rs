@@ -24,6 +24,8 @@ use crate::prelude::*;
 #[read_component(Defense)]
 #[read_component(Player)]
 #[read_component(Class)]
+#[read_component(Boss)]
+#[read_component(Gold)]
 #[write_component(Health)]
 pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] stats: &mut Stats) {
     let trap_positions: Vec<(Entity, Point, i32)> = <(Entity, &Point, &Trap)>::query()
@@ -44,6 +46,21 @@ pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] stats
         .map(|(e, pos)| (*e, *pos))
         .collect();
 
+    // Read the player's current gold total ONCE, up front - see
+    // use_items.rs's identical pattern for why kills accumulate into a
+    // local instead of each queuing its own add_component: multiple
+    // enemies can die to different traps in this same pass (unlike a
+    // ranged strike, which only ever fires once per turn), so a
+    // per-kill add_component here would genuinely hit the last-write-wins
+    // bug that pattern avoids. None means a Dungeon Crawl player - see
+    // Gold's own doc comment.
+    let player_gold = <(Entity, &Gold)>::query()
+        .filter(component::<Player>())
+        .iter(ecs)
+        .next()
+        .map(|(e, g)| (*e, g.0));
+    let mut gold_earned = 0;
+
     for (enemy, epos) in &enemy_positions {
         if let Some((trap_entity, _, damage)) =
             trap_positions.iter().find(|(_, tpos, _)| *tpos == *epos)
@@ -51,6 +68,7 @@ pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] stats
             if let Ok(mut entry) = ecs.entry_mut(*enemy) {
                 let defense = entry.get_component::<Defense>().map_or(0, |d| d.0);
                 let actual = (*damage - defense).max(0);
+                let is_boss = entry.get_component::<Boss>().is_ok();
                 let died = if let Ok(health) = entry.get_component_mut::<Health>() {
                     health.current -= actual;
                     health.current < 1
@@ -71,12 +89,21 @@ pub fn traps(ecs: &mut SubWorld, commands: &mut CommandBuffer, #[resource] stats
                     {
                         stats.record_enemy_killed(&class.0);
                     }
+                    if player_gold.is_some() {
+                        gold_earned += gold_reward_for_kill(is_boss);
+                    }
                 }
             }
             // Single-use, whether or not the enemy actually had Health to
             // damage (shouldn't happen in practice, but a trap that failed
             // to find a target shouldn't linger and double-trigger later).
             commands.remove(*trap_entity);
+        }
+    }
+
+    if let Some((player_entity, starting_gold)) = player_gold {
+        if gold_earned > 0 {
+            commands.add_component(player_entity, Gold(starting_gold + gold_earned));
         }
     }
 

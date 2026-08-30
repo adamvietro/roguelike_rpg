@@ -377,14 +377,21 @@ impl Templates {
     }
 
     /// Places a lightweight shop-counter marker at `pt`: just enough to
-    /// display and track it (Point + Render + Name + ShopStock), NOT a
-    /// real usable Item - it has no Effect/Technique/Weapon/Carried
+    /// display and track it (Point + Render + Name + ShopStock + Price),
+    /// NOT a real usable Item - it has no Effect/Technique/Weapon/Carried
     /// components at all, so it can't be picked up, used, or equipped
     /// directly. Buying it (see player_input.rs's buy_nearby_item) grants
     /// a real copy via spawn_named_item_via_commands and decrements this
     /// marker's ShopStock, removing the marker entirely once it reaches
     /// 0 - "the shop ran out."
-    pub fn spawn_shop_stock_at(&self, ecs: &mut World, name: &str, pt: Point, quantity: i32) {
+    pub fn spawn_shop_stock_at(
+        &self,
+        ecs: &mut World,
+        name: &str,
+        pt: Point,
+        quantity: i32,
+        price: i32,
+    ) {
         let template = match self.entities.iter().find(|t| t.name == name) {
             Some(t) => t,
             None => {
@@ -400,6 +407,7 @@ impl Templates {
             },
             Name(template.name.clone()),
             ShopStock(quantity),
+            Price(price),
         ));
     }
 

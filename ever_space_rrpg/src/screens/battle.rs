@@ -141,22 +141,56 @@ impl State {
     /// one shared landing point instead of four copies that would
     /// otherwise all need the same one more line added to them.
     fn finish_battle_victory(&mut self, battle: &Battle) {
-        let mut rng = RandomNumberGenerator::new();
-        let loot = grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy);
-
         if let Some(class) = entity_class(&self.ecs, battle.player) {
             if let Some(mut stats) = self.resources.get_mut::<Stats>() {
                 stats.record_enemy_killed(&class);
             }
         }
 
+        // Read the enemy's Boss tag and the player's current Gold total
+        // BEFORE the enemy is removed below - Gold's own presence (not a
+        // separate Option<ArenaRun> check) is what decides whether this
+        // is a Battle Arena kill at all, per that component's own doc
+        // comment.
+        let is_boss = self
+            .ecs
+            .entry_ref(battle.enemy)
+            .map(|e| e.get_component::<Boss>().is_ok())
+            .unwrap_or(false);
+        let current_gold = self
+            .ecs
+            .entry_ref(battle.player)
+            .ok()
+            .and_then(|e| e.get_component::<Gold>().ok().copied());
+
+        // In the Battle Arena, a kill's reward is gold ONLY - the old
+        // random ability-drop loot is deliberately not granted alongside
+        // it (this was the actual gap: gold got added on top of the
+        // existing drop instead of replacing it, so Arena battles kept
+        // handing out ability items neither priced nor meant to still be
+        // free). A Dungeon Crawl kill (no Gold component at all) keeps
+        // the original loot roll exactly as before - gold doesn't exist
+        // there, so there's nothing to replace it with.
+        let mut rng = RandomNumberGenerator::new();
+        let loot = if current_gold.is_some() {
+            None
+        } else {
+            grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy)
+        };
+
         let mut cb = CommandBuffer::new(&mut self.ecs);
+        let gold_earned = current_gold.map(|Gold(amount)| {
+            let reward = gold_reward_for_kill(is_boss);
+            cb.add_component(battle.player, Gold(amount + reward));
+            reward
+        });
         cb.remove(battle.enemy);
         cb.flush(&mut self.ecs);
         self.resources.insert(Some(BattleVictory {
             player: battle.player,
             enemy_name: battle.enemy_name.clone(),
             loot,
+            gold_earned,
         }));
         self.resources.insert(None::<Battle>);
         self.resources.insert(TurnState::BattleVictory);
@@ -732,11 +766,14 @@ impl State {
             BLACK,
             &format!("You defeated the {}!", victory.enemy_name),
         );
-        match &victory.loot {
-            Some(item) => {
+        match (&victory.loot, victory.gold_earned) {
+            (Some(item), _) => {
                 ctx.print_color_centered(48, YELLOW, BLACK, &format!("You found: {}!", item));
             }
-            None => {
+            (None, Some(gold)) => {
+                ctx.print_color_centered(48, YELLOW, BLACK, &format!("You found: {} gold!", gold));
+            }
+            (None, None) => {
                 ctx.print_color_centered(48, WHITE, BLACK, "No loot this time.");
             }
         }
