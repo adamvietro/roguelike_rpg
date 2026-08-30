@@ -14,6 +14,7 @@ pub fn movement(
     #[resource] map: &mut Map,
     #[resource] camera: &mut Camera,
     #[resource] shopping: &Option<ShoppingActive>,
+    #[resource] arena_run: &Option<ArenaRun>,
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -40,25 +41,38 @@ pub fn movement(
 
         if let Ok(entry) = ecs.entry_ref(want_move.entity) {
             if let Ok(fov) = entry.get_component::<FieldOfView>() {
+                let is_player = entry.get_component::<Player>().is_ok();
+
                 // Normally every move marks FieldOfView dirty so
                 // fov_system recomputes real shadowcasting from the new
-                // position next frame. Skipped entirely while
-                // ShoppingActive - State::start_arena deliberately
-                // freezes the shop's FieldOfView as "everything visible,
-                // forever" (is_dirty = false, visible_tiles = the whole
-                // map), specifically so the shopkeeper stays visible
-                // behind the counter (a Counter tile, opaque like a
-                // Wall, which real shadowcasting would otherwise never
-                // see past). Without this guard, the player's very
-                // first step re-dirtied that frozen FOV, fov_system
-                // recomputed a normal radius-limited view on the very
-                // next frame, and the shopkeeper (and anything past the
-                // counter) vanished the instant you moved.
-                if shopping.is_none() {
+                // position next frame. Skipped for the PLAYER specifically
+                // while ShoppingActive OR ArenaRun is active - both the
+                // shop and every arena wave map deliberately freeze the
+                // player's FieldOfView as "everything visible, forever"
+                // (is_dirty = false, visible_tiles = a fixed reveal
+                // rectangle - see State::start_arena/arena_begin_wave/
+                // arena_advance_to_next_shop), so the shopkeeper stays
+                // visible behind the counter and the whole arena stays
+                // visible during a wave, exactly as designed. Without
+                // this guard, the player's very first step re-dirtied
+                // that frozen FOV, fov_system recomputed a normal
+                // radius-limited view on the very next frame, and
+                // anything past a Counter tile (or across the arena)
+                // vanished the instant you moved.
+                //
+                // Deliberately scoped to the PLAYER only, not every
+                // moving entity - enemies in a wave still need their own
+                // FieldOfView to recompute normally on every move, or
+                // their (much larger, see spawn_entity/arena_begin_wave)
+                // detection radius would stay frozen at whatever it saw
+                // from their spawn point instead of tracking the player
+                // as both of them move around the arena.
+                let freeze_los = is_player && (shopping.is_some() || arena_run.is_some());
+                if !freeze_los {
                     commands.add_component(want_move.entity, fov.clone_dirty());
                 }
 
-                if entry.get_component::<Player>().is_ok()
+                if is_player
                 // (1)
                 {
                     camera.on_player_move(want_move.destination);

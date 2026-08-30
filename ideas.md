@@ -131,6 +131,7 @@ Then repeat for level 3 enemies, when you kill the final boss of the level 3 you
 
 ### Shop
 Smaller map outside or a forest theme.
+Replace enemy drops with gold to buy items from the Shop
 
 ## Multi Battle
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.

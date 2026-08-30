@@ -203,6 +203,110 @@ impl MapBuilder {
         )
     }
 
+    /// Builds the Battle Arena's combat map for one wave: a single open
+    /// circular clearing (no interior walls to block sight or movement -
+    /// the player is meant to see and reach every enemy) with the player
+    /// starting at the center and `enemy_count` spawn points scattered
+    /// around a thin ring near the circle's edge, so enemies visibly
+    /// appear at the edge of the clearing rather than already being on
+    /// top of the player. Also returns a boss spawn point (the reachable
+    /// tile farthest from the player's start, the same
+    /// "find_most_distant" convention every dungeon floor already uses
+    /// for its own boss/exit point) - this is only actually used once
+    /// wave 3 clears (see State::arena_spawn_boss_on_current_map), since
+    /// the boss appears on this same map rather than a freshly built one.
+    ///
+    /// Returns the MapBuilder, up to `enemy_count` spawn points (fewer
+    /// if the edge ring somehow has less room than that - it doesn't, at
+    /// this circle's size, for any of the 5/5/3 wave counts), the boss
+    /// spawn point, and a reveal rectangle (x, y, width, height) - see
+    /// new_arena_shop's doc comment for why a reveal rectangle rather
+    /// than the whole 80x50 map is what actually keeps this map's
+    /// footprint small on screen.
+    pub fn new_arena_wave(
+        rng: &mut RandomNumberGenerator,
+        enemy_count: usize,
+    ) -> (Self, Vec<Point>, Point, i32, i32, i32, i32) {
+        const RADIUS: i32 = 10;
+        const REVEAL_W: i32 = 34;
+        const REVEAL_H: i32 = 26;
+
+        let center = Point::new(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+        let reveal_x0 = (SCREEN_WIDTH - REVEAL_W) / 2;
+        let reveal_y0 = (SCREEN_HEIGHT - REVEAL_H) / 2;
+
+        let mut mb = Self {
+            map: Map::new(),
+            rooms: Vec::new(),
+            monster_spawns: Vec::new(),
+            player_start: Point::zero(),
+            amulet_start: Point::zero(),
+            theme: ForestTheme::new(),
+            prefab_enemy_spawns: Vec::new(),
+            prefab_weapon_spawn: None,
+        };
+        mb.fill(TileType::Wall);
+        // A circular clearing, not a rectangular room - there's no
+        // separate wall ring to draw here: the surrounding Wall/forest
+        // fill (already everywhere from the fill above) forms the
+        // boundary on its own, wherever a tile falls outside RADIUS of
+        // center.
+        for y in (center.y - RADIUS - 1)..=(center.y + RADIUS + 1) {
+            for x in (center.x - RADIUS - 1)..=(center.x + RADIUS + 1) {
+                let dx = (x - center.x) as f32;
+                let dy = (y - center.y) as f32;
+                if (dx * dx + dy * dy).sqrt() <= RADIUS as f32 {
+                    mb.map.tiles[map_idx(x, y)] = TileType::Floor;
+                }
+            }
+        }
+
+        mb.player_start = center;
+
+        // A thin ring of floor tiles near the circle's own edge - the
+        // "perimeter" enemies spawn on, so they visibly appear at the
+        // edge of the clearing rather than already being on top of the
+        // player. Same distance check as the fill above, just looking
+        // for tiles close to RADIUS rather than anywhere inside it.
+        let mut perimeter: Vec<Point> = Vec::new();
+        for y in (center.y - RADIUS)..=(center.y + RADIUS) {
+            for x in (center.x - RADIUS)..=(center.x + RADIUS) {
+                let dx = (x - center.x) as f32;
+                let dy = (y - center.y) as f32;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist <= RADIUS as f32 && dist >= RADIUS as f32 - 1.5 {
+                    perimeter.push(Point::new(x, y));
+                }
+            }
+        }
+
+        // Distinct random points, same pick-and-remove pattern
+        // spawn_monsters (below) already uses - capped at however many
+        // perimeter tiles actually exist, though at this circle's size
+        // (~60 edge tiles) that cap never actually bites for any of the
+        // 5/5/3 wave counts.
+        let mut candidates = perimeter;
+        let spawn_count = enemy_count.min(candidates.len());
+        let mut enemy_spawns = Vec::with_capacity(spawn_count);
+        for _ in 0..spawn_count {
+            let idx = rng.random_slice_index(&candidates).unwrap();
+            enemy_spawns.push(candidates[idx]);
+            candidates.remove(idx);
+        }
+
+        let boss_spawn = mb.find_most_distant();
+
+        (
+            mb,
+            enemy_spawns,
+            boss_spawn,
+            reveal_x0,
+            reveal_y0,
+            REVEAL_W,
+            REVEAL_H,
+        )
+    }
+
     fn find_most_distant(&self) -> Point {
         let dijkstra_map = DijkstraMap::new(
             SCREEN_WIDTH,

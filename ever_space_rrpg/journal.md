@@ -2427,3 +2427,83 @@ First, let's fully revert the camera change:Now rebuild the shop layout: fixed 1
 3. **Shop interior is now a fixed 10×6**, not scaled by item count: row 0 shopkeeper, row 1 counter, rows 2–5 four rows of open walkable floor. Items center themselves within the 10-wide counter regardless of how many there are.
 
 Take a look — this should give you a compact, self-contained ~40×20 map with the small 10×6 shop room centered in it, and nothing but blank space beyond that boundary.
+
+# Battle Arena
+Let's check the Victory screen so I can branch its text for an Arena win, and then wire up the whole thing.Right, the quotes weren't escaped in the original. Let's redo with exact text:Now let's extend `ArenaRun` with wave/boss tracking:Now let's add `MapBuilder::new_arena_wave` to the map builder:Now let's add `new_arena_wave` right after `new_arena_shop`:Now the main orchestration logic in `main.rs`:Now let's replace the placeholder and add the real orchestration functions:Now update `start_arena` to use the new constructor, and hook `battle_victory_tick`'s dismiss handler:Now let's update `battle_victory_tick`'s dismiss handler:Now let's verify this compiles.Clean compile. Let's also do a real logic sanity-check (not just type-check) on the wave map generation, per the project's own testing habits — verifying it doesn't panic and produces sane, non-overlapping spawn points.Confirmed: distinct points, correct counts, no duplicates for all three wave sizes. Let's do a final full check and confirm the real `Cargo.lock` is untouched.All clean. Let's package the changed files for delivery.**Verified: compiles clean, zero warnings.** I also independently sanity-tested the wave spawn-point logic (not just a type-check) — confirmed no duplicate points and correct counts across all three wave sizes (5, 5, 3).
+
+**Apply as full-file replacements:**
+
+| File                 | Destination              |
+| -------------------- | ------------------------ |
+| `arena.rs`           | `src/arena.rs`           |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs` |
+| `main.rs`            | `src/main.rs`            |
+| `battle.rs`          | `src/screens/battle.rs`  |
+| `end.rs`             | `src/screens/end.rs`     |
+
+(Everything else from earlier tonight is unchanged.)
+
+**This is the full loop, end to end:**
+
+- **`ArenaRun`** now tracks `wave` (1–3) and `boss_active`, plus `boss_spawn` (the point the boss will appear at, computed once when wave 3's map is built).
+- **New wave arena map** (`new_arena_wave`): an open 20×14 room, no interior walls, enemies spawn at distinct random points around the *perimeter* (verified no duplicates), boss spawns at the point farthest from the player — same "find_most_distant" convention your dungeon floors already use for their own exit/boss. Full LOS bypass, same reveal-rectangle trick as the shop, so you see the whole arena and every enemy in it from the start.
+- **The actual state machine** lives in one place, `handle_arena_kill`, triggered every time you dismiss a "You defeated X!" screen while `ArenaRun` is active. It counts real surviving `Enemy` entities (not a hand-kept counter, so it can't drift out of sync) and decides: more enemies left → keep fighting; wave cleared and more waves left → next wave; wave 3 cleared → boss appears on the same map; boss defeated and more levels left → next level's shop; boss defeated on level 3 → **Victory**.
+- **Shop → wave handoff**: stepping on any shop's stairs (starting shop or a post-boss shop) now genuinely starts wave 1, instead of the placeholder screen.
+- **Victory screen** branches its text for an Arena win (no Amulet of Yala prop or text — that doesn't apply here) vs. a normal dungeon-crawl win.
+- **Inventory carries through the whole run** — going between waves and shops keeps the same player entity and everything they're carrying (weapon, potions, abilities bought), same entity-preservation trick your `advance_level` already uses for normal floor transitions.
+
+One thing I'd flag honestly: `arena_advance_to_next_shop` duplicates a fair chunk of `start_arena`'s shop-building code (map reveal, full-FOV freeze, shopkeeper spawn, item stocking). I left it duplicated rather than refactoring mid-feature, but a shared "build an arena shop world" helper would be a reasonable cleanup pass later.
+
+This should be playable start to finish now — starting shop → 3 levels of waves+boss each → shop between levels → win. Go ahead and put it through its paces; there's a lot of new state-machine logic here that I've verified compiles and the spawn-point math checks out, but the actual in-game feel (pacing, difficulty, whether waves/boss transitions feel right) is exactly the kind of thing that needs real playtesting to catch.
+
+## Larger Enemy LOS and Circular  Arena
+Good catches, all straightforward. Let's do them one at a time.Now let's rewrite this as a circular clearing instead of a rectangular room:Also update the doc comment above (still describes a rectangular room):Now let's fix the FOV-reset-on-move bug for the Arena (broader than just shopping):Good catch — I need to be careful here: the fix should only freeze the *player's* FOV during Arena mode, not the enemies' (they still need real, moving shadowcasting so their boosted detection radius actually works as they chase).Now let's boost enemy detection radius in the arena. First, a constant in `arena.rs`:Now apply it in `main.rs` after spawning enemies/boss:Confirmed correct spots. Let's add the FOV-boost step after both spawn calls:Now let's compile-check all of this:Clean. Let's also sanity-check the circular clearing math directly, not just trust it compiles.Confirmed a real circular shape (0.72 ratio, close to the expected π/4 ≈ 0.785 for a discretized circle), and a healthy 92-tile edge ring for spawn placement — plenty for even a 5-enemy wave.**Verified: compiles clean, zero warnings.** I also independently checked the circle math outside the game (real numbers, not just a type-check): the floor area comes out to a 0.72 fill ratio against its bounding square (true circles land around 0.785 at this resolution, so this is genuinely circular, not a square with corners lopped off), and the edge ring has 92 tiles — comfortably more than the 5 needed for a wave.
+
+**Apply as full-file replacements:**
+
+| File                 | Destination               |
+| -------------------- | ------------------------- |
+| `arena.rs`           | `src/arena.rs`            |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs`  |
+| `main.rs`            | `src/main.rs`             |
+| `movement.rs`        | `src/systems/movement.rs` |
+
+(Everything else unchanged.)
+
+**All three fixed:**
+
+1. **Circular arena.** The wave map is now a true circular clearing (radius 10) carved directly into the forest fill — no separate wall ring needed, the surrounding fill *is* the boundary. Enemies spawn on a thin ring near the circle's edge instead of a rectangle's border.
+
+2. **LOS reset on move, fixed properly this time.** The earlier shop fix only checked `ShoppingActive`, but `ArenaRun` stays active through wave combat too, so the same bug was silently still there for the arena itself. Fixed the actual scope issue: the "don't reset FOV" rule now applies whenever `ArenaRun` *or* `ShoppingActive` is active, but — importantly — **only for the player**. Enemies still get real per-move FOV recomputation, which matters for the next fix.
+
+3. **Enemy detection radius**, boosted from the dungeon-tuned default (6) to 30 for every Arena enemy and boss — comfortably covers the whole ~20-tile clearing from any point in it, so enemies notice and start chasing the instant they spawn instead of standing idle at the edge until you wander close. This only affects Arena spawns; normal dungeon-crawl enemies are untouched.
+
+Take a look and let me know how the pacing feels — that's the part I genuinely can't verify without you actually playing it.
+
+### Crash Fix
+```rust
+cargo run --release
+warning: struct `EmptyArchitect` is never constructed
+ --> src/map_builder/empty.rs:4:12
+  |
+4 | pub struct EmptyArchitect {}
+  |            ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ever_space_rrpg` (bin "ever_space_rrpg") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.11s
+     Running `target/release/ever_space_rrpg`
+
+thread '<unnamed>' (76395) panicked at /home/vinny/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/legion-0.3.1/src/internals/systems/resources.rs:133:33:
+called `Option::unwrap()` on a `None` value
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace`
+```
+
+Good catch — this confirms a real gap. Let's find it.Confirmed — two spots are missing `None::<ArenaRun>`: `State::new()` and `return_to_title()`, both of which run the title-screen background scheduler (which now requires that resource via `movement_system`) before any real game start ever inserts it. Let's fix both.Let's audit every resource actually touched by the title-background schedulers, to make sure there isn't a second landmine like this one.Audited every resource all five title-background systems touch (`Map`, `Camera`, `Box<dyn MapTheme>`, `TurnState`, `Option<Battle>`, `Option<ShoppingActive>`, `Option<ArenaRun>`, `FrameTime`) against both places that trigger that scheduler (`State::new()` and `return_to_title()`) — everything is now accounted for. Final check and delivery:**Verified: compiles clean.** Apply `main.rs` → `src/main.rs` (full replacement).
+
+**Root cause, found and fixed:** when I scoped the LOS-freeze fix to check `Option<ArenaRun>` (last round), I added that as a new resource dependency on `movement_system` — but `movement_system` also runs in the decorative title-screen background scheduler, which fires the instant the game launches, *before* any real game has started. `State::new()` and `return_to_title()` are the only two places that trigger that background scheduler, and I'd only patched `ShoppingActive` into both of them earlier — `ArenaRun` never got the same treatment when I added it later. legion's resource fetch has no "missing means default" behavior — the resource slot itself has to exist or the fetch panics outright, which is exactly the crash you hit.
+
+Fixed both gaps (`State::new()` and `return_to_title()` now both insert `None::<ArenaRun>`), and I went further this time — audited every resource all five title-background systems actually touch, cross-checked against both insertion points, rather than just patching the one reported symptom. Should be solid now; let me know if `cargo run --release` gets past the title screen cleanly.
+
+The `EmptyArchitect` dead-code warning in your build output is unrelated and harmless — that's a pre-existing struct in your codebase that isn't currently constructed anywhere, not something from tonight's changes. Not worth touching unless you want it cleaned up separately.

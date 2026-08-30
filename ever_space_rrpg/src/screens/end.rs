@@ -202,13 +202,23 @@ impl State {
 
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
     pub fn victory(&mut self, ctx: &mut BTerm) {
-        // Warm gold version of the actual dungeon the run was won in,
-        // plus the hero's own glyph and the Amulet of Yala, both glowing
-        // gold, side by side - see draw_end_screen_background/
-        // draw_end_screen_portrait/draw_end_screen_amulet.
+        let is_arena = self
+            .resources
+            .get::<Option<ArenaRun>>()
+            .map(|r| r.is_some())
+            .unwrap_or(false);
+
+        // Warm gold version of the actual dungeon/arena the run was won
+        // in, plus the hero's own glyph, glowing gold - see
+        // draw_end_screen_background/draw_end_screen_portrait. The
+        // Amulet of Yala icon only makes sense for a dungeon-crawl win -
+        // an Arena win has no amulet at all, so it's skipped entirely
+        // rather than drawing a prop that doesn't apply.
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
         self.draw_end_screen_portrait(1, YELLOW.into());
-        self.draw_end_screen_amulet(3, YELLOW.into());
+        if !is_arena {
+            self.draw_end_screen_amulet(3, YELLOW.into());
+        }
 
         // Same layout approach as game_over: header on the big-text
         // console (BIG_TEXT_CONSOLE, 32px cells), body on HUD_CONSOLE (the HUD
@@ -221,19 +231,35 @@ impl State {
         ctx.print_color_centered(2, GREEN, BLACK, "You have won!");
 
         ctx.set_active_console(HUD_CONSOLE);
-        ctx.print_color_centered(
-            10,
-            WHITE,
-            BLACK,
-            "You put on the Amulet of Yala and feel its power course through your veins.",
-        );
-        ctx.print_color_centered(
-            13,
-            WHITE,
-            BLACK,
-            "Your town is saved, and you can return to your normal life.",
-        );
-        // Below this point: the hero + Amulet icons, centered on-screen.
+        if is_arena {
+            ctx.print_color_centered(
+                10,
+                WHITE,
+                BLACK,
+                "You cleared all three levels of the Battle Arena!",
+            );
+            ctx.print_color_centered(
+                13,
+                WHITE,
+                BLACK,
+                "Every wave, every boss - the arena is yours.",
+            );
+        } else {
+            ctx.print_color_centered(
+                10,
+                WHITE,
+                BLACK,
+                "You put on the Amulet of Yala and feel its power course through your veins.",
+            );
+            ctx.print_color_centered(
+                13,
+                WHITE,
+                BLACK,
+                "Your town is saved, and you can return to your normal life.",
+            );
+        }
+        // Below this point: the hero (+ Amulet, dungeon-crawl only)
+        // icons, centered on-screen.
         ctx.print_color_centered(60, GREEN, BLACK, "Press 1 to return to the title screen.");
 
         if let Some(VirtualKeyCode::Key1) = ctx.key {

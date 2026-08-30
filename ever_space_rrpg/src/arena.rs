@@ -12,30 +12,70 @@ pub enum AdventureMode {
     BattleArena,
 }
 
+/// How many enemies each of a level's 3 waves spawns, indexed by
+/// wave - 1 (wave 1 -> index 0). The level's boss spawns after wave 3
+/// clears, not as a 4th wave - see State::handle_arena_kill.
+pub const ARENA_WAVE_ENEMY_COUNTS: [u32; 3] = [5, 5, 3];
+
+/// FieldOfView radius applied to every Arena enemy and boss (see
+/// State::arena_begin_wave/arena_spawn_boss_on_current_map), overriding
+/// the small radius spawn_entity gives ordinary dungeon enemies (6 -
+/// tuned for a fog-of-war dungeon crawl, where enemies are meant to only
+/// notice a nearby player). An Arena wave's whole point is a small,
+/// fully-visible clearing - 30 comfortably covers the ~20-tile diameter
+/// of the circular arena (see MapBuilder::new_arena_wave) from any point
+/// inside it, so an enemy notices and starts chasing the moment it
+/// spawns rather than standing idle at the edge until the player
+/// wanders within a dungeon-sized detection range.
+pub const ARENA_ENEMY_FOV_RADIUS: i32 = 30;
+
 /// Tracks progress through a Battle Arena run. Inserted as a resource
 /// (`Some(ArenaRun{..})`) only when a Battle Arena run is active -
 /// `start_game` (normal dungeon crawl) always inserts `None::<ArenaRun>`
 /// instead. Other systems tell an arena run apart from an ordinary
 /// dungeon crawl purely by checking this resource's presence, e.g.
 /// end_turn's Exit-tile handling below.
-///
-/// This first slice only carries `level` (which shop/enemy tier the
-/// player is on) - just enough to build the first testable piece, the
-/// shop itself. Wave-count/boss-defeated tracking will be added here once
-/// wave orchestration is built next.
 #[derive(Clone, Copy, Debug)]
 pub struct ArenaRun {
     /// Which of the 3 arena levels this is, 1..=3. Maps onto the
     /// existing dungeon template levels 0..=2 (see `template_level`) -
     /// arena level 1 uses the same Goblin/Goblin Chieftain pool as
     /// dungeon floor 0, arena level 2 uses dungeon floor 1's Orc/Orc
-    /// Warlord pool, and so on. While the player is in the STARTING shop
-    /// (before level 1's waves begin), this is already `1` - the shop is
-    /// "preparing you for level 1", not a separate level 0.
+    /// Warlord pool, and so on. While the player is in a shop (before
+    /// this level's waves begin), this is already the level the shop is
+    /// "preparing you for", not a separate level 0.
     pub level: u8,
+    /// Which wave within this level the player is currently on, 1..=3 -
+    /// only meaningful while `boss_active` is false. 0 means "no wave
+    /// has started yet" (still in the shop).
+    pub wave: u8,
+    /// True once this level's boss has been spawned (after wave 3
+    /// clears) - a kill while this is true means the level itself is
+    /// cleared, not just a wave, and routes to the next level's shop (or
+    /// final Victory on level 3) instead of the next wave. See
+    /// State::handle_arena_kill.
+    pub boss_active: bool,
+    /// Where this level's boss should spawn, once wave 3 clears - set
+    /// each time a wave's arena map is built (State::arena_begin_wave)
+    /// and read once, when the boss actually spawns
+    /// (State::arena_spawn_boss_on_current_map), since the boss appears
+    /// on the SAME map wave 3 was fought on rather than a freshly built
+    /// one.
+    pub boss_spawn: Point,
 }
 
 impl ArenaRun {
+    /// A fresh run about to enter `level`'s shop - no wave started yet,
+    /// no boss out.
+    pub fn new(level: u8) -> Self {
+        Self {
+            level,
+            wave: 0,
+            boss_active: false,
+            boss_spawn: Point::zero(),
+        }
+    }
+
     /// Converts this run's 1..=3 arena level into the 0..=2 index
     /// `template.ron`'s `levels:` sets and spawn_level/spawn_boss expect.
     pub fn template_level(&self) -> usize {

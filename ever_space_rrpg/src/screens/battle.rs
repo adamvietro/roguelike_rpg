@@ -744,7 +744,13 @@ impl State {
 
         if ctx.key.is_some() {
             self.resources.insert(None::<BattleVictory>);
-            self.resources.insert(TurnState::AwaitingInput);
+            let arena_run = self.resources.get::<Option<ArenaRun>>().unwrap().clone();
+            match arena_run {
+                Some(run) => self.handle_arena_kill(run),
+                None => {
+                    self.resources.insert(TurnState::AwaitingInput);
+                }
+            }
         }
     }
 }

@@ -233,6 +233,14 @@ impl State {
         // systems/movement.rs's auto-pickup gate), so it must exist
         // before the first background_movement_systems.execute() call.
         resources.insert(None::<ShoppingActive>);
+        // Same reasoning again - movement_system also reads
+        // Option<ArenaRun> now (see the LOS-freeze fix in
+        // systems/movement.rs). Missing this is exactly what caused a
+        // startup panic: legion's resource fetch has no "missing means
+        // None" fallback the way an Option value's own None does - the
+        // RESOURCE SLOT ITSELF has to exist, or the fetch panics
+        // outright, even though the type being fetched is an Option.
+        resources.insert(None::<ArenaRun>);
         // Loaded once here and re-inserted after every Resources::default()
         // reset point below (start_game/return_to_title also wipe every
         // resource) - Keymap::load reads from disk each time, so a rebind
@@ -317,7 +325,7 @@ impl State {
         self.ecs = World::default();
         self.resources = Resources::default();
         let mut rng = RandomNumberGenerator::new();
-        let arena_run = ArenaRun { level: 1 };
+        let arena_run = ArenaRun::new(1);
         let items = roll_arena_shop_items(&mut rng, class, arena_run.template_level());
         let (
             mut map_builder,
@@ -422,25 +430,246 @@ impl State {
         }
     }
 
-    /// Placeholder for stepping on the shop's stairs tile - see
-    /// TurnState::ArenaTransition. Wave/boss orchestration for what
-    /// should actually happen next (start Level 1's waves) hasn't been
-    /// built yet; this just confirms the handoff works and returns to
-    /// the title screen, so the shop itself (item layout, walking,
-    /// auto-pickup, stairs) is fully testable on its own before that
-    /// next piece exists.
-    fn arena_transition_tick(&mut self, ctx: &mut BTerm) {
-        ctx.set_active_console(BIG_TEXT_CONSOLE);
-        ctx.print_color_centered(10, YELLOW, BLACK, "Shop complete!");
-        ctx.set_active_console(2);
-        ctx.print_color_centered(
-            60,
-            WHITE,
-            BLACK,
-            "(Arena waves aren't built yet - press ENTER to return to the title screen)",
+    /// Reached by stepping on a shop's stairs tile while ArenaRun is
+    /// active (see TurnState::ArenaTransition / systems/end_turn.rs) -
+    /// always means "begin wave 1 of whatever level this shop was
+    /// preparing you for", whether that shop was the very first one or
+    /// one reached after a boss kill. One-shot, like advance_level: runs
+    /// once, changes TurnState away from ArenaTransition so it doesn't
+    /// repeat next frame.
+    fn arena_transition_tick(&mut self, _ctx: &mut BTerm) {
+        let run = self
+            .resources
+            .get::<Option<ArenaRun>>()
+            .unwrap()
+            .clone()
+            .expect("ArenaTransition reached without an active ArenaRun");
+        self.arena_begin_wave(run.level, 1);
+    }
+
+    /// Removes every entity except the player and whatever they're
+    /// carrying - the same entity-preservation pattern advance_level
+    /// already uses to move a dungeon-crawl player to a fresh floor
+    /// without losing their inventory. Shared by every Arena transition
+    /// that needs a clean map but the SAME player/inventory: starting a
+    /// new wave, and moving on to the next level's shop.
+    fn arena_rebuild_keep_player(&mut self) -> Entity {
+        let player_entity = *<Entity>::query()
+            .filter(component::<Player>())
+            .iter(&self.ecs)
+            .nth(0)
+            .unwrap();
+
+        let mut entities_to_keep = std::collections::HashSet::new();
+        entities_to_keep.insert(player_entity);
+        <(Entity, &Carried)>::query()
+            .iter(&self.ecs)
+            .filter(|(_e, carry)| carry.0 == player_entity)
+            .map(|(e, _carry)| *e)
+            .for_each(|e| {
+                entities_to_keep.insert(e);
+            });
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        for e in Entity::query().iter(&self.ecs) {
+            if !entities_to_keep.contains(e) {
+                cb.remove(*e);
+            }
+        }
+        cb.flush(&mut self.ecs);
+
+        player_entity
+    }
+
+    /// Builds a fresh wave arena map for `level`/`wave`, keeping the
+    /// same player entity and inventory (see arena_rebuild_keep_player),
+    /// spawns that wave's enemies, and forces full visibility across the
+    /// map's reveal rectangle - the same "no fog of war" trick
+    /// start_arena uses for the shop, applied here because the design
+    /// calls for the whole arena being visible at once rather than
+    /// explored tile by tile. Updates the ArenaRun resource to reflect
+    /// the new wave and stores this map's boss_spawn point for later
+    /// (see ArenaRun::boss_spawn's doc comment).
+    fn arena_begin_wave(&mut self, level: u8, wave: u8) {
+        let player_entity = self.arena_rebuild_keep_player();
+        let mut rng = RandomNumberGenerator::new();
+        let template_level = (level - 1) as usize;
+        let enemy_count = ARENA_WAVE_ENEMY_COUNTS[(wave - 1) as usize] as usize;
+        let (mut map_builder, enemy_spawns, boss_spawn, reveal_x, reveal_y, reveal_w, reveal_h) =
+            MapBuilder::new_arena_wave(&mut rng, enemy_count);
+
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, map_builder.player_start);
+        cb.flush(&mut self.ecs);
+
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
+            }
+        }
+        let mut full_fov = FieldOfView::new(8);
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, full_fov);
+        cb.flush(&mut self.ecs);
+
+        spawn_prefab_enemies(&mut self.ecs, &mut rng, template_level, &enemy_spawns);
+        self.boost_arena_enemy_fov();
+
+        self.resources.insert(map_builder.map);
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(map_builder.theme);
+        self.resources.insert(None::<Battle>);
+        self.resources.insert(None::<BattleVictory>);
+        self.resources.insert(TurnState::AwaitingInput);
+        self.resources.insert(None::<ShoppingActive>);
+        self.resources.insert(Some(ArenaRun {
+            level,
+            wave,
+            boss_active: false,
+            boss_spawn,
+        }));
+    }
+
+    /// Spawns this level's boss onto the SAME map wave 3 was just fought
+    /// on (at the boss_spawn point that map was built with), rather than
+    /// building a fresh one - the design calls for the boss appearing
+    /// once the last wave clears, not a separate arena of its own.
+    fn arena_spawn_boss_on_current_map(&mut self, run: ArenaRun) {
+        let mut rng = RandomNumberGenerator::new();
+        spawn_boss(
+            &mut self.ecs,
+            &mut rng,
+            run.template_level(),
+            run.boss_spawn,
         );
-        if let Some(VirtualKeyCode::Return) = ctx.key {
-            self.return_to_title();
+        self.boost_arena_enemy_fov();
+        self.resources.insert(Some(ArenaRun {
+            boss_active: true,
+            ..run
+        }));
+        self.resources.insert(TurnState::AwaitingInput);
+    }
+
+    /// Overrides every current Enemy entity's FieldOfView with
+    /// ARENA_ENEMY_FOV_RADIUS - called right after spawning a wave's
+    /// enemies or a level's boss, both of which start with the small
+    /// dungeon-tuned radius spawn_entity gives every enemy by default.
+    /// Safe to apply indiscriminately to every Enemy in the world at
+    /// that point: arena_begin_wave already cleared every non-player
+    /// entity before spawning this wave's enemies, and this is called
+    /// immediately after spawning, so the only Enemy entities that can
+    /// possibly exist yet are the ones just spawned this call.
+    fn boost_arena_enemy_fov(&mut self) {
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        <(Entity, &Enemy)>::query()
+            .iter(&self.ecs)
+            .for_each(|(e, _)| {
+                cb.add_component(*e, FieldOfView::new(ARENA_ENEMY_FOV_RADIUS));
+            });
+        cb.flush(&mut self.ecs);
+    }
+
+    /// Moves the player on to `next_level`'s shop after clearing the
+    /// previous level's boss - same player/inventory (see
+    /// arena_rebuild_keep_player), a freshly rolled and stocked shop
+    /// (see start_arena, which this necessarily duplicates a fair amount
+    /// of - a shared "build an arena shop world" helper would be a
+    /// reasonable follow-up cleanup, not done here to keep this change
+    /// focused on wave/boss orchestration).
+    fn arena_advance_to_next_shop(&mut self, next_level: u8) {
+        let player_entity = self.arena_rebuild_keep_player();
+        let class = entity_class(&self.ecs, player_entity).unwrap_or_default();
+        let mut rng = RandomNumberGenerator::new();
+        let template_level = (next_level - 1) as usize;
+        let items = roll_arena_shop_items(&mut rng, &class, template_level);
+        let (
+            mut map_builder,
+            item_points,
+            shopkeeper_point,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
+
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, map_builder.player_start);
+        cb.flush(&mut self.ecs);
+
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
+            }
+        }
+        let mut full_fov = FieldOfView::new(8);
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, full_fov);
+        cb.flush(&mut self.ecs);
+
+        self.ecs.push((
+            Name("Shopkeeper".to_string()),
+            shopkeeper_point,
+            Render {
+                color: ColorPair::new(YELLOW, BLACK),
+                glyph: to_cp437('W'),
+            },
+        ));
+
+        self.spawn_arena_shop_items(&items, &item_points);
+
+        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
+        map_builder.map.tiles[exit_idx] = TileType::Exit;
+
+        self.resources.insert(map_builder.map);
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(map_builder.theme);
+        self.resources.insert(None::<Battle>);
+        self.resources.insert(None::<BattleVictory>);
+        self.resources.insert(TurnState::AwaitingInput);
+        self.resources.insert(Some(ArenaRun::new(next_level)));
+        self.resources.insert(Some(ShoppingActive));
+    }
+
+    /// The single decision point for what happens after an Arena kill -
+    /// called from battle.rs's battle_victory_tick when ArenaRun is
+    /// active, once the player dismisses the "You defeated X!" screen.
+    /// Counts surviving Enemy entities directly (rather than a separate
+    /// hand-maintained counter) so this can never drift out of sync with
+    /// what's actually still alive on the map.
+    fn handle_arena_kill(&mut self, run: ArenaRun) {
+        let enemies_left = <&Enemy>::query().iter(&self.ecs).count();
+        if enemies_left > 0 {
+            // Still more to fight in this wave/boss encounter - nothing
+            // to advance yet.
+            self.resources.insert(TurnState::AwaitingInput);
+            return;
+        }
+
+        if !run.boss_active {
+            let next_wave = run.wave + 1;
+            if (next_wave as usize) <= ARENA_WAVE_ENEMY_COUNTS.len() {
+                self.arena_begin_wave(run.level, next_wave);
+            } else {
+                // Wave 3 just cleared - the boss appears now, on this
+                // same map.
+                self.arena_spawn_boss_on_current_map(run);
+            }
+        } else if run.level < 3 {
+            self.arena_advance_to_next_shop(run.level + 1);
+        } else {
+            // Level 3's boss just fell - the whole run is won.
+            self.resources.insert(TurnState::Victory);
         }
     }
 
@@ -481,6 +710,7 @@ impl State {
         // State::new().
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<ShoppingActive>);
+        self.resources.insert(None::<ArenaRun>);
         self.resources.insert(Keymap::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
 
