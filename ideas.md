@@ -300,8 +300,30 @@ More Prefabs
 Starting Items
 Bosses will guarantee Loot.
 
+### Battle Arena
+Starting gold and then no drops from the enemies.
+Each ability will need a cost
+Potions will need a cost
+Weapons will need a cost
+
+---
+
 ## Refactors
 Main into distinct Modules
 Battle into different modules based on ins-battle and out.
 
+---
 
+## Stats
+What we will keep track of in the history screen
+
+### Battle Arena
+Keep track of the highest level reach for each class
+keep track of the x of y runs completed
+
+### Dungeon
+Keep track of the number of runs completed
+Keep track of the furthest reached by class
+
+### Abilities
+Any time you use an ability be sure to keep track of it by class.

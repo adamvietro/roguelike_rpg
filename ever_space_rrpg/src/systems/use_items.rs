@@ -196,12 +196,17 @@ pub fn use_items(
                     // just whatever class the player currently is) - see
                     // Stats::record_ability_used. An unrestricted item
                     // (Healing Potion, Dungeon Map) has no Class
-                    // component and is deliberately NOT recorded here -
-                    // it isn't any one class's ability.
-                    if let (Ok(name), Ok(class)) =
-                        (item.get_component::<Name>(), item.get_component::<Class>())
-                    {
-                        stats.record_ability_used(&class.0, &name.0);
+                    // component and falls to record_item_used instead -
+                    // the global, not-per-class counterpart (see that
+                    // fn's doc comment).
+                    match (item.get_component::<Name>(), item.get_component::<Class>()) {
+                        (Ok(name), Ok(class)) => {
+                            stats.record_ability_used(&class.0, &name.0);
+                        }
+                        (Ok(name), Err(_)) => {
+                            stats.record_item_used(&name.0);
+                        }
+                        (Err(_), _) => {}
                     }
                 }
             }

@@ -203,7 +203,7 @@ impl State {
                 self.options_return_to = TurnState::TitleScreen;
                 self.resources.insert(TurnState::Options);
             } else if key == VirtualKeyCode::H {
-                self.stats_selected_class = None;
+                self.stats_view_mode = StatsViewMode::Overview;
                 self.resources.insert(TurnState::StatsView);
             } else {
                 self.resources.insert(TurnState::AdventureSelect);

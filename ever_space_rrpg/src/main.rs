@@ -198,12 +198,10 @@ struct State {
     /// entering TurnState::Options). Same "plain State field, not a
     /// resource" reasoning as options_awaiting above.
     options_return_to: TurnState,
-    /// Which class's ability-usage breakdown the History screen is
-    /// currently showing, if any - None means the overview list (overall
-    /// and per-class win rates, kills, deepest level). See
-    /// screens/stats_view.rs. Same "plain State field, not a resource"
-    /// reasoning as options_awaiting.
-    stats_selected_class: Option<String>,
+    /// Which sub-view the History screen is currently showing - see
+    /// StatsViewMode's own doc comment. Same "plain State field, not a
+    /// resource" reasoning as options_awaiting.
+    stats_view_mode: StatsViewMode,
     /// Which adventure type was picked at the new AdventureSelect screen
     /// - read by class_select to decide whether to call start_game
     /// (Dungeon Crawl) or start_arena (Battle Arena). Same "plain State
@@ -261,7 +259,7 @@ impl State {
             background_move_timer_ms: 0.0,
             options_awaiting: None,
             options_return_to: TurnState::TitleScreen,
-            stats_selected_class: None,
+            stats_view_mode: StatsViewMode::Overview,
             adventure_mode: AdventureMode::DungeonCrawl,
         };
         state.spawn_title_background();
@@ -309,7 +307,7 @@ impl State {
         // begins, regardless of how it later ends (won, lost, or
         // abandoned via quit-to-title) - see Stats::record_game_started.
         let mut stats = Stats::load();
-        stats.record_game_started(class);
+        stats.record_game_started(class, AdventureMode::DungeonCrawl);
         self.resources.insert(stats);
     }
 
@@ -413,7 +411,7 @@ impl State {
         self.resources.insert(Some(ShoppingActive));
 
         let mut stats = Stats::load();
-        stats.record_game_started(class);
+        stats.record_game_started(class, AdventureMode::BattleArena);
         self.resources.insert(stats);
     }
 
@@ -698,6 +696,18 @@ impl State {
             .iter(&self.ecs)
             .next()
             .map(|(p, c)| (p.map_level, c.0.clone()));
+        // Read before the wipe below for the same reason as outcome/
+        // player_info above - both are gone the instant Resources::default()
+        // runs. adventure_mode is a plain State field (not a resource), so
+        // it survives the wipe on its own, but is read here anyway since
+        // this fn resets it to DungeonCrawl a few lines down and the
+        // Stats-recording code below needs the value as it was DURING the
+        // run that's ending, not the post-reset default.
+        let arena_run = self
+            .resources
+            .get::<Option<ArenaRun>>()
+            .and_then(|run| *run);
+        let mode = self.adventure_mode;
 
         self.ecs = World::default();
         self.resources = Resources::default();
@@ -717,9 +727,29 @@ impl State {
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {
             if outcome == Some(TurnState::Victory) {
-                stats.record_win(&class);
+                stats.record_win(&class, mode);
             }
-            stats.record_deepest_level(&class, map_level);
+            match mode {
+                // Dungeon Crawl's own "how far did I get" - Player::map_level,
+                // untouched by Arena code, so only meaningful here.
+                AdventureMode::DungeonCrawl => {
+                    stats.record_deepest_level(&class, map_level);
+                }
+                // Arena's own "how far did I get" - by wave, not level
+                // alone, and "reached" rather than "cleared" (see
+                // record_arena_progress). wave == 0 means the run ended
+                // while still browsing a level's shop, before any wave of
+                // THAT level was reached - that's already reflected by
+                // whatever the previous level's last-reached wave was, so
+                // it's deliberately not recorded as new progress here.
+                AdventureMode::BattleArena => {
+                    if let Some(run) = arena_run {
+                        if run.wave >= 1 {
+                            stats.record_arena_progress(&class, run.level, run.wave);
+                        }
+                    }
+                }
+            }
         }
         self.resources.insert(stats);
 
