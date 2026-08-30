@@ -630,6 +630,20 @@ pub fn tile_render_at(
             (bg.b * 1.4).min(1.0),
         );
         ColorPair::new(fg, bg)
+    } else if map.tiles[idx] == TileType::Counter {
+        // The Battle Arena shop's counter - a warm red bar, deliberately
+        // distinct from both the theme's wall and floor colors, so shop
+        // items sitting on it read as "on a counter" rather than "text
+        // embedded in a generic brick wall" (the counter's first version
+        // just reused TileType::Wall for this, which looked like the
+        // latter).
+        let bright = RGB::from_f32(0.55, 0.12, 0.12);
+        let fg = if visible {
+            bright
+        } else {
+            RGB::from_f32(bright.r * 0.35, bright.g * 0.35, bright.b * 0.35)
+        };
+        ColorPair::new(fg, BLACK)
     } else {
         let tint = if visible { WHITE } else { DARK_GRAY };
         ColorPair::new(tint, BLACK)

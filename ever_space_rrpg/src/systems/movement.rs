@@ -40,7 +40,23 @@ pub fn movement(
 
         if let Ok(entry) = ecs.entry_ref(want_move.entity) {
             if let Ok(fov) = entry.get_component::<FieldOfView>() {
-                commands.add_component(want_move.entity, fov.clone_dirty());
+                // Normally every move marks FieldOfView dirty so
+                // fov_system recomputes real shadowcasting from the new
+                // position next frame. Skipped entirely while
+                // ShoppingActive - State::start_arena deliberately
+                // freezes the shop's FieldOfView as "everything visible,
+                // forever" (is_dirty = false, visible_tiles = the whole
+                // map), specifically so the shopkeeper stays visible
+                // behind the counter (a Counter tile, opaque like a
+                // Wall, which real shadowcasting would otherwise never
+                // see past). Without this guard, the player's very
+                // first step re-dirtied that frozen FOV, fov_system
+                // recomputed a normal radius-limited view on the very
+                // next frame, and the shopkeeper (and anything past the
+                // counter) vanished the instant you moved.
+                if shopping.is_none() {
+                    commands.add_component(want_move.entity, fov.clone_dirty());
+                }
 
                 if entry.get_component::<Player>().is_ok()
                 // (1)

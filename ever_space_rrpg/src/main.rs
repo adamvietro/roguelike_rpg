@@ -318,10 +318,36 @@ impl State {
         self.resources = Resources::default();
         let mut rng = RandomNumberGenerator::new();
         let (mut map_builder, item_points, shopkeeper_point) = MapBuilder::new_arena_shop(&mut rng);
-        // Player entity itself needs no further setup here (no starting
-        // kit to grant - see this fn's doc comment), so the return value
-        // is intentionally unused.
-        spawn_player(&mut self.ecs, map_builder.player_start, class);
+        // No starting kit to grant here (see this fn's doc comment), but
+        // the returned entity IS needed below to force full visibility.
+        let player = spawn_player(&mut self.ecs, map_builder.player_start, class);
+
+        // No fog of war in the shop - the whole tiny room is always
+        // fully visible, the same trick spawn_title_background uses for
+        // the decorative title-screen background (revealed_tiles all
+        // true, plus the entity's own FieldOfView pre-filled with every
+        // tile and frozen with is_dirty = false so it's never
+        // recomputed). This matters here specifically because the
+        // shopkeeper sits behind the counter (a Counter tile, opaque
+        // like a Wall) - real shadowcasting would never let the player
+        // see past that counter at all, no matter how close they stood,
+        // so a real per-step FOV would make the shopkeeper permanently
+        // invisible instead of "visible across the counter."
+        map_builder
+            .map
+            .revealed_tiles
+            .iter_mut()
+            .for_each(|revealed| *revealed = true);
+        let mut full_fov = FieldOfView::new(8);
+        for y in 0..SCREEN_HEIGHT {
+            for x in 0..SCREEN_WIDTH {
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut commands = legion::systems::CommandBuffer::new(&self.ecs);
+        commands.add_component(player, full_fov);
+        commands.flush(&mut self.ecs);
 
         // Shopkeeper - purely decorative for now (no dialogue/trade
         // logic, the items themselves are what's interactive). Glyph
@@ -362,38 +388,69 @@ impl State {
     }
 
     /// Places this shop's 11 items (1 weapon + 5 potions + 5 random
-    /// abilities) onto `item_points`, in the fixed order
-    /// MapBuilder::new_arena_shop documents. Split out of start_arena so
-    /// the next slice (a shop reached after a boss kill, not just the
-    /// starting one) can call this same logic against a freshly-built
-    /// shop map without duplicating the item-picking rules.
+    /// Stocks this shop's counter (see MapBuilder::new_arena_shop): one
+    /// weapon (quantity 1), one Healing Potion stack (quantity 5), and
+    /// however many distinct abilities came up across 5 random rolls
+    /// (each shown as its own stack with its own rolled quantity, rather
+    /// than as 5 separate identical-or-not single items) - see
+    /// ShopStock's doc comment for why a counter item is a lightweight
+    /// display marker, not a real usable Item, until it's actually
+    /// bought. Split out of start_arena so the next slice (a shop reached
+    /// after a boss kill, not just the starting one) can call this same
+    /// logic against a freshly-built shop map without duplicating the
+    /// item-picking rules.
     fn stock_arena_shop(&mut self, item_points: &[Point], class: &str, template_level: usize) {
         let mut rng = RandomNumberGenerator::new();
+        let mut next_point = item_points.iter();
 
         if let Some(weapon_name) = weapon_name_for_class_level(class, template_level) {
-            spawn_named_item_at(&mut self.ecs, &weapon_name, item_points[0]);
+            if let Some(&pt) = next_point.next() {
+                spawn_shop_stock_at(&mut self.ecs, &weapon_name, pt, 1);
+            }
         }
         // No weapon-name match is possible in principle (every playable
         // class has a weapon at levels 0/1/2), but this silently leaves
-        // that point empty rather than panicking if template.ron is ever
+        // that slot empty rather than panicking if template.ron is ever
         // missing one for a new class - same "warn, don't crash" spirit
         // as Templates::spawn_named_item's unknown-name handling.
 
-        for &pt in &item_points[1..=5] {
-            spawn_named_item_at(&mut self.ecs, "Healing Potion", pt);
+        if let Some(&pt) = next_point.next() {
+            spawn_shop_stock_at(&mut self.ecs, "Healing Potion", pt, 5);
         }
 
+        // Roll 5 ability charges with replacement, then group identical
+        // rolls into a single stack instead of placing 5 separate
+        // (possibly-duplicate) items - a class with fewer than 5 distinct
+        // techniques will very likely roll the same one more than once,
+        // and that should show up as "x3", not as 3 identical icons
+        // sitting side by side. Insertion order preserved (a Vec scan
+        // instead of a HashMap) so the counter's left-to-right order
+        // matches roll order rather than being shuffled by hashing.
         let abilities = technique_names_for_class(class);
         if !abilities.is_empty() {
-            for &pt in &item_points[6..=10] {
-                let name = &abilities[rng.range(0, abilities.len() as i32) as usize];
-                spawn_named_item_at(&mut self.ecs, name, pt);
+            let mut rolled: Vec<(String, i32)> = Vec::new();
+            for _ in 0..5 {
+                let name = abilities[rng.range(0, abilities.len() as i32) as usize].clone();
+                match rolled.iter_mut().find(|(n, _)| *n == name) {
+                    Some((_, count)) => *count += 1,
+                    None => rolled.push((name, 1)),
+                }
+            }
+            for (name, count) in rolled {
+                if let Some(&pt) = next_point.next() {
+                    spawn_shop_stock_at(&mut self.ecs, &name, pt, count);
+                }
+                // Running out of remaining item_points here would mean
+                // more than 9 distinct abilities came up across only 5
+                // rolls, which is impossible - can't happen in practice,
+                // but next_point.next() returning None just silently
+                // stops placing further stacks rather than panicking.
             }
         }
         // A class with zero defined techniques (shouldn't happen for any
         // of the 5 real classes, all of which have several) just leaves
-        // its ability slots empty rather than panicking on an empty-range
-        // rng.range call.
+        // every ability slot empty rather than panicking on an
+        // empty-range rng.range call.
     }
 
     /// Placeholder for stepping on the shop's stairs tile - see

@@ -2348,3 +2348,61 @@ One thing to physically check when you playtest: I picked the shopkeeper's posit
 Whenever you're ready to wrap up, just say so and I'll update the glyph map doc with all of tonight's changes (shopkeeper `W`, the 18 ability icons) and hand back a fresh instructions doc per the session-end protocol.
 
 ## Add a Counter Stacks of Items
+Good catches, all three make sense — the depletion behavior, the neighbor-grabbing bug, and the counter fix actually solves the bug at the same time. Let me think through one wrinkle: if the counter row becomes a wall, whatever's directly behind it (the shopkeeper) would be hidden by line-of-sight the same way any wall blocks vision — so I'm putting the shopkeeper *on* the counter row itself (using one of the spare buffer columns) rather than in a row behind it, so it stays visible as "standing at the counter" rather than disappearing behind a wall.
+
+Let me implement all three together.Now the room layout — counter row as a wall, shopkeeper sharing that row in a buffer column:Now the template.rs helpers for stacked/counter items:Now the free-function wrappers in `spawner/mod.rs`:Good — I'll rewrite `stock_arena_shop` next to use the new stacking helpers, which naturally removes all three call sites. Now let's rewrite it:Now `spawn_named_item_at` is unused — let's remove it cleanly rather than leave dead code:Yep, orphaned doc comment — let's clean that up:Now the big one — rewrite `buy_nearby_item` in `player_input.rs` to work against `ShopStock` counters instead of generic `Item` floor entities:Now let's verify all of this compiles.Clean, zero warnings. Let's do a final sanity check on the real `Cargo.lock` and package everything.**Verified: compiles clean, zero warnings.** Apply these full-file replacements:
+
+| File                  | Destination                   |
+| --------------------- | ----------------------------- |
+| `arena.rs`            | `src/arena.rs`                |
+| `map_builder_mod.rs`  | `src/map_builder/mod.rs`      |
+| `spawner_template.rs` | `src/spawner/template.rs`     |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`          |
+| `player_input.rs`     | `src/systems/player_input.rs` |
+| `main.rs`             | `src/main.rs`                 |
+
+(`movement.rs`, `hud.rs`, `end_turn.rs`, `title.rs`, `turn_state.rs`, `template.ron` from earlier this session are unchanged.)
+
+**What changed, addressing all three:**
+
+1. **Stacking/depletion.** Shop items are no longer individual floor entities — each is now a `ShopStock` counter marker with a quantity. The potion slot is one icon showing 5 units; the ability slots roll 5 charges but *group* identical rolls into one stack each (so if the RNG gives you 3× Fireball + 2× Burn, you see two stacks, not five icons). Buying grants you a real, fully-built copy of the item and decrements the counter; at 0 it disappears from the map entirely.
+
+2. **The neighbor-grabbing bug.** This turned out to be a direct consequence of the counter fix, not a separate patch — explained below.
+
+3. **The counter/wall.** The item row is now a genuine `Wall` tile — the player physically cannot stand on it. That's what fixes bug #2: previously you *could* stand exactly on an item's tile, and since items sat edge-to-edge with no gap, "adjacent" matched left/right neighbors ambiguously. Now the only way to be near an item is standing in the walkable row directly below it, which is adjacent to exactly one item — no ambiguity possible anymore.
+
+One thing worth knowing: I moved the shopkeeper (`W`) onto the *same* row as the counter (in the spare column at the far left) rather than a row behind it. A wall blocks line-of-sight the same way it blocks movement, so if I'd put the shopkeeper in a row behind the counter wall, it would've been permanently invisible — behind-the-wall isn't a thing this engine's fog-of-war can show you. Standing "at" the counter reads fine visually and keeps it actually visible.
+
+Give it a playtest — this is a decent-sized rework, and I'd like to know how the counter feels physically (is the room too cramped now, does the shopkeeper's position look right) before we build wave orchestration on top of it.
+
+### Better Looking Shop
+Good calls — let's fix all three: real LOS bypass (matching the title-screen trick), shopkeeper genuinely behind the counter, and a visually distinct counter instead of letters embedded in brick wall.Now the color in `tile_render_at`:Now the room layout — restore a separate row for the shopkeeper behind the counter, and use `Counter` instead of `Wall`:Now the full-LOS bypass in `start_arena`:Clean build, zero warnings.**Verified: compiles clean, zero warnings.** Apply as full-file replacements:
+
+| File                 | Destination                 |
+| -------------------- | --------------------------- |
+| `map.rs`             | `src/map.rs`                |
+| `themes.rs`          | `src/map_builder/themes.rs` |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs`    |
+| `components.rs`      | `src/components.rs`         |
+| `main.rs`            | `src/main.rs`               |
+
+(Everything else from earlier this session is unchanged.)
+
+**What changed:**
+
+1. **Full LOS bypass.** The shop now uses the exact same trick your title screen's decorative background already uses: `revealed_tiles` all set true, and the player's own `FieldOfView` is force-filled with every tile on the map and frozen (`is_dirty = false`) so it never recomputes. No more shadowcasting in this room at all.
+
+2. **Shopkeeper genuinely behind the counter.** Now that real LOS isn't a concern, the keeper moved back to its own row, separated from the items by the counter itself — which only worked *because* of the LOS bypass; without it, the counter (being opaque like a wall) would've hidden the keeper completely.
+
+3. **A real counter, not text-in-a-wall.** New `TileType::Counter` — still impassable (blocks movement the same way Wall does), but rendered as a distinct warm red bar (`▄` glyph, reddish tint) instead of theme brick. That's the part that was making it look bad — it was literally reusing the plain gray dungeon wall texture with letters plastered on it.
+
+Take a look and let me know if the red tone or the block glyph needs adjusting — that's a one-line tweak in `tile_render_at` if the color's off, or in `themes.rs` if you want a different shape than a half-block bar.
+
+### Dirty Camera Off In the Shop
+Good diagnosis — `movement_system` unconditionally resets FOV to dirty (`fov.clone_dirty()`) on every move, which wipes out the frozen full-reveal state the instant the player takes a step. Let's gate that too, same as the auto-pickup suppression.Good — `fov_system` only touches entries where `is_dirty` is true, so with the `clone_dirty()` reset now suppressed, the frozen FOV should survive movement. Let's verify the fix compiles.**Verified: compiles clean, zero warnings.** Apply `movement.rs` → `src/systems/movement.rs` (full replacement).
+
+Root cause confirmed exactly as you suspected: `movement_system` was unconditionally re-dirtying every moved entity's `FieldOfView` on every step, which undid `start_arena`'s frozen full-reveal state the instant you took your first move — `fov_system` only recomputes when `is_dirty` is true, so as long as that reset stays suppressed while `ShoppingActive`, the frozen "everything visible forever" FOV now survives movement.
+
+Give it another test — this should hold the whole shop visible (shopkeeper included) no matter how much you walk around.
+
+### Smaller Map

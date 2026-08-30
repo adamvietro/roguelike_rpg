@@ -320,18 +320,33 @@ impl Templates {
         commands.flush(ecs);
     }
 
-    /// Same as spawn_named_item, but places the item on the floor at
-    /// `pt` instead of directly into `player`'s inventory - used by the
-    /// Battle Arena shop (State::start_arena / State::enter_arena_shop),
-    /// which wants items sitting on the ground for the player to walk
-    /// onto (auto-pickup already handles the rest, see
-    /// systems/movement.rs) rather than handed over instantly. Reuses
-    /// the same spawn_entity path every ambient floor item goes through,
-    /// so a shop weapon becomes a real equippable Weapon exactly like a
-    /// dungeon-floor one, and bypasses the same `prefab_only`/`levels`
-    /// gating spawn_named_item already bypasses - naming a weapon here
-    /// works even though every weapon in template.ron is prefab_only.
-    pub fn spawn_named_item_at(&self, ecs: &mut World, name: &str, pt: Point) {
+    /// Whether `name`'s template is a weapon (has base_damage) - used by
+    /// the arena shop's buy handler to decide whether buying this item
+    /// should replace a previously-carried weapon, without that handler
+    /// needing to know anything about Template's internal fields.
+    pub fn item_is_weapon(&self, name: &str) -> bool {
+        self.entities
+            .iter()
+            .find(|t| t.name == name)
+            .map(|t| t.base_damage.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Same as spawn_named_item, but pushes through a CommandBuffer
+    /// instead of taking `&mut World` directly - every step it shares
+    /// with spawn_named_item (apply_effect/apply_technique/apply_class/
+    /// apply_description/weapon damage) already takes a CommandBuffer
+    /// internally, so this is just spawn_named_item's same body with the
+    /// top-level push/flush swapped for commands.push - which makes this
+    /// version usable from INSIDE a system (like player_input's
+    /// buy_nearby_item), where only a SubWorld + CommandBuffer are
+    /// available, not a real `&mut World`.
+    pub fn spawn_named_item_via_commands(
+        &self,
+        name: &str,
+        player: Entity,
+        commands: &mut CommandBuffer,
+    ) {
         let template = match self.entities.iter().find(|t| t.name == name) {
             Some(t) => t,
             None => {
@@ -339,9 +354,53 @@ impl Templates {
                 return;
             }
         };
-        let mut commands = legion::systems::CommandBuffer::new(ecs);
-        self.spawn_entity(&pt, template, &mut commands);
-        commands.flush(ecs);
+
+        let entity = commands.push((
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437(template.glyph),
+            },
+            Name(template.name.clone()),
+            Item {},
+            Carried(player),
+        ));
+        Self::apply_effect(template, entity, commands);
+        Self::apply_technique(template, entity, commands);
+        Self::apply_class(template, entity, commands);
+        Self::apply_description(template, entity, commands);
+        if let Some(damage) = &template.base_damage {
+            commands.add_component(entity, Damage(*damage));
+            if template.entity_type == EntityType::Item {
+                commands.add_component(entity, Weapon {});
+            }
+        }
+    }
+
+    /// Places a lightweight shop-counter marker at `pt`: just enough to
+    /// display and track it (Point + Render + Name + ShopStock), NOT a
+    /// real usable Item - it has no Effect/Technique/Weapon/Carried
+    /// components at all, so it can't be picked up, used, or equipped
+    /// directly. Buying it (see player_input.rs's buy_nearby_item) grants
+    /// a real copy via spawn_named_item_via_commands and decrements this
+    /// marker's ShopStock, removing the marker entirely once it reaches
+    /// 0 - "the shop ran out."
+    pub fn spawn_shop_stock_at(&self, ecs: &mut World, name: &str, pt: Point, quantity: i32) {
+        let template = match self.entities.iter().find(|t| t.name == name) {
+            Some(t) => t,
+            None => {
+                println!("Warning: arena shop references unknown item '{}'", name);
+                return;
+            }
+        };
+        ecs.push((
+            pt,
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437(template.glyph),
+            },
+            Name(template.name.clone()),
+            ShopStock(quantity),
+        ));
     }
 
     /// Picks which weapon template the arena shop should offer `class` at

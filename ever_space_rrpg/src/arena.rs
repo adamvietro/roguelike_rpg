@@ -55,3 +55,13 @@ impl ArenaRun {
 /// crawl - only the shop screens want this suppressed.
 #[derive(Clone, Copy, Debug)]
 pub struct ShoppingActive;
+
+/// How many of this item remain on the shop counter - the counter entity
+/// itself is a lightweight display/bookkeeping marker (Point + Render +
+/// Name + this), NOT a real usable Item (no Effect/Technique/Weapon
+/// components) - buying one calls spawner::spawn_named_item_via_commands
+/// to grant the player a real, fully-built copy, then decrements this.
+/// Reaching 0 removes the counter entity entirely rather than leaving a
+/// "0 remaining" marker behind - see player_input.rs's buy_nearby_item.
+#[derive(Clone, Copy, Debug)]
+pub struct ShopStock(pub i32);

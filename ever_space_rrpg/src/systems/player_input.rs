@@ -13,6 +13,7 @@ use crate::prelude::*;
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
 #[read_component(AmuletOfYala)]
+#[read_component(ShopStock)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -142,11 +143,15 @@ pub fn player_input(
 /// handed out - a real currency check is a later pass (see the project's
 /// Battle Arena backlog notes).
 ///
-/// The arena shop's room layout (MapBuilder::new_arena_shop) places each
-/// item on its own column with a full walkable row directly below it,
-/// so standing anywhere in that row is adjacent to exactly one item -
-/// there's no ambiguity to resolve between two candidates in practice,
-/// but this still just takes the first match if that ever changes.
+/// Shop items are ShopStock counter markers, not real Items sitting on
+/// the floor (see spawner::spawn_shop_stock_at) - the counter row is a
+/// Wall tile (MapBuilder::new_arena_shop), so the player can never
+/// actually stand ON one, only in the walkable row directly below it.
+/// That structurally guarantees the ADJACENT check below only ever
+/// matches the one item directly in front of the player, not a neighbor
+/// one column over - a real bug in an earlier version of this function,
+/// back when items sat on walkable floor tiles a player could stand on
+/// or slip between.
 fn buy_nearby_item(ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
     let player = <(Entity, &Point)>::query()
         .iter(ecs)
@@ -164,32 +169,36 @@ fn buy_nearby_item(ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
         Point { x: 1, y: 0 },
     ];
 
-    let item_entity = <(Entity, &Item, &Point)>::query()
+    let found = <(Entity, &ShopStock, &Point, &Name)>::query()
         .iter(ecs)
-        .filter(|(_, _, &pos)| ADJACENT.iter().any(|&d| pos == player_pos + d))
-        .filter(|(e, _, _)| {
-            ecs.entry_ref(**e)
-                .map(|entry| entry.get_component::<AmuletOfYala>().is_err())
-                .unwrap_or(true)
-        })
-        .map(|(e, _, _)| *e)
+        .filter(|(_, _, &pos, _)| ADJACENT.iter().any(|&d| pos == player_pos + d))
+        .map(|(e, stock, _, name)| (*e, stock.0, name.0.clone()))
         .next();
 
-    if let Some(item_entity) = item_entity {
-        commands.remove_component::<Point>(item_entity);
-        commands.add_component(item_entity, Carried(player_entity));
+    if let Some((stock_entity, remaining, name)) = found {
+        let granted_weapon = item_is_weapon(&name);
+        spawn_named_item_via_commands(&name, player_entity, commands);
 
         // Same one-equipped-weapon-at-a-time rule auto-pickup enforces -
         // buying a new weapon discards whatever was previously carried.
-        if let Ok(item_entry) = ecs.entry_ref(item_entity) {
-            if item_entry.get_component::<Weapon>().is_ok() {
-                <(Entity, &Carried, &Weapon)>::query()
-                    .iter(ecs)
-                    .filter(|(_, c, _)| c.0 == player_entity)
-                    .for_each(|(e, _, _)| {
-                        commands.remove(*e);
-                    });
-            }
+        // Checked against components already in the world, not the copy
+        // just queued above - CommandBuffer edits aren't visible until
+        // flush, same deferred-command reasoning movement.rs relies on.
+        if granted_weapon {
+            <(Entity, &Carried, &Weapon)>::query()
+                .iter(ecs)
+                .filter(|(_, c, _)| c.0 == player_entity)
+                .for_each(|(e, _, _)| {
+                    commands.remove(*e);
+                });
+        }
+
+        if remaining <= 1 {
+            // Last one - the counter marker disappears entirely rather
+            // than sitting there advertising "0 remaining".
+            commands.remove(stock_entity);
+        } else {
+            commands.add_component(stock_entity, ShopStock(remaining - 1));
         }
     }
 

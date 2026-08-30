@@ -105,14 +105,20 @@ impl MapBuilder {
     /// this function only lays out the room.
     ///
     /// Interior rows, top to bottom: 0 the shopkeeper (decorative, one
-    /// tile, centered), 1 the items row (11 columns), 2 the player's
-    /// start position (also directly below the row-1 item at the same
-    /// column, so the player starts already "in front of" that one item
-    /// without needing to move first), 3 a walkable gap, 4 the stairs.
+    /// tile, centered) - genuinely behind the counter now, safe to see
+    /// because State::start_arena marks this whole map fully visible
+    /// (no fog of war) rather than relying on real shadowcasting, which
+    /// a Counter tile would otherwise block sight past just like a
+    /// Wall does. 1 the counter itself (TileType::Counter - impassable,
+    /// items sit on it). 2 the player's start position, directly below
+    /// the row-1 item at the same column (so the player starts already
+    /// able to buy that one item without moving first) - the only row
+    /// items can ever be bought from, since row 1 is impassable. 3 a
+    /// walkable gap. 4 the stairs.
     pub fn new_arena_shop(_rng: &mut RandomNumberGenerator) -> (Self, Vec<Point>, Point) {
         // Interior dimensions (inside the walls). 13 columns gives 11
         // item columns (interior cols 1..=11) plus a 1-tile buffer on
-        // each side; 5 rows fits the shopkeeper/items/player-start/gap/
+        // each side; 5 rows fits the keeper/counter/player-start/gap/
         // stairs layout described above.
         const INTERIOR_W: i32 = 13;
         const INTERIOR_H: i32 = 5;
@@ -142,6 +148,16 @@ impl MapBuilder {
 
         let interior_x = |col: i32| x0 + 1 + col;
         let interior_y = |row: i32| y0 + 1 + row;
+
+        // The counter row - TileType::Counter, not Floor: impassable
+        // (can_enter_tile only allows Floor/Exit) so the player can
+        // never step onto it, and rendered as a distinct warm bar (see
+        // components::tile_render_at) rather than plain floor or wall
+        // brick.
+        for col in 0..INTERIOR_W {
+            let idx = map_idx(interior_x(col), interior_y(1));
+            mb.map.tiles[idx] = TileType::Counter;
+        }
 
         let shopkeeper_point = Point::new(interior_x(INTERIOR_W / 2), interior_y(0));
         mb.player_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(2));

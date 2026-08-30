@@ -226,12 +226,30 @@ pub fn grant_starting_items(ecs: &mut World, player: Entity, class: &str) {
     }
 }
 
-/// Places a named item template on the floor at `pt` - see
-/// Templates::spawn_named_item_at. Used by the Battle Arena shop to lay
-/// out its weapon/potion/ability items for the player to walk onto.
-pub fn spawn_named_item_at(ecs: &mut World, name: &str, pt: Point) {
+/// Places a shop-counter stock marker at `pt` for `quantity` units of
+/// `name` - see Templates::spawn_shop_stock_at.
+pub fn spawn_shop_stock_at(ecs: &mut World, name: &str, pt: Point, quantity: i32) {
     let template = Templates::load();
-    template.spawn_named_item_at(ecs, name, pt);
+    template.spawn_shop_stock_at(ecs, name, pt, quantity);
+}
+
+/// Grants `player` a real copy of `name` via a CommandBuffer - see
+/// Templates::spawn_named_item_via_commands. Used by the arena shop's
+/// buy handler (systems/player_input.rs), which only has a
+/// SubWorld + CommandBuffer to work with, not a real `&mut World`.
+pub fn spawn_named_item_via_commands(
+    name: &str,
+    player: Entity,
+    commands: &mut legion::systems::CommandBuffer,
+) {
+    let template = Templates::load();
+    template.spawn_named_item_via_commands(name, player, commands);
+}
+
+/// Whether `name`'s template is a weapon - see Templates::item_is_weapon.
+pub fn item_is_weapon(name: &str) -> bool {
+    let template = Templates::load();
+    template.item_is_weapon(name)
 }
 
 /// Which weapon template the arena shop should offer `class` at
