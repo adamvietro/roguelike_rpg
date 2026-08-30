@@ -129,6 +129,9 @@ Item Shop with level 3 sword 5 potions, 5 random abilites
 
 Then repeat for level 3 enemies, when you kill the final boss of the level 3 you win.
 
+### Shop
+Smaller map outside or a forest theme.
+
 ## Multi Battle
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
 

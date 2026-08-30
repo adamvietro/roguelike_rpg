@@ -317,30 +317,47 @@ impl State {
         self.ecs = World::default();
         self.resources = Resources::default();
         let mut rng = RandomNumberGenerator::new();
-        let (mut map_builder, item_points, shopkeeper_point) = MapBuilder::new_arena_shop(&mut rng);
+        let arena_run = ArenaRun { level: 1 };
+        let items = roll_arena_shop_items(&mut rng, class, arena_run.template_level());
+        let (
+            mut map_builder,
+            item_points,
+            shopkeeper_point,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
         // No starting kit to grant here (see this fn's doc comment), but
         // the returned entity IS needed below to force full visibility.
         let player = spawn_player(&mut self.ecs, map_builder.player_start, class);
 
-        // No fog of war in the shop - the whole tiny room is always
-        // fully visible, the same trick spawn_title_background uses for
-        // the decorative title-screen background (revealed_tiles all
-        // true, plus the entity's own FieldOfView pre-filled with every
-        // tile and frozen with is_dirty = false so it's never
-        // recomputed). This matters here specifically because the
-        // shopkeeper sits behind the counter (a Counter tile, opaque
-        // like a Wall) - real shadowcasting would never let the player
-        // see past that counter at all, no matter how close they stood,
-        // so a real per-step FOV would make the shopkeeper permanently
-        // invisible instead of "visible across the counter."
-        map_builder
-            .map
-            .revealed_tiles
-            .iter_mut()
-            .for_each(|revealed| *revealed = true);
+        // No fog of war inside the reveal rectangle - deliberately NOT
+        // the whole 80x50 map (every Map is that size regardless of what
+        // any one MapBuilder actually uses, and revealing all of it is
+        // what made the arena shop look like a tiny room floating in an
+        // enormous dungeon). Leaving everything outside this rectangle
+        // unrevealed means nothing renders there at all (see
+        // components::tile_render_at's bounds/reveal check) - a plain
+        // black boundary, not more wall - which is what actually makes
+        // this map read as small. Same underlying trick
+        // spawn_title_background uses for the decorative title-screen
+        // background (revealed_tiles true + the entity's own
+        // FieldOfView pre-filled and frozen with is_dirty = false so
+        // it's never recomputed), just bounded to a small rectangle
+        // instead of the whole map. This also still matters for the
+        // shopkeeper specifically: it sits behind the counter (a
+        // Counter tile, opaque like a Wall), and real shadowcasting
+        // would never let the player see past that counter at all, no
+        // matter how close they stood.
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
+            }
+        }
         let mut full_fov = FieldOfView::new(8);
-        for y in 0..SCREEN_HEIGHT {
-            for x in 0..SCREEN_WIDTH {
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
                 full_fov.visible_tiles.insert(Point::new(x, y));
             }
         }
@@ -366,13 +383,18 @@ impl State {
             },
         ));
 
-        let arena_run = ArenaRun { level: 1 };
-        self.stock_arena_shop(&item_points, class, arena_run.template_level());
+        self.spawn_arena_shop_items(&items, &item_points);
 
         let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
         map_builder.map.tiles[exit_idx] = TileType::Exit;
 
         self.resources.insert(map_builder.map);
+        // Plain Camera::new - the standard 40x25 dungeon viewport, same
+        // as every other map. A custom smaller camera was tried here
+        // first, but it didn't address the actual problem (the map
+        // itself still being 80x50 underneath) and complicated other
+        // things unnecessarily - the reveal-rectangle approach above is
+        // what actually makes this map read as small.
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(map_builder.theme);
@@ -387,70 +409,17 @@ impl State {
         self.resources.insert(stats);
     }
 
-    /// Places this shop's 11 items (1 weapon + 5 potions + 5 random
-    /// Stocks this shop's counter (see MapBuilder::new_arena_shop): one
-    /// weapon (quantity 1), one Healing Potion stack (quantity 5), and
-    /// however many distinct abilities came up across 5 random rolls
-    /// (each shown as its own stack with its own rolled quantity, rather
-    /// than as 5 separate identical-or-not single items) - see
-    /// ShopStock's doc comment for why a counter item is a lightweight
-    /// display marker, not a real usable Item, until it's actually
-    /// bought. Split out of start_arena so the next slice (a shop reached
+    /// Places this shop's already-decided stock (see
+    /// arena::roll_arena_shop_items, which runs BEFORE the room is even
+    /// built, so MapBuilder::new_arena_shop can size the counter to fit)
+    /// onto `item_points` - one ShopStock counter marker per entry, in
+    /// order. Split out of start_arena so the next slice (a shop reached
     /// after a boss kill, not just the starting one) can call this same
-    /// logic against a freshly-built shop map without duplicating the
-    /// item-picking rules.
-    fn stock_arena_shop(&mut self, item_points: &[Point], class: &str, template_level: usize) {
-        let mut rng = RandomNumberGenerator::new();
-        let mut next_point = item_points.iter();
-
-        if let Some(weapon_name) = weapon_name_for_class_level(class, template_level) {
-            if let Some(&pt) = next_point.next() {
-                spawn_shop_stock_at(&mut self.ecs, &weapon_name, pt, 1);
-            }
+    /// logic against a freshly-built shop map without duplicating it.
+    fn spawn_arena_shop_items(&mut self, items: &[(String, i32)], item_points: &[Point]) {
+        for ((name, quantity), &pt) in items.iter().zip(item_points.iter()) {
+            spawn_shop_stock_at(&mut self.ecs, name, pt, *quantity);
         }
-        // No weapon-name match is possible in principle (every playable
-        // class has a weapon at levels 0/1/2), but this silently leaves
-        // that slot empty rather than panicking if template.ron is ever
-        // missing one for a new class - same "warn, don't crash" spirit
-        // as Templates::spawn_named_item's unknown-name handling.
-
-        if let Some(&pt) = next_point.next() {
-            spawn_shop_stock_at(&mut self.ecs, "Healing Potion", pt, 5);
-        }
-
-        // Roll 5 ability charges with replacement, then group identical
-        // rolls into a single stack instead of placing 5 separate
-        // (possibly-duplicate) items - a class with fewer than 5 distinct
-        // techniques will very likely roll the same one more than once,
-        // and that should show up as "x3", not as 3 identical icons
-        // sitting side by side. Insertion order preserved (a Vec scan
-        // instead of a HashMap) so the counter's left-to-right order
-        // matches roll order rather than being shuffled by hashing.
-        let abilities = technique_names_for_class(class);
-        if !abilities.is_empty() {
-            let mut rolled: Vec<(String, i32)> = Vec::new();
-            for _ in 0..5 {
-                let name = abilities[rng.range(0, abilities.len() as i32) as usize].clone();
-                match rolled.iter_mut().find(|(n, _)| *n == name) {
-                    Some((_, count)) => *count += 1,
-                    None => rolled.push((name, 1)),
-                }
-            }
-            for (name, count) in rolled {
-                if let Some(&pt) = next_point.next() {
-                    spawn_shop_stock_at(&mut self.ecs, &name, pt, count);
-                }
-                // Running out of remaining item_points here would mean
-                // more than 9 distinct abilities came up across only 5
-                // rolls, which is impossible - can't happen in practice,
-                // but next_point.next() returning None just silently
-                // stops placing further stacks rather than panicking.
-            }
-        }
-        // A class with zero defined techniques (shouldn't happen for any
-        // of the 5 real classes, all of which have several) just leaves
-        // every ability slot empty rather than panicking on an
-        // empty-range rng.range call.
     }
 
     /// Placeholder for stepping on the shop's stairs tile - see

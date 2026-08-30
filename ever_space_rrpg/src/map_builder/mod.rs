@@ -96,37 +96,50 @@ impl MapBuilder {
     /// convention every other level already uses for "the special point
     /// that becomes a TileType::Exit tile") along the bottom.
     ///
-    /// Returns the MapBuilder, plus exactly 11 floor points for items (in
-    /// a fixed left-to-right order: index 0 is the weapon slot, 1..=5 are
-    /// the 5 potion slots, 6..=10 are the 5 ability slots), plus one
-    /// point for the shopkeeper NPC. The caller (State::start_arena /
-    /// State::enter_arena_shop) decides which named item template goes
-    /// at each item point and what to render at the shopkeeper point -
-    /// this function only lays out the room.
+    /// Returns the MapBuilder, exactly `item_count` floor points for
+    /// items (left to right, centered on the counter), one point for the
+    /// shopkeeper NPC, and a reveal rectangle (x, y, width, height) -
+    /// State::start_arena only marks tiles inside that rectangle as
+    /// revealed/visible, leaving the rest of the underlying 80x50 grid
+    /// (a fixed size every Map uses, not something one MapBuilder can
+    /// resize on its own) completely unrevealed. Since nothing renders
+    /// for a tile that's neither visible nor ever revealed, this is what
+    /// actually makes the map itself read as small - a camera trick
+    /// alone couldn't do this, because the camera has no way to tell
+    /// "the edge of this small room" apart from "more world offscreen."
     ///
-    /// Interior rows, top to bottom: 0 the shopkeeper (decorative, one
-    /// tile, centered) - genuinely behind the counter now, safe to see
-    /// because State::start_arena marks this whole map fully visible
-    /// (no fog of war) rather than relying on real shadowcasting, which
-    /// a Counter tile would otherwise block sight past just like a
-    /// Wall does. 1 the counter itself (TileType::Counter - impassable,
-    /// items sit on it). 2 the player's start position, directly below
-    /// the row-1 item at the same column (so the player starts already
-    /// able to buy that one item without moving first) - the only row
-    /// items can ever be bought from, since row 1 is impassable. 3 a
-    /// walkable gap. 4 the stairs.
-    pub fn new_arena_shop(_rng: &mut RandomNumberGenerator) -> (Self, Vec<Point>, Point) {
-        // Interior dimensions (inside the walls). 13 columns gives 11
-        // item columns (interior cols 1..=11) plus a 1-tile buffer on
-        // each side; 5 rows fits the keeper/counter/player-start/gap/
-        // stairs layout described above.
-        const INTERIOR_W: i32 = 13;
-        const INTERIOR_H: i32 = 5;
+    /// The shop's own interior is a fixed 10 (wide) x 6 (tall) - not
+    /// scaled by item count - split top to bottom into: row 0 the
+    /// shopkeeper (decorative, one tile, centered) - genuinely behind
+    /// the counter, safe to see because start_arena's reveal covers this
+    /// whole area rather than relying on real shadowcasting, which a
+    /// Counter tile would otherwise block sight past just like a Wall
+    /// does. Row 1 the counter itself (TileType::Counter - impassable,
+    /// items sit on it, centered within the 10-wide row). Rows 2-5, four
+    /// rows of open walkable floor - the player starts at the top of
+    /// this (row 2, directly below the row-1 item at the same column) and
+    /// the stairs sit at the bottom (row 5).
+    pub fn new_arena_shop(
+        _rng: &mut RandomNumberGenerator,
+        item_count: usize,
+    ) -> (Self, Vec<Point>, Point, i32, i32, i32, i32) {
+        const INTERIOR_W: i32 = 10;
+        const INTERIOR_H: i32 = 6;
         const ROOM_W: i32 = INTERIOR_W + 2;
         const ROOM_H: i32 = INTERIOR_H + 2;
 
-        let x0 = (SCREEN_WIDTH - ROOM_W) / 2;
-        let y0 = (SCREEN_HEIGHT - ROOM_H) / 2;
+        // The reveal rectangle - "the overall map" as the player will
+        // actually experience it, centered on the same point as the
+        // room itself. ~40x20 comfortably frames the small 12x8 room
+        // with a visible ring of backdrop, without being anywhere close
+        // to the full 80x50 grid every dungeon floor uses.
+        const REVEAL_W: i32 = 40;
+        const REVEAL_H: i32 = 20;
+
+        let room_x0 = (SCREEN_WIDTH - ROOM_W) / 2;
+        let room_y0 = (SCREEN_HEIGHT - ROOM_H) / 2;
+        let reveal_x0 = (SCREEN_WIDTH - REVEAL_W) / 2;
+        let reveal_y0 = (SCREEN_HEIGHT - REVEAL_H) / 2;
 
         let mut mb = Self {
             map: Map::new(),
@@ -134,20 +147,25 @@ impl MapBuilder {
             monster_spawns: Vec::new(),
             player_start: Point::zero(),
             amulet_start: Point::zero(),
-            theme: DungeonTheme::new(),
+            // Forest, not dungeon brick, for the shop's backdrop -
+            // walking bark/mossy fill reads as deliberate scenery
+            // framing a small clearing, since the reveal boundary above
+            // means the player will actually see the edge of it rather
+            // than endless brick.
+            theme: ForestTheme::new(),
             prefab_enemy_spawns: Vec::new(),
             prefab_weapon_spawn: None,
         };
         mb.fill(TileType::Wall);
-        for y in (y0 + 1)..(y0 + ROOM_H - 1) {
-            for x in (x0 + 1)..(x0 + ROOM_W - 1) {
+        for y in (room_y0 + 1)..(room_y0 + ROOM_H - 1) {
+            for x in (room_x0 + 1)..(room_x0 + ROOM_W - 1) {
                 let idx = map_idx(x, y);
                 mb.map.tiles[idx] = TileType::Floor;
             }
         }
 
-        let interior_x = |col: i32| x0 + 1 + col;
-        let interior_y = |row: i32| y0 + 1 + row;
+        let interior_x = |col: i32| room_x0 + 1 + col;
+        let interior_y = |row: i32| room_y0 + 1 + row;
 
         // The counter row - TileType::Counter, not Floor: impassable
         // (can_enter_tile only allows Floor/Exit) so the player can
@@ -161,13 +179,28 @@ impl MapBuilder {
 
         let shopkeeper_point = Point::new(interior_x(INTERIOR_W / 2), interior_y(0));
         mb.player_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(2));
-        mb.amulet_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(4));
+        mb.amulet_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(5));
 
-        let item_points: Vec<Point> = (0..11)
-            .map(|i| Point::new(interior_x(1 + i), interior_y(1)))
+        // Items are centered within the fixed 10-wide counter rather
+        // than always starting at column 0 - a shop selling only 3-4
+        // things sits in the middle of the counter instead of bunched
+        // against the left wall. item_count is expected to be at most
+        // 7 (1 weapon + 1 potion stack + up to 5 ability stacks), which
+        // always fits inside 10 with room to spare.
+        let items_start_col = ((INTERIOR_W - item_count as i32) / 2).max(0);
+        let item_points: Vec<Point> = (0..item_count as i32)
+            .map(|i| Point::new(interior_x(items_start_col + i), interior_y(1)))
             .collect();
 
-        (mb, item_points, shopkeeper_point)
+        (
+            mb,
+            item_points,
+            shopkeeper_point,
+            reveal_x0,
+            reveal_y0,
+            REVEAL_W,
+            REVEAL_H,
+        )
     }
 
     fn find_most_distant(&self) -> Point {

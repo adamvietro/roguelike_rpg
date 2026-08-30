@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 /// Which top-level game mode the player picked at the new AdventureSelect
 /// screen (see screens/title.rs). Kept as a plain `State` field (like
 /// `options_awaiting`/`stats_selected_class`), not a resource - it's
@@ -65,3 +67,51 @@ pub struct ShoppingActive;
 /// "0 remaining" marker behind - see player_input.rs's buy_nearby_item.
 #[derive(Clone, Copy, Debug)]
 pub struct ShopStock(pub i32);
+
+/// Rolls this shop's full stock list - deliberately BEFORE the room
+/// itself is built, so MapBuilder::new_arena_shop can size and center
+/// the counter around however many distinct items this returns, instead
+/// of always reserving a fixed 11 slots regardless of how many are
+/// actually used. Returns (name, quantity) pairs: the class's weapon at
+/// `template_level` if one exists (quantity 1), a Healing Potion stack
+/// (quantity 5), then however many distinct abilities came up across 5
+/// random rolls with replacement - identical rolls are grouped into one
+/// stack (3 identical rolls become one entry with quantity 3, not three
+/// separate entries), so a class with fewer than 5 distinct techniques
+/// still shows a sensible small counter instead of padding it out.
+pub fn roll_arena_shop_items(
+    rng: &mut RandomNumberGenerator,
+    class: &str,
+    template_level: usize,
+) -> Vec<(String, i32)> {
+    let mut items = Vec::new();
+
+    if let Some(weapon_name) = weapon_name_for_class_level(class, template_level) {
+        items.push((weapon_name, 1));
+    }
+    // No weapon-name match is possible in principle (every playable
+    // class has a weapon at levels 0/1/2), but this just leaves the
+    // weapon out of the list rather than panicking if template.ron is
+    // ever missing one for a new class - same "warn, don't crash"
+    // spirit as Templates::spawn_named_item's unknown-name handling.
+
+    items.push(("Healing Potion".to_string(), 5));
+
+    let abilities = technique_names_for_class(class);
+    for _ in 0..5 {
+        if abilities.is_empty() {
+            break;
+        }
+        let name = abilities[rng.range(0, abilities.len() as i32) as usize].clone();
+        match items.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, count)) => *count += 1,
+            None => items.push((name, 1)),
+        }
+    }
+    // A class with zero defined techniques (shouldn't happen for any of
+    // the 5 real classes, all of which have several) just sells no
+    // abilities at all rather than panicking on an empty-range
+    // rng.range call.
+
+    items
+}

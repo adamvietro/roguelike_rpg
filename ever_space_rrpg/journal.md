@@ -2406,3 +2406,24 @@ Root cause confirmed exactly as you suspected: `movement_system` was uncondition
 Give it another test — this should hold the whole shop visible (shopkeeper included) no matter how much you walk around.
 
 ### Smaller Map
+Understood — no custom camera, revert that entirely. Instead shrink what's actually *filled/visible* on the map itself: a fixed 10×6 shop (keeper + counter + 4 walkable rows) sitting inside a ~40×20 visible extent, with nothing revealed beyond that boundary (so it reads as "the map ends here," not more wall).
+
+First, let's fully revert the camera change:Now rebuild the shop layout: fixed 10×6 interior, sitting inside a bounded ~40×20 visible extent, with reveal restricted to that extent only:Now let's rewrite the whole function with the fixed 10×6 interior and a bounded reveal extent:Now update `main.rs` to match: bounded reveal rectangle instead of whole-map reveal, and plain `Camera::new`:Clean build, zero warnings.Yes, that makes sense, and it's a real distinction — apologies for going the wrong direction with the camera last round. **Verified: compiles clean, zero warnings.** Apply as full-file replacements:
+
+| File                 | Destination              |
+| -------------------- | ------------------------ |
+| `camera.rs`          | `src/camera.rs`          |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs` |
+| `main.rs`            | `src/main.rs`            |
+
+(Everything else unchanged.)
+
+**What changed:**
+
+1. **Camera fully reverted** to its original form — plain `Camera::new`, standard 40×25 viewport, identical to every other map in the game. No custom sizing logic left in it at all.
+
+2. **The actual fix: a bounded "reveal rectangle."** Every `Map` in this game is a fixed 80×50 tile grid under the hood — that's baked into `Map::new()` itself and shared by every dungeon floor, so no single room can resize that array. What I changed instead: the shop only marks a ~40×20 rectangle as revealed/visible, centered on the small room. Everything outside that rectangle stays completely unrevealed — and a tile that's neither currently visible nor ever revealed doesn't get drawn *at all* (checked directly in `tile_render_at`), so instead of "more wall," you'll see nothing beyond that boundary — the map genuinely stops there.
+
+3. **Shop interior is now a fixed 10×6**, not scaled by item count: row 0 shopkeeper, row 1 counter, rows 2–5 four rows of open walkable floor. Items center themselves within the 10-wide counter regardless of how many there are.
+
+Take a look — this should give you a compact, self-contained ~40×20 map with the small 10×6 shop room centered in it, and nothing but blank space beyond that boundary.
