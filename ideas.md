@@ -121,11 +121,11 @@ We will need to add in the ability to choose the adventure type. We will need to
 5 level 1 enemies, 5 level 1 enemies, 3 level 1 enemies then the level 1 boss. 
 
 Item shop. 
-Has level level 2 sword, 5 potions, and 5 random abilites. To start the player will be able to buy everything we can work on ways to buy stuff later. 
+Has level level 2 sword, 5 potions, and 5 random abilities. To start the player will be able to buy everything we can work on ways to buy stuff later. 
 
 Then we repeat the process for the second level but with level 2 enemies and the level 2 boss
 
-Item Shop with level 3 sword 5 potions, 5 random abilites
+Item Shop with level 3 sword 5 potions, 5 random abilities
 
 Then repeat for level 3 enemies, when you kill the final boss of the level 3 you win.
 

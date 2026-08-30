@@ -112,6 +112,10 @@ impl State {
             .iter(&self.ecs)
             .for_each(|(entity, _)| {
                 commands.add_component(*entity, MovingRandomly);
+                // See DecorativeOnly's own doc comment - prevents these
+                // wandering enemies from ever rendering on GLIDE_CONSOLE,
+                // which would paint over the class-select icons/headlines.
+                commands.add_component(*entity, DecorativeOnly);
             });
         commands.flush(&mut self.ecs);
 
@@ -181,16 +185,23 @@ impl State {
         ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(6, YELLOW, BLACK, "EVER SPACE RRPG");
 
-        ctx.set_active_console(2);
+        // HUD_CONSOLE (~12px cells) rather than the old console 2 (8px) -
+        // matches the font size class_select already uses for its
+        // descriptions, per the user's ask to bump the font on every
+        // pre-game screen. Row numbers below are fresh picks for
+        // HUD_CONSOLE's 67-row grid, not a mechanical conversion of the
+        // old console 2 values (which assumed a 100-row grid) - see this
+        // same note in adventure_select/options_tick/stats_view_tick.
+        ctx.set_active_console(HUD_CONSOLE);
         ctx.print_color_centered(
-            60,
+            38,
             WHITE,
             BLACK,
             "A roguelike adventure into the dungeons below.",
         );
-        ctx.print_color_centered(90, GREEN, BLACK, "Press any key to begin");
+        ctx.print_color_centered(56, GREEN, BLACK, "Press any key to begin");
         ctx.print_color_centered(
-            92,
+            59,
             DARK_GRAY,
             BLACK,
             "(O for Options, H for History, Esc to quit)",
@@ -222,22 +233,22 @@ impl State {
         ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(6, YELLOW, BLACK, "Choose Your Adventure");
 
-        ctx.set_active_console(2);
-        ctx.print_color_centered(60, GREEN, BLACK, "1) Dungeon Crawl");
+        ctx.set_active_console(HUD_CONSOLE);
+        ctx.print_color_centered(36, GREEN, BLACK, "1) Dungeon Crawl");
         ctx.print_color_centered(
-            62,
+            39,
             WHITE,
             BLACK,
             "Explore a randomized dungeon, find the Amulet of Yala.",
         );
-        ctx.print_color_centered(70, GREEN, BLACK, "2) Battle Arena");
+        ctx.print_color_centered(48, GREEN, BLACK, "2) Battle Arena");
         ctx.print_color_centered(
-            72,
+            51,
             WHITE,
             BLACK,
             "Clear waves of enemies and bosses across 3 levels, shopping between each.",
         );
-        ctx.print_color_centered(92, DARK_GRAY, BLACK, "(Esc to go back)");
+        ctx.print_color_centered(62, DARK_GRAY, BLACK, "(Esc to go back)");
 
         if let Some(key) = ctx.key {
             match key {

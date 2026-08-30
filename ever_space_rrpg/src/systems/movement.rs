@@ -8,6 +8,7 @@ use crate::prelude::*;
 #[read_component(Weapon)]
 #[read_component(Carried)]
 #[read_component(AmuletOfYala)]
+#[read_component(DecorativeOnly)]
 pub fn movement(
     entity: &Entity,
     want_move: &WantsToMove,
@@ -22,19 +23,29 @@ pub fn movement(
         // Snapshot wherever this entity is currently drawn FROM, before we
         // overwrite its logical Point, so entity_render can glide it from
         // there to the destination instead of popping straight there.
-        if let Some(start) = ecs
+        // Skipped entirely for DecorativeOnly entities (the title/class-
+        // select background) - see that marker's own doc comment for why
+        // (GLIDE_CONSOLE renders above the class-select icons/headlines,
+        // so a gliding background enemy would paint over them).
+        let is_decorative = ecs
             .entry_ref(want_move.entity)
-            .ok()
-            .and_then(|e| e.get_component::<Point>().ok().copied())
-        {
-            commands.add_component(
-                want_move.entity,
-                MovingAnimation {
-                    start,
-                    end: want_move.destination,
-                    elapsed_ms: 0.0,
-                },
-            );
+            .map(|e| e.get_component::<DecorativeOnly>().is_ok())
+            .unwrap_or(false);
+        if !is_decorative {
+            if let Some(start) = ecs
+                .entry_ref(want_move.entity)
+                .ok()
+                .and_then(|e| e.get_component::<Point>().ok().copied())
+            {
+                commands.add_component(
+                    want_move.entity,
+                    MovingAnimation {
+                        start,
+                        end: want_move.destination,
+                        elapsed_ms: 0.0,
+                    },
+                );
+            }
         }
 
         commands.add_component(want_move.entity, want_move.destination);

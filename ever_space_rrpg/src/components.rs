@@ -283,6 +283,21 @@ pub struct MovingRandomly;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChasingPlayer;
 
+/// Marker for entities that only exist as part of the purely decorative
+/// title/class-select background (see spawn_title_background) - never a
+/// real gameplay actor. Tells movement_system to skip attaching a
+/// MovingAnimation to this entity when it steps - see that system's own
+/// comment for why: entity_render routes anything with an in-flight
+/// MovingAnimation onto GLIDE_CONSOLE, which is registered (and therefore
+/// composites) ABOVE the class-select icons (console 3) and every
+/// headline (BIG_TEXT_CONSOLE), so a background enemy mid-step would
+/// otherwise render on top of them. Losing the smooth per-step glide for
+/// a decorative-only entity is not visible in practice - it already only
+/// takes a step once every BACKGROUND_MOVE_INTERVAL_MS (see title.rs),
+/// nowhere near often enough for the missing glide to read as a stutter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecorativeOnly;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WantsToMove {
     pub entity: Entity,

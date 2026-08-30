@@ -26,8 +26,15 @@ impl State {
         self.pause_systems
             .execute(&mut self.ecs, &mut self.resources);
 
-        ctx.set_active_console(2);
-        ctx.print_color_centered(45, YELLOW, BLACK, "-- History --");
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        ctx.print_color_centered(2, YELLOW, BLACK, "-- History --");
+
+        // HUD_CONSOLE (~12px cells) for the body, matching every other
+        // pre-game screen's font bump - see title_screen's comment on the
+        // same change. Row numbers below are fresh picks for HUD_CONSOLE's
+        // 67-row grid, not a mechanical conversion of the old console 2
+        // values (which assumed a 100-row grid).
+        ctx.set_active_console(HUD_CONSOLE);
 
         // Cloned so the borrow of self.resources doesn't outlive this
         // point - every branch below mutates `self` (stats_view_mode or
@@ -49,7 +56,7 @@ impl State {
                     }
                 };
                 ctx.print_color_centered(
-                    46,
+                    8,
                     WHITE,
                     BLACK,
                     &format!(
@@ -60,7 +67,7 @@ impl State {
                     ),
                 );
                 ctx.print_color_centered(
-                    47,
+                    10,
                     WHITE,
                     BLACK,
                     &format!(
@@ -75,19 +82,28 @@ impl State {
                 classes.sort();
 
                 if classes.is_empty() {
-                    ctx.print_color_centered(50, GRAY, BLACK, "No games played yet.");
+                    ctx.print_color_centered(15, GRAY, BLACK, "No games played yet.");
                 } else {
                     // Fixed-width columns, printed via print_color_centered -
                     // every row (header included) formats to the exact same
                     // total length, so centering each line independently
                     // still lines every column up under the one above it.
-                    // Widths: "#) " (3) + Class (12) + Runs (6) + Won (6) +
-                    // Kills (7) + Dungeon Lvl (11) + Arena Lvl (10) = 55.
+                    // A literal " " separator sits between every field
+                    // (not just padding baked into the width specs) so a
+                    // value that grows to fill or exceed its column still
+                    // keeps a guaranteed gap from its neighbor instead of
+                    // running straight into it - padding alone only
+                    // guarantees a gap as long as nothing ever reaches the
+                    // column's width, which is exactly what looked too
+                    // tight before. Column widths also carry real headroom
+                    // now (Runs/Kills to 6/7 digits, Class to 14 chars)
+                    // rather than being sized to just barely fit today's
+                    // numbers.
                     let header = format!(
-                        "{:<3}{:<12}{:>6}{:>6}{:>7}{:>11}{:>10}",
+                        "{:<3} {:<14} {:>6} {:>6} {:>7} {:>11} {:>9}",
                         "", "Class", "Runs", "Won", "Kills", "Dungeon Lvl", "Arena Lvl"
                     );
-                    ctx.print_color_centered(49, YELLOW, BLACK, &header);
+                    ctx.print_color_centered(13, YELLOW, BLACK, &header);
 
                     for (i, class) in classes.iter().enumerate() {
                         let cs = &stats.per_class[class];
@@ -100,7 +116,7 @@ impl State {
                             "-".to_string()
                         };
                         let row = format!(
-                            "{:<3}{:<12}{:>6}{:>6}{:>7}{:>11}{:>10}",
+                            "{:<3} {:<14} {:>6} {:>6} {:>7} {:>11} {:>9}",
                             format!("{})", i + 1),
                             class,
                             cs.games_played,
@@ -109,17 +125,17 @@ impl State {
                             cs.deepest_level + 1,
                             arena_col,
                         );
-                        ctx.print_color_centered(50 + i as i32, WHITE, BLACK, &row);
+                        ctx.print_color_centered(15 + i as i32, WHITE, BLACK, &row);
                     }
                     ctx.print_color_centered(
-                        50 + classes.len() as i32 + 1,
+                        15 + classes.len() as i32 + 2,
                         GRAY,
                         BLACK,
                         "Press a number to see that class's ability usage",
                     );
                 }
                 ctx.print_color_centered(
-                    50 + classes.len() as i32 + 2,
+                    15 + classes.len().max(1) as i32 + 3,
                     GRAY,
                     BLACK,
                     "Press I for items used, ESC to go back",
@@ -146,7 +162,7 @@ impl State {
                 }
             }
             StatsViewMode::ClassAbilities(class) => {
-                ctx.print_color_centered(47, WHITE, BLACK, &format!("{} - Ability Usage", class));
+                ctx.print_color_centered(8, WHITE, BLACK, &format!("{} - Ability Usage", class));
 
                 let empty = ClassStats::default();
                 let cs = stats.per_class.get(&class).unwrap_or(&empty);
@@ -154,12 +170,12 @@ impl State {
                 abilities.sort_by(|a, b| a.0.cmp(b.0));
 
                 if abilities.is_empty() {
-                    ctx.print_color_centered(50, GRAY, BLACK, "No abilities used yet.");
+                    ctx.print_color_centered(13, GRAY, BLACK, "No abilities used yet.");
                 } else {
                     for (i, (name, count)) in abilities.iter().enumerate() {
                         ctx.print_color(
                             16,
-                            50 + i as i32,
+                            13 + i as i32,
                             WHITE,
                             BLACK,
                             &format!("{}: {}", name, count),
@@ -167,7 +183,7 @@ impl State {
                     }
                 }
                 ctx.print_color_centered(
-                    50 + abilities.len() as i32 + 2,
+                    13 + abilities.len() as i32 + 2,
                     GRAY,
                     BLACK,
                     "Press ESC to go back",
@@ -178,18 +194,18 @@ impl State {
                 }
             }
             StatsViewMode::ItemUsage => {
-                ctx.print_color_centered(47, WHITE, BLACK, "Items Used");
+                ctx.print_color_centered(8, WHITE, BLACK, "Items Used");
 
                 let mut items: Vec<(&String, &u32)> = stats.item_uses.iter().collect();
                 items.sort_by(|a, b| a.0.cmp(b.0));
 
                 if items.is_empty() {
-                    ctx.print_color_centered(50, GRAY, BLACK, "No items used yet.");
+                    ctx.print_color_centered(13, GRAY, BLACK, "No items used yet.");
                 } else {
                     for (i, (name, count)) in items.iter().enumerate() {
                         ctx.print_color(
                             16,
-                            50 + i as i32,
+                            13 + i as i32,
                             WHITE,
                             BLACK,
                             &format!("{}: {}", name, count),
@@ -197,7 +213,7 @@ impl State {
                     }
                 }
                 ctx.print_color_centered(
-                    50 + items.len() as i32 + 2,
+                    13 + items.len() as i32 + 2,
                     GRAY,
                     BLACK,
                     "Press ESC to go back",

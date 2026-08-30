@@ -117,8 +117,14 @@ pub struct ShopStock(pub i32);
 /// (quantity 5), then however many distinct abilities came up across 5
 /// random rolls with replacement - identical rolls are grouped into one
 /// stack (3 identical rolls become one entry with quantity 3, not three
-/// separate entries), so a class with fewer than 5 distinct techniques
-/// still shows a sensible small counter instead of padding it out.
+/// separate entries), so a class with fewer than 5 distinct abilities
+/// still shows a sensible small counter instead of padding it out. The
+/// ability pool covers BOTH in-battle Techniques and out-of-combat
+/// Effects (see class_ability_names_for_class) - previously it only drew
+/// from Techniques, so classes with Effect-based abilities (Rogue's
+/// Stealth, Amazon's Throw Spear/Poison Spear, Hunter's Shoot/Freeze
+/// Trap, Mage's Invisible Cloak/Ice Armor) could never have those show up
+/// in a shop no matter how many times this ran.
 pub fn roll_arena_shop_items(
     rng: &mut RandomNumberGenerator,
     class: &str,
@@ -137,7 +143,7 @@ pub fn roll_arena_shop_items(
 
     items.push(("Healing Potion".to_string(), 5));
 
-    let abilities = technique_names_for_class(class);
+    let abilities = class_ability_names_for_class(class);
     for _ in 0..5 {
         if abilities.is_empty() {
             break;
@@ -148,7 +154,7 @@ pub fn roll_arena_shop_items(
             None => items.push((name, 1)),
         }
     }
-    // A class with zero defined techniques (shouldn't happen for any of
+    // A class with zero defined abilities (shouldn't happen for any of
     // the 5 real classes, all of which have several) just sells no
     // abilities at all rather than panicking on an empty-range
     // rng.range call.

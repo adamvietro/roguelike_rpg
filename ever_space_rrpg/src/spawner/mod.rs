@@ -259,12 +259,14 @@ pub fn weapon_name_for_class_level(class: &str, level: usize) -> Option<String> 
     template.weapon_name_for_class_level(class, level)
 }
 
-/// Every technique name defined for `class` - see
-/// Templates::technique_names_for_class. Used by the Battle Arena shop to
-/// roll its 5 random ability slots.
-pub fn technique_names_for_class(class: &str) -> Vec<String> {
+/// Every ability name (Technique or Effect) defined for `class` - see
+/// Templates::class_ability_names_for_class. Used by the Battle Arena shop
+/// to roll its 5 random ability slots - deliberately broader than
+/// class_technique_names below, since the shop sells out-of-combat
+/// abilities too, not just in-battle Techniques.
+pub fn class_ability_names_for_class(class: &str) -> Vec<String> {
     let template = Templates::load();
-    template.technique_names_for_class(class)
+    template.class_ability_names_for_class(class)
 }
 
 pub fn spawn_amulet_of_yala(ecs: &mut World, pos: Point) {

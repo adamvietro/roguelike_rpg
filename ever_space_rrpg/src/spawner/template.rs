@@ -428,11 +428,41 @@ impl Templates {
     /// whether the player currently owns any copies - used by the battle
     /// menu to show a class's full technique roster with unowned ones
     /// greyed out, instead of only ever showing what's currently carried.
-    /// Preserves template.ron's file order.
+    /// Preserves template.ron's file order. Technique-only, deliberately -
+    /// the battle menu can only ever act on a Technique (an out-of-combat
+    /// Effect item like Stealth or Throw Spear isn't usable mid-battle at
+    /// all), so widening this to include Effects would list abilities
+    /// there that the menu could never actually let you use. See
+    /// class_ability_names_for_class below for the shop's broader version.
     pub fn technique_names_for_class(&self, class: &str) -> Vec<String> {
         self.entities
             .iter()
             .filter(|t| t.technique.is_some() && t.class.as_deref() == Some(class))
+            .map(|t| t.name.clone())
+            .collect()
+    }
+
+    /// Every distinct ABILITY name defined for `class` - both in-battle
+    /// Techniques (Deathblow, Fireball, ...) AND out-of-combat Effects
+    /// (Stealth, Throw Spear, Invisible Cloak, ...), as long as the
+    /// template has a `class:` tag. Used by the Battle Arena shop's ability
+    /// roll (see arena::roll_arena_shop_items) - unlike
+    /// technique_names_for_class above, the shop sells BOTH kinds of
+    /// ability, so restricting it to Techniques silently made every
+    /// Effect-based ability (an entire class's worth, for some classes -
+    /// Rogue's Stealth/Amazon's Throw Spear+Poison Spear/Hunter's Shoot+
+    /// Freeze Trap/Mage's Invisible Cloak+Ice Armor) impossible to ever
+    /// roll into a shop's stock, no matter how many times the RNG ran.
+    /// Weapons never match this filter even though they also carry a
+    /// `class:` tag - a weapon template has neither `technique` nor
+    /// `effect` set (only `base_damage`), so it's excluded automatically
+    /// rather than needing its own explicit exclusion check.
+    pub fn class_ability_names_for_class(&self, class: &str) -> Vec<String> {
+        self.entities
+            .iter()
+            .filter(|t| {
+                t.class.as_deref() == Some(class) && (t.technique.is_some() || t.effect.is_some())
+            })
             .map(|t| t.name.clone())
             .collect()
     }

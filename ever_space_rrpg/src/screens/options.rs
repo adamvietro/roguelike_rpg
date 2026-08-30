@@ -28,8 +28,15 @@ impl State {
         self.pause_systems
             .execute(&mut self.ecs, &mut self.resources);
 
-        ctx.set_active_console(2);
-        ctx.print_color_centered(45, YELLOW, BLACK, "-- Options --");
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        ctx.print_color_centered(2, YELLOW, BLACK, "-- Options --");
+
+        // HUD_CONSOLE (~12px cells) for the body, matching every other
+        // pre-game screen's font bump - see title_screen's comment on the
+        // same change. Row numbers are fresh picks for HUD_CONSOLE's
+        // 67-row grid, not a mechanical conversion of the old console 2
+        // values.
+        ctx.set_active_console(HUD_CONSOLE);
 
         match self.options_awaiting {
             None => {
@@ -39,7 +46,7 @@ impl State {
                         .get::<Keymap>()
                         .expect("Keymap resource missing");
                     for (i, action) in Action::ALL.iter().enumerate() {
-                        let row = 48 + i as i32;
+                        let row = 10 + i as i32;
                         let key_label = format!("{:?}", keymap.key_for(*action));
                         ctx.print_color(
                             30,
@@ -52,13 +59,13 @@ impl State {
                 } // keymap's borrow of self.resources ends here, before
                   // the possible self.resources.insert(...) below.
                 ctx.print_color_centered(
-                    48 + Action::ALL.len() as i32 + 1,
+                    10 + Action::ALL.len() as i32 + 2,
                     GRAY,
                     BLACK,
                     "Press R to reset all keys to defaults",
                 );
                 ctx.print_color_centered(
-                    48 + Action::ALL.len() as i32 + 2,
+                    10 + Action::ALL.len() as i32 + 3,
                     GRAY,
                     BLACK,
                     "Press ESC to go back",
@@ -86,12 +93,12 @@ impl State {
             }
             Some(action) => {
                 ctx.print_color_centered(
-                    48,
+                    10,
                     YELLOW,
                     BLACK,
                     &format!("Press a new key for {}...", action.label()),
                 );
-                ctx.print_color_centered(50, GRAY, BLACK, "(arrow keys or A-Z; ESC to cancel)");
+                ctx.print_color_centered(13, GRAY, BLACK, "(arrow keys or A-Z; ESC to cancel)");
 
                 match ctx.key {
                     Some(VirtualKeyCode::Escape) => {
