@@ -1,5 +1,6 @@
 #![warn(clippy::pedantic)]
 
+mod arena;
 mod battle;
 mod camera;
 mod components;
@@ -148,6 +149,7 @@ mod prelude {
     /// one thing that's changed since; the rest of this console's setup
     /// is otherwise identical in spirit to that first attempt.
     pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 10;
+    pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
     pub use crate::components::*;
@@ -202,6 +204,15 @@ struct State {
     /// screens/stats_view.rs. Same "plain State field, not a resource"
     /// reasoning as options_awaiting.
     stats_selected_class: Option<String>,
+    /// Which adventure type was picked at the new AdventureSelect screen
+    /// - read by class_select to decide whether to call start_game
+    /// (Dungeon Crawl) or start_arena (Battle Arena). Same "plain State
+    /// field, not a resource" reasoning as options_awaiting - this is
+    /// screen-navigation state, not anything a gameplay system reads.
+    /// Defaults to DungeonCrawl so the Debug hidden shortcut in
+    /// class_select (which can be reached without ever visiting
+    /// AdventureSelect, if that ever changes) keeps its old behavior.
+    adventure_mode: AdventureMode,
 }
 
 impl State {
@@ -217,6 +228,11 @@ impl State {
         // Option<Battle> at all, so its absence here was harmless; it no
         // longer is.
         resources.insert(None::<Battle>);
+        // Same reasoning as Option<Battle> just above -
+        // movement_system now reads Option<ShoppingActive> too (see
+        // systems/movement.rs's auto-pickup gate), so it must exist
+        // before the first background_movement_systems.execute() call.
+        resources.insert(None::<ShoppingActive>);
         // Loaded once here and re-inserted after every Resources::default()
         // reset point below (start_game/return_to_title also wipe every
         // resource) - Keymap::load reads from disk each time, so a rebind
@@ -238,6 +254,7 @@ impl State {
             options_awaiting: None,
             options_return_to: TurnState::TitleScreen,
             stats_selected_class: None,
+            adventure_mode: AdventureMode::DungeonCrawl,
         };
         state.spawn_title_background();
         state
@@ -274,6 +291,11 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
+        // Always present (see systems/end_turn.rs's Exit-tile branch) -
+        // None here means "this is an ordinary dungeon crawl", not
+        // "unknown". start_arena is the only place this is ever Some.
+        self.resources.insert(None::<ArenaRun>);
+        self.resources.insert(None::<ShoppingActive>);
 
         // Counts as "this class was chosen" the instant a run actually
         // begins, regardless of how it later ends (won, lost, or
@@ -281,6 +303,119 @@ impl State {
         let mut stats = Stats::load();
         stats.record_game_started(class);
         self.resources.insert(stats);
+    }
+
+    /// Builds a fresh Battle Arena run for `class` - the arena-mode
+    /// counterpart to start_game, called from class_select when
+    /// adventure_mode is BattleArena instead of DungeonCrawl. Rather than
+    /// a normal dungeon floor, this drops the player straight into the
+    /// starting shop (level 0 gear) - see MapBuilder::new_arena_shop.
+    /// Deliberately does NOT call grant_starting_items: in Arena mode the
+    /// shop itself is the player's starting kit, so granting the normal
+    /// dungeon-crawl kit on top would be a double allocation.
+    fn start_arena(&mut self, class: &str) {
+        self.ecs = World::default();
+        self.resources = Resources::default();
+        let mut rng = RandomNumberGenerator::new();
+        let (mut map_builder, item_points, shopkeeper_point) = MapBuilder::new_arena_shop(&mut rng);
+        // Player entity itself needs no further setup here (no starting
+        // kit to grant - see this fn's doc comment), so the return value
+        // is intentionally unused.
+        spawn_player(&mut self.ecs, map_builder.player_start, class);
+
+        // Shopkeeper - purely decorative for now (no dialogue/trade
+        // logic, the items themselves are what's interactive). Glyph
+        // 'W' was picked because it's the one letter glyph documented as
+        // "free and unassigned" in Dungeon_Font_Glyph_to_Cell_Map.md -
+        // every other letter already has real custom art for a class,
+        // enemy, or boss. Renders as a plain default 'W' until a future
+        // art pass draws real shopkeeper pixel art into that cell (row
+        // 5, col 7 - see the master map).
+        self.ecs.push((
+            Name("Shopkeeper".to_string()),
+            shopkeeper_point,
+            Render {
+                color: ColorPair::new(YELLOW, BLACK),
+                glyph: to_cp437('W'),
+            },
+        ));
+
+        let arena_run = ArenaRun { level: 1 };
+        self.stock_arena_shop(&item_points, class, arena_run.template_level());
+
+        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
+        map_builder.map.tiles[exit_idx] = TileType::Exit;
+
+        self.resources.insert(map_builder.map);
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(TurnState::AwaitingInput);
+        self.resources.insert(map_builder.theme);
+        self.resources.insert(None::<Battle>);
+        self.resources.insert(None::<BattleVictory>);
+        self.resources.insert(Keymap::load());
+        self.resources.insert(Some(arena_run));
+        self.resources.insert(Some(ShoppingActive));
+
+        let mut stats = Stats::load();
+        stats.record_game_started(class);
+        self.resources.insert(stats);
+    }
+
+    /// Places this shop's 11 items (1 weapon + 5 potions + 5 random
+    /// abilities) onto `item_points`, in the fixed order
+    /// MapBuilder::new_arena_shop documents. Split out of start_arena so
+    /// the next slice (a shop reached after a boss kill, not just the
+    /// starting one) can call this same logic against a freshly-built
+    /// shop map without duplicating the item-picking rules.
+    fn stock_arena_shop(&mut self, item_points: &[Point], class: &str, template_level: usize) {
+        let mut rng = RandomNumberGenerator::new();
+
+        if let Some(weapon_name) = weapon_name_for_class_level(class, template_level) {
+            spawn_named_item_at(&mut self.ecs, &weapon_name, item_points[0]);
+        }
+        // No weapon-name match is possible in principle (every playable
+        // class has a weapon at levels 0/1/2), but this silently leaves
+        // that point empty rather than panicking if template.ron is ever
+        // missing one for a new class - same "warn, don't crash" spirit
+        // as Templates::spawn_named_item's unknown-name handling.
+
+        for &pt in &item_points[1..=5] {
+            spawn_named_item_at(&mut self.ecs, "Healing Potion", pt);
+        }
+
+        let abilities = technique_names_for_class(class);
+        if !abilities.is_empty() {
+            for &pt in &item_points[6..=10] {
+                let name = &abilities[rng.range(0, abilities.len() as i32) as usize];
+                spawn_named_item_at(&mut self.ecs, name, pt);
+            }
+        }
+        // A class with zero defined techniques (shouldn't happen for any
+        // of the 5 real classes, all of which have several) just leaves
+        // its ability slots empty rather than panicking on an empty-range
+        // rng.range call.
+    }
+
+    /// Placeholder for stepping on the shop's stairs tile - see
+    /// TurnState::ArenaTransition. Wave/boss orchestration for what
+    /// should actually happen next (start Level 1's waves) hasn't been
+    /// built yet; this just confirms the handoff works and returns to
+    /// the title screen, so the shop itself (item layout, walking,
+    /// auto-pickup, stairs) is fully testable on its own before that
+    /// next piece exists.
+    fn arena_transition_tick(&mut self, ctx: &mut BTerm) {
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        ctx.print_color_centered(10, YELLOW, BLACK, "Shop complete!");
+        ctx.set_active_console(2);
+        ctx.print_color_centered(
+            60,
+            WHITE,
+            BLACK,
+            "(Arena waves aren't built yet - press ENTER to return to the title screen)",
+        );
+        if let Some(VirtualKeyCode::Return) = ctx.key {
+            self.return_to_title();
+        }
     }
 
     /// Tears down the current run (if any) and returns to the title
@@ -319,7 +454,9 @@ impl State {
         // background_movement_systems.execute() call, same reasoning as
         // State::new().
         self.resources.insert(None::<Battle>);
+        self.resources.insert(None::<ShoppingActive>);
         self.resources.insert(Keymap::load());
+        self.adventure_mode = AdventureMode::DungeonCrawl;
 
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {
@@ -449,6 +586,9 @@ impl GameState for State {
             TurnState::TitleScreen => {
                 self.title_screen(ctx);
             }
+            TurnState::AdventureSelect => {
+                self.adventure_select(ctx);
+            }
             TurnState::ClassSelect => {
                 self.class_select(ctx);
             }
@@ -476,6 +616,9 @@ impl GameState for State {
             }
             TurnState::BattleVictory => {
                 self.battle_victory_tick(ctx);
+            }
+            TurnState::ArenaTransition => {
+                self.arena_transition_tick(ctx);
             }
             TurnState::GameOver => {
                 self.game_over(ctx);

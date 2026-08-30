@@ -12,6 +12,7 @@ use crate::prelude::*;
 #[read_component(BattleItem)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
+#[read_component(AmuletOfYala)]
 pub fn player_input(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -19,6 +20,7 @@ pub fn player_input(
     #[resource] keymap: &Keymap,
     #[resource] turn_state: &mut TurnState,
     #[resource] battle: &mut Option<Battle>,
+    #[resource] shopping: &Option<ShoppingActive>,
 ) {
     let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
@@ -58,6 +60,7 @@ pub fn player_input(
                 VirtualKeyCode::Key8 => use_item(7, ecs, commands),
                 VirtualKeyCode::Key9 => use_item(8, ecs, commands),
                 VirtualKeyCode::Key0 => use_item(9, ecs, commands),
+                VirtualKeyCode::Return if shopping.is_some() => buy_nearby_item(ecs, commands),
                 _ => Point::new(0, 0),
             },
         };
@@ -129,6 +132,68 @@ pub fn player_input(
         };
         *turn_state = TurnState::PlayerTurn;
     }
+}
+
+/// Buys whichever shop item is on the player's own tile or directly
+/// (orthogonally) adjacent to it - the manual counterpart to
+/// movement.rs's auto-pickup, enabled only while ShoppingActive
+/// suppresses that automatic version (see player_input's Return match
+/// arm above). Free for now, same as every item this project has ever
+/// handed out - a real currency check is a later pass (see the project's
+/// Battle Arena backlog notes).
+///
+/// The arena shop's room layout (MapBuilder::new_arena_shop) places each
+/// item on its own column with a full walkable row directly below it,
+/// so standing anywhere in that row is adjacent to exactly one item -
+/// there's no ambiguity to resolve between two candidates in practice,
+/// but this still just takes the first match if that ever changes.
+fn buy_nearby_item(ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
+    let player = <(Entity, &Point)>::query()
+        .iter(ecs)
+        .find_map(|(entity, pos)| Some((*entity, *pos)));
+    let (player_entity, player_pos) = match player {
+        Some(p) => p,
+        None => return Point::zero(),
+    };
+
+    const ADJACENT: [Point; 5] = [
+        Point { x: 0, y: 0 },
+        Point { x: 0, y: -1 },
+        Point { x: 0, y: 1 },
+        Point { x: -1, y: 0 },
+        Point { x: 1, y: 0 },
+    ];
+
+    let item_entity = <(Entity, &Item, &Point)>::query()
+        .iter(ecs)
+        .filter(|(_, _, &pos)| ADJACENT.iter().any(|&d| pos == player_pos + d))
+        .filter(|(e, _, _)| {
+            ecs.entry_ref(**e)
+                .map(|entry| entry.get_component::<AmuletOfYala>().is_err())
+                .unwrap_or(true)
+        })
+        .map(|(e, _, _)| *e)
+        .next();
+
+    if let Some(item_entity) = item_entity {
+        commands.remove_component::<Point>(item_entity);
+        commands.add_component(item_entity, Carried(player_entity));
+
+        // Same one-equipped-weapon-at-a-time rule auto-pickup enforces -
+        // buying a new weapon discards whatever was previously carried.
+        if let Ok(item_entry) = ecs.entry_ref(item_entity) {
+            if item_entry.get_component::<Weapon>().is_ok() {
+                <(Entity, &Carried, &Weapon)>::query()
+                    .iter(ecs)
+                    .filter(|(_, c, _)| c.0 == player_entity)
+                    .for_each(|(e, _, _)| {
+                        commands.remove(*e);
+                    });
+            }
+        }
+    }
+
+    Point::zero()
 }
 
 fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {

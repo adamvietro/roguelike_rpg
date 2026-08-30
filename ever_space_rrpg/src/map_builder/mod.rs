@@ -88,6 +88,72 @@ impl MapBuilder {
         self.map.tiles.iter_mut().for_each(|t| *t = tile);
     }
 
+    /// Builds the Battle Arena's shop map: a small hand-built walled room
+    /// (not one of the three random MapArchitect layouts - a shop is a
+    /// fixed, deliberate layout, not something worth randomizing) with an
+    /// items row along the top, the player starting in the middle, and a
+    /// stairs point (returned via the usual `amulet_start` field, same
+    /// convention every other level already uses for "the special point
+    /// that becomes a TileType::Exit tile") along the bottom.
+    ///
+    /// Returns the MapBuilder, plus exactly 11 floor points for items (in
+    /// a fixed left-to-right order: index 0 is the weapon slot, 1..=5 are
+    /// the 5 potion slots, 6..=10 are the 5 ability slots), plus one
+    /// point for the shopkeeper NPC. The caller (State::start_arena /
+    /// State::enter_arena_shop) decides which named item template goes
+    /// at each item point and what to render at the shopkeeper point -
+    /// this function only lays out the room.
+    ///
+    /// Interior rows, top to bottom: 0 the shopkeeper (decorative, one
+    /// tile, centered), 1 the items row (11 columns), 2 the player's
+    /// start position (also directly below the row-1 item at the same
+    /// column, so the player starts already "in front of" that one item
+    /// without needing to move first), 3 a walkable gap, 4 the stairs.
+    pub fn new_arena_shop(_rng: &mut RandomNumberGenerator) -> (Self, Vec<Point>, Point) {
+        // Interior dimensions (inside the walls). 13 columns gives 11
+        // item columns (interior cols 1..=11) plus a 1-tile buffer on
+        // each side; 5 rows fits the shopkeeper/items/player-start/gap/
+        // stairs layout described above.
+        const INTERIOR_W: i32 = 13;
+        const INTERIOR_H: i32 = 5;
+        const ROOM_W: i32 = INTERIOR_W + 2;
+        const ROOM_H: i32 = INTERIOR_H + 2;
+
+        let x0 = (SCREEN_WIDTH - ROOM_W) / 2;
+        let y0 = (SCREEN_HEIGHT - ROOM_H) / 2;
+
+        let mut mb = Self {
+            map: Map::new(),
+            rooms: Vec::new(),
+            monster_spawns: Vec::new(),
+            player_start: Point::zero(),
+            amulet_start: Point::zero(),
+            theme: DungeonTheme::new(),
+            prefab_enemy_spawns: Vec::new(),
+            prefab_weapon_spawn: None,
+        };
+        mb.fill(TileType::Wall);
+        for y in (y0 + 1)..(y0 + ROOM_H - 1) {
+            for x in (x0 + 1)..(x0 + ROOM_W - 1) {
+                let idx = map_idx(x, y);
+                mb.map.tiles[idx] = TileType::Floor;
+            }
+        }
+
+        let interior_x = |col: i32| x0 + 1 + col;
+        let interior_y = |row: i32| y0 + 1 + row;
+
+        let shopkeeper_point = Point::new(interior_x(INTERIOR_W / 2), interior_y(0));
+        mb.player_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(2));
+        mb.amulet_start = Point::new(interior_x(INTERIOR_W / 2), interior_y(4));
+
+        let item_points: Vec<Point> = (0..11)
+            .map(|i| Point::new(interior_x(1 + i), interior_y(1)))
+            .collect();
+
+        (mb, item_points, shopkeeper_point)
+    }
+
     fn find_most_distant(&self) -> Point {
         let dijkstra_map = DijkstraMap::new(
             SCREEN_WIDTH,

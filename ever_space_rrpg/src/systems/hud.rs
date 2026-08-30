@@ -9,13 +9,21 @@ use crate::prelude::*;
 #[read_component(BattleItem)]
 #[read_component(Weapon)]
 #[read_component(Description)]
-pub fn hud(ecs: &SubWorld, #[resource] hud_mouse_pos: &HudMousePos) {
+pub fn hud(
+    ecs: &SubWorld,
+    #[resource] hud_mouse_pos: &HudMousePos,
+    #[resource] shopping: &Option<ShoppingActive>,
+) {
     let mut health_query = <&Health>::query().filter(component::<Player>());
     let player_health = health_query.iter(ecs).nth(0).unwrap();
 
     let mut draw_batch = DrawBatch::new();
     draw_batch.target(HUD_CONSOLE);
-    draw_batch.print_centered(1, "Explore the Dungeon. Cursor keys to move.");
+    if shopping.is_some() {
+        draw_batch.print_centered(1, "Stand next to an item, press ENTER to buy it.");
+    } else {
+        draw_batch.print_centered(1, "Explore the Dungeon. Cursor keys to move.");
+    }
     draw_batch.bar_horizontal(
         Point::zero(),
         HUD_COLS,

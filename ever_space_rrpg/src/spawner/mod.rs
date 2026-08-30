@@ -226,6 +226,29 @@ pub fn grant_starting_items(ecs: &mut World, player: Entity, class: &str) {
     }
 }
 
+/// Places a named item template on the floor at `pt` - see
+/// Templates::spawn_named_item_at. Used by the Battle Arena shop to lay
+/// out its weapon/potion/ability items for the player to walk onto.
+pub fn spawn_named_item_at(ecs: &mut World, name: &str, pt: Point) {
+    let template = Templates::load();
+    template.spawn_named_item_at(ecs, name, pt);
+}
+
+/// Which weapon template the arena shop should offer `class` at
+/// `level` - see Templates::weapon_name_for_class_level.
+pub fn weapon_name_for_class_level(class: &str, level: usize) -> Option<String> {
+    let template = Templates::load();
+    template.weapon_name_for_class_level(class, level)
+}
+
+/// Every technique name defined for `class` - see
+/// Templates::technique_names_for_class. Used by the Battle Arena shop to
+/// roll its 5 random ability slots.
+pub fn technique_names_for_class(class: &str) -> Vec<String> {
+    let template = Templates::load();
+    template.technique_names_for_class(class)
+}
+
 pub fn spawn_amulet_of_yala(ecs: &mut World, pos: Point) {
     ecs.push((
         Item,

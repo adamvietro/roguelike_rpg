@@ -206,7 +206,53 @@ impl State {
                 self.stats_selected_class = None;
                 self.resources.insert(TurnState::StatsView);
             } else {
-                self.resources.insert(TurnState::ClassSelect);
+                self.resources.insert(TurnState::AdventureSelect);
+            }
+        }
+    }
+
+    /// Dungeon Crawl vs. Battle Arena - the new step between the title
+    /// screen and class select. Sets `self.adventure_mode`, which
+    /// class_select reads to decide whether to call start_game or
+    /// start_arena once a class is picked. Shares the same decorative
+    /// background as title_screen/class_select.
+    pub fn adventure_select(&mut self, ctx: &mut BTerm) {
+        self.tick_background(ctx);
+
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        ctx.print_color_centered(6, YELLOW, BLACK, "Choose Your Adventure");
+
+        ctx.set_active_console(2);
+        ctx.print_color_centered(60, GREEN, BLACK, "1) Dungeon Crawl");
+        ctx.print_color_centered(
+            62,
+            WHITE,
+            BLACK,
+            "Explore a randomized dungeon, find the Amulet of Yala.",
+        );
+        ctx.print_color_centered(70, GREEN, BLACK, "2) Battle Arena");
+        ctx.print_color_centered(
+            72,
+            WHITE,
+            BLACK,
+            "Clear waves of enemies and bosses across 3 levels, shopping between each.",
+        );
+        ctx.print_color_centered(92, DARK_GRAY, BLACK, "(Esc to go back)");
+
+        if let Some(key) = ctx.key {
+            match key {
+                VirtualKeyCode::Key1 => {
+                    self.adventure_mode = AdventureMode::DungeonCrawl;
+                    self.resources.insert(TurnState::ClassSelect);
+                }
+                VirtualKeyCode::Key2 => {
+                    self.adventure_mode = AdventureMode::BattleArena;
+                    self.resources.insert(TurnState::ClassSelect);
+                }
+                VirtualKeyCode::Escape => {
+                    self.resources.insert(TurnState::TitleScreen);
+                }
+                _ => {}
             }
         }
     }
@@ -291,7 +337,10 @@ impl State {
 
         if let Some(key) = ctx.key {
             if let Some(entry) = CLASS_ROSTER.iter().find(|c| c.key == key) {
-                self.start_game(entry.name);
+                match self.adventure_mode {
+                    AdventureMode::DungeonCrawl => self.start_game(entry.name),
+                    AdventureMode::BattleArena => self.start_arena(entry.name),
+                }
             } else if key == VirtualKeyCode::D {
                 // Hidden dev shortcut - deliberately NOT a CLASS_ROSTER
                 // entry, so it never appears in the visible list or

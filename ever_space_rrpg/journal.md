@@ -2218,3 +2218,133 @@ Your hunch was exactly right — it was the Cellular Automata builder.
 
 I didn't just trust the type-check here — I wrote a throwaway test (removed before delivery) that generates 200 Automata maps across different seeds and verifies, via an independent plain BFS flood-fill (not reusing the same `DijkstraMap` tool the fix itself relies on), that every single floor tile is genuinely reachable from the player's start. All 200 pass. Ran the full test suite afterward too — clean.
 
+
+# Battle Arena
+This will be the setup to start.
+
+Good — that actually simplifies testing a lot, and it reuses more of what already exists than I expected. Updated plan:
+
+**Revised flow:**
+```
+Title → Adventure Select (Dungeon Crawl / Battle Arena) → Class Select
+                                                              │
+                                              (if Battle Arena chosen)
+                                                              ▼
+                                        Starting Shop — level 0 weapon, potions, abilities
+                                                              ▼
+                                     Level 1: wave(5) → wave(5) → wave(3) → Boss (Goblin Chieftain)
+                                                              ▼
+                                        Shop — level 1 weapon, potions, abilities
+                                                              ▼
+                                     Level 2: waves → Boss (Orc Warlord)
+                                                              ▼
+                                        Shop — level 2 weapon, potions, abilities
+                                                              ▼
+                                     Level 3: waves → Boss (Ettin Overlord) → Victory
+```
+
+Building the shop first is the right call — it's fully testable standalone (enter shop, walk around, grab items, hit stairs) before any wave/boss logic exists to feed into it.
+
+**What the shop actually needs, grounded in the real code:**
+- A new small walkable map (new `MapArchitect`, e.g. `ArenaShopArchitect` — a simple open room, no fog needed since shops are tiny anyway).
+- Floor items placed via a new small helper alongside `spawn_named_item` — same idea, but placed at a `Point` on the floor (`Item` + `Render` + `Point`, no `Carried`) so **auto-pickup already handles grabbing them**, no new pickup code needed.
+- **Weapon slot**: the class's own level-0 weapon (Rusty Sword for Barbarian, Wooden Staff for Mage, Rusty Dagger for Rogue, Wooden Spear for Amazon, Wooden Bow for Hunter) — found by filtering `template.ron` for `class == player's class && levels contains 0 && has base_damage`.
+- **5 potions**: 5 separate "Healing Potion" floor items (it's the only potion template that exists).
+- **5 abilities**: random picks *with repeats allowed* from `technique_names_for_class(class)` (already exists) — since these are one-time-use consumable techniques, owning multiple copies of the same one is normal, not a bug, especially since most classes only have 3–4 distinct techniques total.
+- A stairs tile that reuses the existing `TileType::Exit` step-on mechanic, branching (via the new `ArenaRun` resource's presence) to start Level 1's waves instead of `advance_level()`.
+
+I'll go read the map/tile/exit code now so the shop map I build actually fits the existing patterns instead of guessing.Now I have everything I need. Let me build this slice.Now `end_turn.rs`:Now the `State` struct field and initialization:Now insert `None::<ArenaRun>` into `start_game`, and reset `adventure_mode` in `return_to_title`:Now the core `start_arena` function, right after `start_game`:Now add the two new match arms in `tick()`:Now `screens/title.rs`:Now branch `class_select`'s key handler on `adventure_mode`:Now let's verify this actually compiles rather than eyeballing it.Hit the tool-call limit mid-verification, so here's where things stand:
+
+**Code written and in place** (in `/home/claude/project`, not yet delivered as files):
+1. `src/arena.rs` (new) — `AdventureMode` enum + `ArenaRun` resource
+2. `src/turn_state.rs` — added `AdventureSelect` and `ArenaTransition` variants
+3. `src/map_builder/mod.rs` — added `MapBuilder::new_arena_shop()` (hand-built walled room, 11 item points, stairs point via `amulet_start`)
+4. `src/spawner/template.rs` — added `spawn_named_item_at` (floor version of `spawn_named_item`) and `weapon_name_for_class_level`
+5. `src/spawner/mod.rs` — added wrapper functions for both plus `technique_names_for_class`
+6. `src/systems/end_turn.rs` — branches the Exit-tile handler on `ArenaRun` presence
+7. `src/screens/title.rs` — new `adventure_select` screen, `class_select` now branches to `start_game` vs `start_arena`
+8. `src/main.rs` — `start_arena`, `stock_arena_shop`, `arena_transition_tick` (placeholder screen), new `adventure_mode` field, resource wiring
+
+This should give you: Title → Adventure Select → Class Select → (if Battle Arena) a walkable shop room with a level-0 weapon + 5 potions + 5 random class abilities laid out on the floor, auto-pickup working via the existing system, and a stairs tile that currently shows a "waves aren't built yet" placeholder screen back to title.
+
+**Verification status — not yet clean.** I was compiling this against a scratch copy (never touching your real `Cargo.lock`) to actually confirm it builds, per the project's own rule about verifying non-trivial changes rather than eyeballing them. I hit the exact same known sandbox issue documented in your instructions: this sandbox only has rustc 1.75, and fetching fresh dependency versions pulled in a `rayon-core` release that now requires rustc 1.80+. I hadn't yet done the documented workaround (pinning `rayon`/`rayon-core` to older compatible versions in the scratch lockfile) to get past that and actually see whether *my new code* compiles cleanly.
+
+**So, honestly: I have not yet confirmed this compiles.** Everything above is written based on careful reading of the real code (module structure, component shapes, existing helper functions), but I don't want to hand it to you flagged as verified when it isn't yet. Next step is to redo the scratch-copy dependency pin and get a real `cargo check` result before I package these up as deliverable files — I'll pick that up next turn.
+
+Compiles clean except one warning. Let me fix that and confirm.Clean build, zero warnings, and confirmed your real `Cargo.lock` was never touched — same rayon-downgrade-in-a-scratch-copy trick documented from last session, reverted before anything gets delivered to you.
+
+Now let's package the changed/new files for delivery.**Verified: this compiles cleanly with zero warnings** (`cargo check` in a scratch copy, real `Cargo.lock` confirmed byte-identical afterward).
+
+**Files above — apply as follows:**
+
+| File                  | Destination               | Type                                     |
+| --------------------- | ------------------------- | ---------------------------------------- |
+| `arena.rs`            | `src/arena.rs`            | **New file** — full replacement/creation |
+| `turn_state.rs`       | `src/turn_state.rs`       | Modified — full replacement              |
+| `map_builder_mod.rs`  | `src/map_builder/mod.rs`  | Modified — full replacement              |
+| `spawner_template.rs` | `src/spawner/template.rs` | Modified — full replacement              |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`      | Modified — full replacement              |
+| `end_turn.rs`         | `src/systems/end_turn.rs` | Modified — full replacement              |
+| `title.rs`            | `src/screens/title.rs`    | Modified — full replacement              |
+| `main.rs`             | `src/main.rs`             | Modified — full replacement              |
+
+(Filenames got flattened for delivery since several share a name like `mod.rs` — rename them back to their destination filename when you paste them in.)
+
+**What this gets you to test right now:**
+Title → any key → **Adventure Select** (new screen, press 1 or 2) → Class Select → if you picked Battle Arena, you land directly in a small walled shop room with 11 items laid out on the floor: your class's level-0 weapon, 5 Healing Potions, and 5 random class abilities (repeats allowed — deliberate, since these are one-time-use consumables). Walk over anything to auto-pick it up (no new code there — it's the same auto-pickup system already in the game). Walk to the bottom of the room and step on the stairs tile; you'll see a plain "Shop complete! (Arena waves aren't built yet)" placeholder screen, confirming the exit-tile hookup works, then Enter returns you to the title screen.
+
+**What's deliberately stubbed:** stepping on the stairs doesn't start Level 1's waves yet — that's the next slice. `ArenaRun` currently only tracks `level`; `wave`/`boss_defeated` fields get added when I build wave orchestration.
+
+**Worth a quick sanity check on your end before we go further:** the weapon-lookup picks the *first* template in file order matching your class + level — for Barbarian at level 1 that's Shiny Sword (Huge Sword also matches level 1 but comes later in the file). If that's not the tier you want offered, it's a one-line fix in `weapon_name_for_class_level`'s filter, easy to adjust once you've actually seen it in-game.
+
+Once you've tried the shop, let me know how it looks/feels and we'll move on to wave orchestration (spawning the 5/5/3 waves + boss, and wiring the post-boss shop to reuse this same `stock_arena_shop` logic).
+
+## Shop Updates
+Locking these in now — proposal below, then I'll apply it directly to `template.ron`. We'll update the master glyph-map doc together before we wrap up tonight.
+
+**Proposed ability icons** (avoiding every glyph already claimed by a class/enemy/boss/weapon/item):
+
+| Class     | Ability         | Glyph | Why                                        |
+| --------- | --------------- | ----- | ------------------------------------------ |
+| Barbarian | Deathblow       | `D`   | initial                                    |
+|           | Quick Attack    | `Q`   | initial                                    |
+|           | Counter Attack  | `C`   | initial                                    |
+|           | Rend            | `R`   | initial                                    |
+| Mage      | Fireball        | `F`   | initial                                    |
+|           | Burn            | `b`   | initial (lowercase, `B`'s taken by Hunter) |
+|           | Invisible Cloak | `I`   | initial                                    |
+|           | Ice Armor       | `A`   | Armor                                      |
+| Rogue     | Garrote         | `≡`   | taut wire/rope                             |
+|           | Dodge           | `d`   | initial                                    |
+|           | Stealth         | `·`   | quiet/subtle dot                           |
+| Amazon    | Throw Spear     | `J`   | Javelin                                    |
+|           | Battle Cry      | `U`   | shout ("up")                               |
+|           | Poison Spear    | `P`   | initial (Poison)                           |
+| Hunter    | Shoot           | `H`   | Hunter's basic shot                        |
+|           | Poison Shot     | `p`   | pairs with Poison Spear                    |
+|           | Stun            | `±`   | dazed/chaotic                              |
+|           | Feint           | `f`   | initial                                    |
+
+`Victory`/`Defeat`/`Next Level` stay on `?` — those are Debug-class test items, not real player abilities.All 18 replaced cleanly. Let's verify and diff:Good, confirmed untouched as intended. Now let's make sure this RON file still parses and the game still compiles/loads it correctly (it's a runtime asset, not compiled Rust, but worth a sanity check on the RON syntax).Confirmed — verified with the actual `ron` crate parser (not just eyeballing), parses clean.**Verified: compiles clean, zero warnings.** `template.ron` also independently parsed with the real `ron` crate parser, so the new glyph literals (including the symbol ones — `≡`, `·`, `±`) are confirmed valid.
+
+**Apply as follows** (all full-file replacements):
+
+| File                 | Destination                   |
+| -------------------- | ----------------------------- |
+| `arena.rs`           | `src/arena.rs`                |
+| `map_builder_mod.rs` | `src/map_builder/mod.rs`      |
+| `movement.rs`        | `src/systems/movement.rs`     |
+| `player_input.rs`    | `src/systems/player_input.rs` |
+| `hud.rs`             | `src/systems/hud.rs`          |
+| `main.rs`            | `src/main.rs`                 |
+| `template.ron`       | `resources/template.ron`      |
+
+(`end_turn.rs`, `spawner_mod.rs`, `spawner_template.rs`, `title.rs`, `turn_state.rs` from earlier this session are unchanged — no need to re-apply those.)
+
+**What you'll see now:** enter the Battle Arena shop, and a `W` (shopkeeper) stands in a new row above the items. Walking over items no longer grabs them — you have to stand next to one and press **Enter** to buy it, and the HUD hint updates to say so. Every ability in the game also now has a distinct glyph instead of the shared `?` placeholder (table above) — none of them have real pixel art yet, this just reserves the codepoint so `template.ron` and the HUD/inventory listings show something distinguishable per ability instead of nineteen identical question marks.
+
+One thing to physically check when you playtest: I picked the shopkeeper's position and the "adjacent tile" buy-radius based on reading the room layout math, not by actually seeing it render — worth confirming the `W` doesn't visually overlap anything odd and that standing one tile below an item reliably buys *that* item and not a neighbor.
+
+Whenever you're ready to wrap up, just say so and I'll update the glyph map doc with all of tonight's changes (shopkeeper `W`, the 18 ability icons) and hand back a fresh instructions doc per the session-end protocol.
+
+## Add a Counter Stacks of Items

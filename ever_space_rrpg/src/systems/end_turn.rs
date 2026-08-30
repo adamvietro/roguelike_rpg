@@ -13,6 +13,7 @@ pub fn end_turn(
     commands: &mut CommandBuffer,
     #[resource] turn_state: &mut TurnState,
     #[resource] map: &Map,
+    #[resource] arena_run: &Option<ArenaRun>,
 ) {
     let mut player_hp = <(&Health, &Point)>::query().filter(component::<Player>());
     let mut amulet = <&Point>::query().filter(component::<AmuletOfYala>());
@@ -90,7 +91,11 @@ pub fn end_turn(
         }
         let idx = map.point2d_to_index(*pos);
         if map.tiles[idx] == TileType::Exit {
-            new_state = TurnState::NextLevel;
+            new_state = if arena_run.is_some() {
+                TurnState::ArenaTransition
+            } else {
+                TurnState::NextLevel
+            };
         }
     });
 

@@ -320,6 +320,51 @@ impl Templates {
         commands.flush(ecs);
     }
 
+    /// Same as spawn_named_item, but places the item on the floor at
+    /// `pt` instead of directly into `player`'s inventory - used by the
+    /// Battle Arena shop (State::start_arena / State::enter_arena_shop),
+    /// which wants items sitting on the ground for the player to walk
+    /// onto (auto-pickup already handles the rest, see
+    /// systems/movement.rs) rather than handed over instantly. Reuses
+    /// the same spawn_entity path every ambient floor item goes through,
+    /// so a shop weapon becomes a real equippable Weapon exactly like a
+    /// dungeon-floor one, and bypasses the same `prefab_only`/`levels`
+    /// gating spawn_named_item already bypasses - naming a weapon here
+    /// works even though every weapon in template.ron is prefab_only.
+    pub fn spawn_named_item_at(&self, ecs: &mut World, name: &str, pt: Point) {
+        let template = match self.entities.iter().find(|t| t.name == name) {
+            Some(t) => t,
+            None => {
+                println!("Warning: arena shop references unknown item '{}'", name);
+                return;
+            }
+        };
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        self.spawn_entity(&pt, template, &mut commands);
+        commands.flush(ecs);
+    }
+
+    /// Picks which weapon template the arena shop should offer `class` at
+    /// a given (0-indexed) template level - the first entry in file order
+    /// whose `class` matches and whose `levels` set contains `level` and
+    /// which actually has `base_damage` (i.e. is a real weapon, not a
+    /// potion/technique). Where a class has more than one weapon tagged
+    /// for the same level (e.g. Barbarian's Shiny Sword and Huge Sword
+    /// both include level 1), this deliberately just takes the first
+    /// match in file order rather than picking between them - fine for
+    /// this first pass, revisit if the shop ever needs to offer a choice
+    /// of weapons at the same tier.
+    pub fn weapon_name_for_class_level(&self, class: &str, level: usize) -> Option<String> {
+        self.entities
+            .iter()
+            .find(|t| {
+                t.class.as_deref() == Some(class)
+                    && t.levels.contains(&level)
+                    && t.base_damage.is_some()
+            })
+            .map(|t| t.name.clone())
+    }
+
     /// Every distinct technique name defined for `class`, regardless of
     /// whether the player currently owns any copies - used by the battle
     /// menu to show a class's full technique roster with unowned ones

@@ -13,6 +13,7 @@ pub fn movement(
     want_move: &WantsToMove,
     #[resource] map: &mut Map,
     #[resource] camera: &mut Camera,
+    #[resource] shopping: &Option<ShoppingActive>,
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -61,6 +62,11 @@ pub fn movement(
                     // handler in player_input.rs used, just triggered by
                     // the move landing instead of a separate keypress.
                     //
+                    // Suppressed entirely while ShoppingActive - an
+                    // arena shop's items are a deliberate choice (see
+                    // player_input.rs's new buy key), not something
+                    // walking past should sweep up.
+                    //
                     // The Amulet of Yala is deliberately EXCLUDED here,
                     // even though it has an Item component - it was never
                     // meant to be carried/inventory-managed, its entire
@@ -78,36 +84,38 @@ pub fn movement(
                     // stepping onto the amulet already triggered Victory
                     // that same turn, before the player could press G at
                     // all.
-                    let items_here: Vec<Entity> = <(Entity, &Item, &Point)>::query()
-                        .iter(ecs)
-                        .filter(|(_, _, &pos)| pos == want_move.destination)
-                        .filter(|(e, _, _)| {
-                            ecs.entry_ref(**e)
-                                .map(|entry| entry.get_component::<AmuletOfYala>().is_err())
-                                .unwrap_or(true)
-                        })
-                        .map(|(e, _, _)| *e)
-                        .collect();
-                    for item_entity in items_here {
-                        commands.remove_component::<Point>(item_entity);
-                        commands.add_component(item_entity, Carried(want_move.entity));
+                    if shopping.is_none() {
+                        let items_here: Vec<Entity> = <(Entity, &Item, &Point)>::query()
+                            .iter(ecs)
+                            .filter(|(_, _, &pos)| pos == want_move.destination)
+                            .filter(|(e, _, _)| {
+                                ecs.entry_ref(**e)
+                                    .map(|entry| entry.get_component::<AmuletOfYala>().is_err())
+                                    .unwrap_or(true)
+                            })
+                            .map(|(e, _, _)| *e)
+                            .collect();
+                        for item_entity in items_here {
+                            commands.remove_component::<Point>(item_entity);
+                            commands.add_component(item_entity, Carried(want_move.entity));
 
-                        // A picked-up Weapon replaces (discards) any
-                        // weapon already carried, same one-equipped-
-                        // weapon-at-a-time rule the old handler
-                        // enforced. This query still only sees
-                        // PREVIOUSLY-carried weapons, not the one just
-                        // queued above - CommandBuffer edits aren't
-                        // visible until flush, same deferred-command
-                        // reasoning the old handler relied on.
-                        if let Ok(item_entry) = ecs.entry_ref(item_entity) {
-                            if item_entry.get_component::<Weapon>().is_ok() {
-                                <(Entity, &Carried, &Weapon)>::query()
-                                    .iter(ecs)
-                                    .filter(|(_, c, _)| c.0 == want_move.entity)
-                                    .for_each(|(e, _, _)| {
-                                        commands.remove(*e);
-                                    });
+                            // A picked-up Weapon replaces (discards) any
+                            // weapon already carried, same one-equipped-
+                            // weapon-at-a-time rule the old handler
+                            // enforced. This query still only sees
+                            // PREVIOUSLY-carried weapons, not the one just
+                            // queued above - CommandBuffer edits aren't
+                            // visible until flush, same deferred-command
+                            // reasoning the old handler relied on.
+                            if let Ok(item_entry) = ecs.entry_ref(item_entity) {
+                                if item_entry.get_component::<Weapon>().is_ok() {
+                                    <(Entity, &Carried, &Weapon)>::query()
+                                        .iter(ecs)
+                                        .filter(|(_, c, _)| c.0 == want_move.entity)
+                                        .for_each(|(e, _, _)| {
+                                            commands.remove(*e);
+                                        });
+                                }
                             }
                         }
                     }

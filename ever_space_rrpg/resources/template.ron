@@ -104,7 +104,7 @@ Templates(
             // Battle loot only - levels:[] means this never appears as a
             // normal floor spawn, only via grant_random_battle_loot.
             entity_type: Item,
-            name : "Deathblow", glyph: '?', levels: [ ],
+            name : "Deathblow", glyph: 'D', levels: [ ],
             technique: Some(DamageMultiplier(2)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -112,7 +112,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Quick Attack", glyph: '?', levels: [ ],
+            name : "Quick Attack", glyph: 'Q', levels: [ ],
             technique: Some(MultiHit(2)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -120,7 +120,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Counter Attack", glyph: '?', levels: [ ],
+            name : "Counter Attack", glyph: 'C', levels: [ ],
             technique: Some(Counter(chance_percent: 65, multiplier: 3)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -130,7 +130,7 @@ Templates(
             // Replaces the old "Garrote" technique - same DamageOverTime
             // effect, just a new name.
             entity_type: Item,
-            name : "Rend", glyph: '?', levels: [ ],
+            name : "Rend", glyph: 'R', levels: [ ],
             technique: Some(DamageOverTime(damage: 2, turns: 3)),
             frequency: 0,
             class: Some("Barbarian"),
@@ -140,7 +140,7 @@ Templates(
             // Mage battle loot - same levels:[]/frequency:0 pattern as the
             // Barbarian techniques above (battle-loot only).
             entity_type: Item,
-            name : "Fireball", glyph: '?', levels: [ ],
+            name : "Fireball", glyph: 'F', levels: [ ],
             technique: Some(FlatDamage(2)),
             frequency: 0,
             class: Some("Mage"),
@@ -148,7 +148,7 @@ Templates(
         ),
         Template(
             entity_type: Item,
-            name : "Burn", glyph: '?', levels: [ ],
+            name : "Burn", glyph: 'b', levels: [ ],
             technique: Some(DamageOverTime(damage: 1, turns: 3)),
             frequency: 0,
             class: Some("Mage"),
@@ -162,7 +162,7 @@ Templates(
             // battle::resolve_enemy_attack. Numbers are a first guess,
             // easy to retune here with no code change.
             entity_type: Item,
-            name : "Ice Armor", glyph: '?', levels: [ ],
+            name : "Ice Armor", glyph: 'A', levels: [ ],
             effect: Some(IceArmor(defense_bonus: 2, attacks: 10)),
             frequency: 0,
             class: Some("Mage"),
@@ -178,7 +178,7 @@ Templates(
             // won, since it's explicitly an out-of-combat ability (see
             // components::Invisible / systems/player_input.rs).
             entity_type: Item,
-            name : "Invisible Cloak", glyph: '?', levels: [ ],
+            name : "Invisible Cloak", glyph: 'I', levels: [ ],
             effect: Some(Invisibility(20)),
             frequency: 0,
             class: Some("Mage"),
@@ -190,7 +190,7 @@ Templates(
             // Same DamageOverTime shape as Rend/Burn, just Rogue's own
             // numbers/name.
             entity_type: Item,
-            name : "Garrote", glyph: '?', levels: [ ],
+            name : "Garrote", glyph: '≡', levels: [ ],
             technique: Some(DamageOverTime(damage: 2, turns: 3)),
             frequency: 0,
             class: Some("Rogue"),
@@ -202,7 +202,7 @@ Templates(
             // spawner::class_base_stats) for 80% total while active - see
             // components::Evasion / battle::resolve_enemy_attack.
             entity_type: Item,
-            name : "Dodge", glyph: '?', levels: [ ],
+            name : "Dodge", glyph: 'd', levels: [ ],
             technique: Some(Evade(chance_percent: 70, turns: 3)),
             frequency: 0,
             class: Some("Rogue"),
@@ -216,7 +216,7 @@ Templates(
             // components::Stealthed / systems/player_input.rs /
             // battle::Battle::sneak_attack.
             entity_type: Item,
-            name : "Stealth", glyph: '?', levels: [ ],
+            name : "Stealth", glyph: '·', levels: [ ],
             effect: Some(Stealth(20)),
             frequency: 0,
             class: Some("Rogue"),
@@ -296,7 +296,7 @@ Templates(
             // also granted x1 in the Amazon starting kit (see
             // resources/starting_kits.ron), which bypasses these filters.
             entity_type: Item,
-            name : "Throw Spear", glyph: '?', levels: [ ],
+            name : "Throw Spear", glyph: 'J', levels: [ ],
             effect: Some(RangedStrike(2)),
             frequency: 0,
             class: Some("Amazon"),
@@ -308,7 +308,7 @@ Templates(
             // Deliberately a random 1-2 reduction per hit, per design -
             // the one effect in this project that isn't a flat number.
             entity_type: Item,
-            name : "Battle Cry", glyph: '?', levels: [ ],
+            name : "Battle Cry", glyph: 'U', levels: [ ],
             technique: Some(WarCry(min_reduction: 1, max_reduction: 2, attacks: 3)),
             frequency: 0,
             class: Some("Amazon"),
@@ -320,7 +320,7 @@ Templates(
             // plus a lingering wound, reusing the same DamageOverTime
             // machinery Rend/Burn/Garrote already use for the DOT half.
             entity_type: Item,
-            name : "Poison Spear", glyph: '?', levels: [ ],
+            name : "Poison Spear", glyph: 'P', levels: [ ],
             technique: Some(PoisonStrike(initial: 1, dot_damage: 2, dot_turns: 3)),
             frequency: 0,
             class: Some("Amazon"),
@@ -374,7 +374,7 @@ Templates(
             // systems/use_items.rs. Damages the nearest visible enemy
             // for weapon + base damage + 1, no fight starts.
             entity_type: Item,
-            name : "Shoot", glyph: '?', levels: [ ],
+            name : "Shoot", glyph: 'H', levels: [ ],
             effect: Some(RangedStrike(1)),
             frequency: 0,
             class: Some("Hunter"),
@@ -401,7 +401,7 @@ Templates(
             // exact same DOT machinery Rend/Burn/Garrote already use -
             // no code change needed, just this data entry.
             entity_type: Item,
-            name : "Poison Shot", glyph: '?', levels: [ ],
+            name : "Poison Shot", glyph: 'p', levels: [ ],
             technique: Some(DamageOverTime(damage: 2, turns: 3)),
             frequency: 0,
             class: Some("Hunter"),
@@ -414,7 +414,7 @@ Templates(
             // "enemy skips its attack" mechanic Feint below uses
             // guaranteed-but-briefer.
             entity_type: Item,
-            name : "Stun", glyph: '?', levels: [ ],
+            name : "Stun", glyph: '±', levels: [ ],
             technique: Some(Stun(chance_percent: 60, turns: 3)),
             frequency: 0,
             class: Some("Hunter"),
@@ -427,7 +427,7 @@ Templates(
             // single attack - played instead of attacking, to sit out
             // one hit for free rather than gambling on Defend.
             entity_type: Item,
-            name : "Feint", glyph: '?', levels: [ ],
+            name : "Feint", glyph: 'f', levels: [ ],
             technique: Some(Feint),
             frequency: 0,
             class: Some("Hunter"),
