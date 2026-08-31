@@ -107,32 +107,6 @@ out-of-combat use (Effect, used once from the item list). A true passive
 system whenever the first one of these actually gets built.
 
 
-## Battle Arena
-This will be a wave based dungeon style it will just be a circular dungeon where you need to kill all the enemies in order to advance. There will be a Store where you can buy abilities and potions. 
-
-There will be increasingly difficult enemies and numbers. You can finish the last wave before the store by killing the Boss of the arena. Killing the boss will then move you to an Item shop that will have abilities and Potions for sale.
-
-Starting Kits for this will need to be set very carefully. As you will not have much of a chance for potions within the arena. 
-
-I want to be sure that the entire area is within LOS so that the player can see all the enemies. They will need to be spawned at the edge of the arena. 
-
-We will need to add in the ability to choose the adventure type. We will need to add an other screen/map for the shop. The shop could just be a screen but I like the idea of moving around the shop then heading to the stairs to move to the next set of waves.
-
-5 level 1 enemies, 5 level 1 enemies, 3 level 1 enemies then the level 1 boss. 
-
-Item shop. 
-Has level level 2 sword, 5 potions, and 5 random abilities. To start the player will be able to buy everything we can work on ways to buy stuff later. 
-
-Then we repeat the process for the second level but with level 2 enemies and the level 2 boss
-
-Item Shop with level 3 sword 5 potions, 5 random abilities
-
-Then repeat for level 3 enemies, when you kill the final boss of the level 3 you win.
-
-### Shop
-Smaller map outside or a forest theme.
-Replace enemy drops with gold to buy items from the Shop
-
 ## Multi Battle
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
 
@@ -300,11 +274,39 @@ More Prefabs
 Starting Items
 Bosses will guarantee Loot.
 
-### Battle Arena
+## Battle Arena Mode
 Starting gold and then no drops from the enemies.
 Each ability will need a cost
 Potions will need a cost
 Weapons will need a cost
+
+### Idea
+This will be a wave based dungeon style it will just be a circular dungeon where you need to kill all the enemies in order to advance. There will be a Store where you can buy abilities and potions. 
+
+There will be increasingly difficult enemies and numbers. You can finish the last wave before the store by killing the Boss of the arena. Killing the boss will then move you to an Item shop that will have abilities and Potions for sale.
+
+Starting Kits for this will need to be set very carefully. As you will not have much of a chance for potions within the arena. 
+
+I want to be sure that the entire area is within LOS so that the player can see all the enemies. They will need to be spawned at the edge of the arena. 
+
+We will need to add in the ability to choose the adventure type. We will need to add an other screen/map for the shop. The shop could just be a screen but I like the idea of moving around the shop then heading to the stairs to move to the next set of waves.
+
+5 level 1 enemies, 5 level 1 enemies, 3 level 1 enemies then the level 1 boss. 
+
+Item shop. 
+Has level level 2 sword, 5 potions, and 5 random abilities. To start the player will be able to buy everything we can work on ways to buy stuff later. 
+
+Then we repeat the process for the second level but with level 2 enemies and the level 2 boss
+
+Item Shop with level 3 sword 5 potions, 5 random abilities
+
+Then repeat for level 3 enemies, when you kill the final boss of the level 3 you win.
+
+### Shop
+Smaller map outside or a forest theme.
+Replace enemy drops with gold to buy items from the Shop
+
+
 
 ---
 

@@ -2617,3 +2617,24 @@ Good catch — I added gold but never actually removed the old ability-drop loot
 
 Dungeon Crawl is untouched — no `Gold` component ever exists there, so that branch behaves identically to before.
 
+# Icons For Abilities
+Let me first check the actual sprite sheet to see the existing art style, since that should shape my recommendation.Good question — let me actually look at what's already in the sprite sheet first, since that should drive the answer.Here's a look at the style already in your sheet (weapons, classes, bosses):That confirms two things worth knowing before we pick a workflow:
+
+1. **The existing art is genuinely detailed** — shading, gradients, a real color palette, not simple flat 4-color pixel art. Anything new needs to hold up next to that or it'll look like an obvious mismatch on the sheet.
+2. **The reserved cells are still true placeholders** (confirmed: 2-color, just the default glyph) — so we're starting from a clean cell every time, no cleanup needed first.
+
+Given that, here's my honest take on your two options:
+
+**"Describe it and I draw it" won't get you this quality.** I can write code that composites images and manipulates pixels precisely, but I can't hand-paint shading and detail at this level from a text description alone — anything I generate that way (geometric shapes via code) would come out flat and simple, and it would visibly clash with everything else on this sheet.
+
+**Reference images per icon is the better path**, and it's actually already how your own Editing Rules are written (Section 36 — reference images take precedence). If you give me a picture that captures the concept for each ability, I can:
+- Crop/resize/recolor it to fit the 32×32 cell and match the sheet's existing palette and pixel density
+- Clear only that exact cell, composite the new art in
+- Pixel-diff the whole sheet afterward to confirm nothing outside that cell moved
+- Update the master map doc at the end, per Section 37
+
+One note: the reference should be something you have rights to use, or just loose stylistic inspiration (a mood/color/pose reference) rather than a copyrighted game asset I'd be directly copying — I can take style cues from something but I won't reproduce someone else's art wholesale.
+
+There are **19 open icons** total (18 abilities + the Shopkeeper) — that's a lot to do in one blind batch, so I'd suggest going a handful at a time so you can sign off on style/fit before we commit to the rest.
+
+All Icons are set and done.
