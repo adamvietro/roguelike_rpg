@@ -111,12 +111,6 @@ system whenever the first one of these actually gets built.
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
 
 
-# ATB
-Different speed modes
-Different modes (full atb and standard)
-Yellow outline when its your turn
-
-
 # Dungeon Shop
 Replace most of the dungeon items with a shop at the end of floors that you can buy items from.
 Mobs will need to drop gold. 
@@ -135,6 +129,8 @@ Sounds and Music
 
 # Done
 
+---
+
 ## HUD
 Better UI for attacks
 HUD Battle Item Tool Tip.
@@ -143,6 +139,8 @@ Hotkeys for abilities
 Different colors for active states of the player
 Better Winning Screen.
 Better Death Screen.
+
+---
 
 ## Battle Screen
 Have a Battle Victory Screen to show the items that you won.
@@ -160,7 +158,9 @@ Wiggle when attacking
 
 ### ATB Battle System
 Implemented with starting ATB value. 
-
+Different speed modes
+Different modes (full atb and standard)
+Yellow outline when its your turn
 
 
 ### Bosses
@@ -182,6 +182,9 @@ Defense Stat 1 defense is a lot right now so might need to make a negative attac
 ## Player Animations
 Flash on hit
 More fluid motion
+Animations that can have up-to 4 different idle animations icons,
+
+---
 
 ## Classes
 Each class will have default abilities that will need to be always available.
@@ -275,23 +278,34 @@ Freeze Trap - x2
 Potion - x1
 Shoot - x1
 
+---
+
 ## Dungeon
 Auto pick-up items
 
+---
 
 ## Options
 Title Screen
 Start Screen for the game where you can pick a class.
 Pause screen when pressing esc
 esc on the title screen to quit the game
+Battle Speed
+ATB Mode
+
+---
 
 ## Map
 Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.
 More Prefabs
 
+---
+
 ## Balance
 Starting Items
 Bosses will guarantee Loot.
+
+---
 
 ## Battle Arena Mode
 Starting gold and then no drops from the enemies.
@@ -348,3 +362,8 @@ Keep track of the furthest reached by class
 
 ### Abilities
 Any time you use an ability be sure to keep track of it by class.
+
+
+---
+
+## Multi-Enemy Battles

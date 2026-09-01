@@ -22,7 +22,6 @@ impl State {
         player_render: Option<Render>,
         enemy_flash: Option<(FlashKind, f32)>,
         player_flash: Option<(FlashKind, f32)>,
-        player_can_act: bool,
     ) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
@@ -129,22 +128,8 @@ impl State {
             }
         }
         if let Some(render) = player_render {
-            // "You can act" tint takes priority visually only when no
-            // flash is active - an Attacking/Hit flash is a brief,
-            // meaningful event and shouldn't be silently overridden by
-            // the longer-lived "can act" state (in practice the two
-            // rarely overlap anyway, since PlayerMenu is a calm waiting
-            // beat, not one where the player was just hit or just
-            // attacked). See battle_tick's own player_can_act comment
-            // for what this state actually means in each ATB mode.
-            let flash_color = flash_tint(render.color, player_flash);
-            let color = if player_flash.is_none() && player_can_act {
-                ColorPair::new(YELLOW, flash_color.bg)
-            } else {
-                flash_color
-            };
             let tinted = Render {
-                color,
+                color: flash_tint(render.color, player_flash),
                 glyph: render.glyph,
             };
             if !draw_wiggling_portrait(&mut wiggle, 1, 3, tinted, player_flash) {
@@ -446,23 +431,33 @@ impl State {
 
         let enemy_render = entity_render_component(&self.ecs, battle.enemy);
         let player_render = entity_render_component(&self.ecs, battle.player);
-        // "You can act" tint: whenever battle.turn == PlayerMenu - i.e.
-        // whenever player_gauge is at max, in EITHER ATB mode - the
-        // player's own portrait glyph is recolored yellow instead of
-        // framed with a separate outline box. In Wait mode this reads as
-        // "it's your turn"; in Active/True ATB mode (see AtbMode) it
-        // reads as "you have the option to attack RIGHT NOW, and the
-        // enemy's gauge is still moving" - same underlying state either
-        // way, since PlayerMenu is only ever entered once player_gauge
-        // reaches ATB_GAUGE_MAX regardless of mode.
-        let player_can_act = battle.turn == BattleTurn::PlayerMenu;
         self.draw_battle_arena(
             enemy_render,
             player_render,
             battle.enemy_flash,
             battle.player_flash,
-            player_can_act,
         );
+
+        // --- "You can act" indicator: whether the player can issue an
+        // action RIGHT NOW - either a normal open PlayerMenu, or (True
+        // ATB only) the queuing window during the enemy's own
+        // ActionResult (see Battle::queued_player_action's doc comment).
+        // Drives the Actions box border color below (green normally,
+        // yellow while this is true) rather than tinting the player's
+        // own portrait - a portrait tint turned out to read as a stray
+        // color change with no clear meaning, and worse, it silently
+        // went dark again the instant the enemy interrupted (turn moved
+        // off PlayerMenu) even though - under True ATB - the player
+        // could very much still act in that moment via queuing. The box
+        // color is checked here, once, against the SAME condition that
+        // actually gates input capture in both spots below (PlayerMenu's
+        // own key handling and ActionResult(Enemy)'s queuing capture),
+        // so it can never drift out of sync with what's actually
+        // interactive.
+        let player_can_act = battle.turn == BattleTurn::PlayerMenu
+            || (atb_mode == AtbMode::Active
+                && battle.queued_player_action.is_none()
+                && battle.player_gauge >= ATB_GAUGE_MAX);
 
         // --- Text: name + HP bar anchored next to each portrait, and a
         // message/menu panel centered in the gap between them.
@@ -745,13 +740,21 @@ impl State {
 
         let mut menu_batch = DrawBatch::new();
         menu_batch.target(HUD_CONSOLE);
+        // Border color reflects player_can_act (see its own doc comment
+        // above) - yellow whenever the player can issue an action right
+        // now, green otherwise. Replaces the earlier attempt at tinting
+        // the player's own portrait, which read as an unexplained color
+        // change and, worse, dropped out the instant the enemy
+        // interrupted even when queuing (True ATB) still meant the
+        // player could act.
+        let box_border_color = if player_can_act { YELLOW } else { GREEN };
         draw_ascii_box(
             &mut menu_batch,
             BOX_X,
             box_y,
             box_width,
             box_height,
-            ColorPair::new(GREEN, BLACK),
+            ColorPair::new(box_border_color, BLACK),
         );
         menu_batch.submit(0).expect("Batch error");
 
@@ -898,7 +901,7 @@ impl State {
         };
 
         let player_render = entity_render_component(&self.ecs, victory.player);
-        self.draw_battle_arena(None, player_render, None, None, false);
+        self.draw_battle_arena(None, player_render, None, None);
 
         ctx.set_active_console(2);
         ctx.print_color_centered(

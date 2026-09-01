@@ -2768,3 +2768,12 @@ Let me check what actually happened — that shouldn't have compiled clean on my
 Let me know when you want to get back to those, or if there's more fallout from the ATB work to chase down first.
 
 ### Change to Yellow Box Instead of Icon Yellow Tint
+Let's view both relevant regions before editing.Now let's revert the portrait tint and remove the `player_can_act` parameter:Now update the call sites and the `player_can_act` computation to the fuller condition:Good, already in scope earlier in the function. Now let's find and update the Actions box border color:Now let's fix the `battle_victory_tick` call site that still passes the removed 5th argument:Now let's compile-check.Clean compile, zero warnings.Braces balanced, lockfile untouched.**Modified:** `src/screens/battle.rs` only.
+
+- Reverted the player portrait to its plain color always — no tint.
+- The Actions box border now turns yellow whenever `player_can_act` is true, green otherwise — using the fuller condition (`PlayerMenu` open, OR True ATB's queuing window is available), not just "menu is open." Since that same condition already gates the actual key-handling in both `PlayerMenu` and `ActionResult(Enemy)`, the box color can't drift out of sync with what's actually interactive again.
+- `draw_battle_arena` no longer takes a `player_can_act` parameter — cleaned up both call sites.
+
+Verified with `cargo check` (clean, zero warnings) and manually re-confirmed the brace balance on this file before shipping, given the miss last time. Real `Cargo.lock` unchanged.
+
+## f
