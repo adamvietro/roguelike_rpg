@@ -2776,4 +2776,92 @@ Let's view both relevant regions before editing.Now let's revert the portrait ti
 
 Verified with `cargo check` (clean, zero warnings) and manually re-confirmed the brace balance on this file before shipping, given the miss last time. Real `Cargo.lock` unchanged.
 
-## f
+
+
+# Multi-Enemy Battles
+More than 1 enemy in a battle.
+
+## Idea
+### Triggering a battle
+any enemy that is in the space of the entity that is initiating battle will be in the battle.
+
+### ATB
+I would think that you will have to have each enemy have their own atb bar. Then whomever fills the bar first will get to attack. 
+
+### Player enemy choice
+I think the only thing that makes this hard is that the player will not really be able to choose who they attack. 
+
+### AOE Attacks
+When we get to AOE attacks the AOE attack will just hurt all enemies that are within the battle
+
+### Battle Screen
+This will also be a real problem and might make it so that we need to limit the number of enemies that will be in the battle.
+
+We will need to make it so we can see 3-4 enemies on the right side of the screen, we will also need to have the ATB bar and the health bar next to the enemy as well. This will need to be scalable to at least 3-4 enemies.
+
+Good call dropping the WASD dual-bind — simpler backlog. Before I ask anything, let me check a couple of things in the current code that affect what's actually possible here — specifically whether enemies can even occupy the same tile today, since your whole trigger condition depends on that.Good questions to nail down before touching code — and one thing I found while checking the current collision logic that actually changes the shape of this a bit. Let me share that first, then my questions.
+
+**What I found:** Enemies currently *can't* stack on the same tile at all, except by accident. Both `chasing.rs` and `random_move.rs` treat any other Health-bearing entity at a destination tile as a blocker — an enemy stepping toward a tile another enemy already occupies just bounces off it like a wall (only the *player's* tile triggers a battle instead of blocking). The only way two enemies could currently end up on the same tile is a same-tick race: two enemies on opposite sides of the player, both independently pathing to the same empty tile in the same monster-turn pass, neither aware the other is about to land there too. That's a rare accident, not a real mechanic.
+
+So: **do you want me to deliberately change enemy movement so they'll actively converge and stack (up to the cap) on top of each other** — e.g., an enemy that reaches a tile already holding 1-3 other enemies just joins them instead of treating it as blocked? Without that change, "gang up on the player" will almost never actually happen in real play, which would make most of this session's work moot.
+
+My other questions, all genuinely load-bearing for how I structure `Battle`:
+
+**1. Exact enemy cap.** You said "3-4" — I need a firm number for the data structures and layout. I'd lean toward **4**. If more than the cap ever end up on one tile (e.g., from the movement change above), what happens to the extras — do they just sit out of this fight (stay on the map, get pulled into the next one), or should the cap be enforced earlier so more than 4 can never occupy one tile at all?
+
+**2. Auto-target selection.** Since the player can't pick who they hit, I need a concrete rule for Attack and any other single-target action. Three reasonable options:
+   - **Frontmost/stable order** — always hit whoever's first in the battle's enemy list (however they joined), like a front line. Predictable, and matches whatever visual order they're drawn in.
+   - **Lowest current HP** — always finish off the weakest one first.
+   - **Random** each time.
+   
+   I'd default to frontmost (simplest, and the panel visually tells you who's next), but this changes the whole feel of multi-enemy fights, so it's worth you picking.
+
+**3. Multiple enemies acting back-to-back.** With N independent gauges, more than one enemy can be "ready" while another's result is still showing. My plan: they just queue up in a stable order and each gets a full turn, one after another — so a fast group could feasibly get 2-3 attacks in a row before you get another window. Is that acceptable, or do you want a cap on consecutive enemy actions before the player is guaranteed another turn?
+
+**4. True ATB queuing with multiple enemies.** I'd extend the existing "queue your next move while an enemy's result plays" fix to apply while *any* enemy's result is showing — but still only one queued action at a time (not a stacked combo of several). OK, or did you want to be able to queue more than one move ahead?
+
+**5. Visual scope.** I'd keep a single-enemy battle looking exactly like it does today (one big portrait, current layout) and only switch to the new stacked-column layout once there are 2+ enemies — so the common case is visually untouched. Confirm that's fine?
+
+**6. Enemy AI scope for this pass.** Every enemy in a group still just does a plain Attack, same as a solo enemy does today — no per-enemy ability variety yet (that'd be a later addition). Confirming that's the intended scope, not something to build now.
+
+One more structural note, not really a question: statuses (Stun, Dot) currently live as one shared `Battle.enemy_statuses` field, since there's only ever been one enemy. Multi-enemy needs this to become per-enemy (so you could poison one and stun another independently) — that's a pure implementation consequence of what you've described, not a design fork, so I'll just build it that way unless you had something different in mind.
+
+## More Feedback
+Good call dropping the WASD dual-bind — simpler backlog. Before I ask anything, let me check a couple of things in the current code that affect what's actually possible here — specifically whether enemies can even occupy the same tile today, since your whole trigger condition depends on that.Good questions to nail down before touching code — and one thing I found while checking the current collision logic that actually changes the shape of this a bit. Let me share that first, then my questions.
+
+**What I found:** Enemies currently *can't* stack on the same tile at all, except by accident. Both `chasing.rs` and `random_move.rs` treat any other Health-bearing entity at a destination tile as a blocker — an enemy stepping toward a tile another enemy already occupies just bounces off it like a wall (only the *player's* tile triggers a battle instead of blocking). The only way two enemies could currently end up on the same tile is a same-tick race: two enemies on opposite sides of the player, both independently pathing to the same empty tile in the same monster-turn pass, neither aware the other is about to land there too. That's a rare accident, not a real mechanic.
+
+So: **do you want me to deliberately change enemy movement so they'll actively converge and stack (up to the cap) on top of each other** — e.g., an enemy that reaches a tile already holding 1-3 other enemies just joins them instead of treating it as blocked? Without that change, "gang up on the player" will almost never actually happen in real play, which would make most of this session's work moot.
+
+My other questions, all genuinely load-bearing for how I structure `Battle`:
+
+**1. Exact enemy cap.** You said "3-4" — I need a firm number for the data structures and layout. I'd lean toward **4**. If more than the cap ever end up on one tile (e.g., from the movement change above), what happens to the extras — do they just sit out of this fight (stay on the map, get pulled into the next one), or should the cap be enforced earlier so more than 4 can never occupy one tile at all?
+
+**2. Auto-target selection.** Since the player can't pick who they hit, I need a concrete rule for Attack and any other single-target action. Three reasonable options:
+   - **Frontmost/stable order** — always hit whoever's first in the battle's enemy list (however they joined), like a front line. Predictable, and matches whatever visual order they're drawn in.
+   - **Lowest current HP** — always finish off the weakest one first.
+   - **Random** each time.
+   
+   I'd default to frontmost (simplest, and the panel visually tells you who's next), but this changes the whole feel of multi-enemy fights, so it's worth you picking.
+
+**3. Multiple enemies acting back-to-back.** With N independent gauges, more than one enemy can be "ready" while another's result is still showing. My plan: they just queue up in a stable order and each gets a full turn, one after another — so a fast group could feasibly get 2-3 attacks in a row before you get another window. Is that acceptable, or do you want a cap on consecutive enemy actions before the player is guaranteed another turn?
+
+**4. True ATB queuing with multiple enemies.** I'd extend the existing "queue your next move while an enemy's result plays" fix to apply while *any* enemy's result is showing — but still only one queued action at a time (not a stacked combo of several). OK, or did you want to be able to queue more than one move ahead?
+
+**5. Visual scope.** I'd keep a single-enemy battle looking exactly like it does today (one big portrait, current layout) and only switch to the new stacked-column layout once there are 2+ enemies — so the common case is visually untouched. Confirm that's fine?
+
+**6. Enemy AI scope for this pass.** Every enemy in a group still just does a plain Attack, same as a solo enemy does today — no per-enemy ability variety yet (that'd be a later addition). Confirming that's the intended scope, not something to build now.
+
+One more structural note, not really a question: statuses (Stun, Dot) currently live as one shared `Battle.enemy_statuses` field, since there's only ever been one enemy. Multi-enemy needs this to become per-enemy (so you could poison one and stun another independently) — that's a pure implementation consequence of what you've described, not a design fork, so I'll just build it that way unless you had something different in mind.
+
+```
+4 enemies for now
+The enemy that has the fastest speed is the first to be attack by the player.
+Just treat it like the current battle the first entity to fill their gauge and choose an attack will get to attack.
+Only one attack per fill ATB gauge.
+Yeah Keep the current layout unless there is more than 1 enemy.
+Yeah no enemy special attacks.
+structure - yeah we will need be able to have statuses for each entity.
+```
+
+## Implementation
