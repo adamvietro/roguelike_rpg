@@ -139,6 +139,10 @@ pub fn spawn_player(ecs: &mut World, pos: Point, class: &str) -> Entity {
             elapsed_ms: MOVE_ANIM_DURATION_MS,
         },
     );
+    // See IdleAnimation's own doc comment - every frame is the same
+    // glyph as the player's base Render for now (no real walk-cycle art
+    // yet), but the animation genuinely cycles under the hood.
+    commands.add_component(player, idle_frames_for(to_cp437(stats.glyph)));
     commands.flush(ecs);
     player
 }

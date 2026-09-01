@@ -30,6 +30,7 @@ const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
 #[read_component(Stealthed)]
 #[read_component(Frozen)]
 #[read_component(MovingAnimation)]
+#[read_component(IdleAnimation)]
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
@@ -58,16 +59,17 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                 .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
                 .for_each(|(entity, pos, render)| {
                     let color = tinted_color(ecs, *entity, render.color);
+                    let glyph = idle_glyph(ecs, *entity, render.glyph);
                     match gliding_position(ecs, *entity) {
                         Some((fx, fy)) => draw_glyph_fancy(
                             &mut glide_batch,
                             fx - offset.x as f32,
                             fy - offset.y as f32,
                             color,
-                            render.glyph,
+                            glyph,
                         ),
                         None => {
-                            draw_batch.set(*pos - offset, color, render.glyph);
+                            draw_batch.set(*pos - offset, color, glyph);
                         }
                     }
                 });
@@ -102,9 +104,10 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                 .filter(|(_, pos, _)| player_fov.visible_tiles.contains(pos))
                 .for_each(|(entity, pos, render)| {
                     let color = tinted_color(ecs, *entity, render.color);
+                    let glyph = idle_glyph(ecs, *entity, render.glyph);
                     let (fx, fy) =
                         gliding_position(ecs, *entity).unwrap_or((pos.x as f32, pos.y as f32));
-                    draw_glyph_fancy(&mut scroll_batch, fx - ox, fy - oy, color, render.glyph);
+                    draw_glyph_fancy(&mut scroll_batch, fx - ox, fy - oy, color, glyph);
                 });
 
             scroll_batch.submit(5000).expect("Batch error");
@@ -139,6 +142,24 @@ fn draw_glyph_fancy(
         ColorPair::new(color.fg, bg_transparent),
         glyph,
     );
+}
+
+/// The glyph to actually draw for this entity this frame: its current
+/// IdleAnimation frame if it has one (see that component's own doc
+/// comment - today this is always identical to `base`, since no
+/// per-frame art exists yet, but the lookup is real and will start
+/// mattering the instant real frames are authored), otherwise just
+/// `base` unchanged. Items/scenery with no IdleAnimation component at
+/// all (weapons, potions, etc.) always take this fallback.
+fn idle_glyph(ecs: &SubWorld, entity: Entity, base: FontCharType) -> FontCharType {
+    ecs.entry_ref(entity)
+        .ok()
+        .and_then(|e| {
+            e.get_component::<IdleAnimation>()
+                .ok()
+                .map(IdleAnimation::current_glyph)
+        })
+        .unwrap_or(base)
 }
 
 /// Overrides a dungeon-view entity's color for a few status indicators.

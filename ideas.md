@@ -110,7 +110,7 @@ system whenever the first one of these actually gets built.
 ## Multi Battle
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
 
-Battle has a more timed feel where it automatically ticks similar to FF7 
+
 
 Sounds and Music
 
@@ -130,7 +130,7 @@ Different colors for active states of the player
 Better Winning Screen.
 Better Death Screen.
 
-## Battle Arena
+## Battle Screen
 Have a Battle Victory Screen to show the items that you won.
 Battle Screen
 Background for the battle system based off the theme of the map.
@@ -143,6 +143,9 @@ Move the action box up
 battle messages damage centered right and message centered left
 30% change to absorb 50% of the damage when you defend.
 Wiggle when attacking
+
+### ATB Battle System
+
 
 ### Bosses
 Implemented a boss for each level.

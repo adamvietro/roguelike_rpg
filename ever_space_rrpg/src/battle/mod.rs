@@ -236,20 +236,42 @@ pub enum Combatant {
     Enemy,
 }
 
-/// Which part of the battle round we're in. A round goes:
-/// (whoever's faster acts first - automatically, with no menu, if it's the
-/// enemy) -> FirstResult -> (the other combatant acts - PlayerMenu if it's
-/// the player, automatic if it's the enemy) -> SecondResult -> next round.
+/// ATB (Active Time Battle, FFVII-style) turn structure. There is no more
+/// fixed "round" where both sides act in a fixed order - each combatant
+/// has its own gauge (Battle::player_gauge/enemy_gauge) that fills
+/// continuously from its Speed stat (see atb_fill_rate), and whichever
+/// gauge reaches ATB_GAUGE_MAX first gets to act, independent of the
+/// other. This project uses "Wait" ATB (one of FFVII's own three ATB
+/// modes): both gauges freeze the instant either one is full, and stay
+/// frozen for the whole PlayerMenu/ActionResult exchange - only ticking
+/// again once back in Filling. This sidesteps any "what if the OTHER
+/// gauge also fills while I'm still picking a menu item" race entirely,
+/// while still being a real continuous-time gauge race rather than a
+/// fixed turn order - and it keeps the design simple to extend to
+/// multiple enemies later (each with its own gauge; whichever fills
+/// first still just wins the race, no different in kind from 1v1).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BattleTurn {
-    /// Waiting for the player to pick a menu action - shown either at the
-    /// start of a round (player is faster) or after the enemy's opening
-    /// move resolves (enemy is faster).
+    /// Both gauges are filling. Every battle_tick frame while in this
+    /// state advances player_gauge/enemy_gauge by that combatant's own
+    /// atb_fill_rate * elapsed time. The moment either reaches
+    /// ATB_GAUGE_MAX, this state ends: to PlayerMenu if the player got
+    /// there (checked first - see battle_tick - so a same-frame tie
+    /// always favors the player), or straight into an automatic enemy
+    /// attack (then ActionResult(Enemy)) otherwise.
+    Filling,
+    /// The player's gauge is full and frozen at max - waiting for a menu
+    /// choice. Was previously shown "either at the start of a round (player
+    /// faster) or after the enemy's opening move" under the old fixed-round
+    /// system; now it's simply "whenever the player's own gauge fills."
     PlayerMenu,
-    /// Result of whichever combatant acted first this round.
-    FirstResult,
-    /// Result of whichever combatant acted second this round.
-    SecondResult,
+    /// Result of whichever single combatant just acted (indicated by the
+    /// payload) - replaces the old FirstResult/SecondResult pair, since
+    /// actions are no longer paired into rounds. Auto-advances after
+    /// RESULT_AUTO_ADVANCE_MS (a keypress skips ahead sooner) back to
+    /// Filling, with that combatant's gauge reset to 0 - see
+    /// Battle::enter_result.
+    ActionResult(Combatant),
 }
 
 /// Resource describing an in-progress battle. Lives in `Resources` as
@@ -261,12 +283,15 @@ pub struct Battle {
     pub enemy: Entity,
     pub enemy_name: String,
     pub turn: BattleTurn,
-    /// Who acts first this round, decided by Speed at the start of each
-    /// round (see battle_tick). Placeholder value until then.
-    pub first_actor: Combatant,
-    /// True right after a new round begins and initiative hasn't been
-    /// decided yet - battle_tick resolves this before rendering anything.
-    pub awaiting_order_decision: bool,
+    /// Current fill level of each combatant's ATB gauge, 0.0..=ATB_GAUGE_MAX.
+    /// Both advance every frame while `turn == Filling` (see battle_tick
+    /// and atb_fill_rate); frozen otherwise. Reset to 0.0 the instant that
+    /// combatant's action resolves (see Battle::enter_result) - the OTHER
+    /// combatant's gauge is deliberately left exactly where it was, since
+    /// under Wait-ATB nothing should have advanced it while time was
+    /// stopped for the menu/result screen.
+    pub player_gauge: f32,
+    pub enemy_gauge: f32,
     pub player_defending: bool,
     /// Every currently-active status affecting the ENEMY (Stun, Dot) -
     /// see battle::status::StatusSet. Replaces the old bespoke
@@ -299,18 +324,22 @@ pub struct Battle {
     /// in battle_tick the same way as enemy_flash/player_flash.
     pub enemy_damage_popup: Option<DamagePopup>,
     pub player_damage_popup: Option<DamagePopup>,
-    /// Counts down while `turn` is FirstResult/SecondResult - once it hits
-    /// zero, battle_tick advances automatically instead of waiting for a
+    /// Counts down while `turn` is ActionResult - once it hits zero,
+    /// battle_tick advances automatically instead of waiting for a
     /// keypress (a keypress still skips ahead immediately, it just isn't
     /// required anymore). Set via enter_result whenever the turn changes
-    /// to one of those two states.
+    /// to that state.
     pub result_timer_ms: f32,
     /// True for a battle that started as a Stealth ambush (see
-    /// systems/player_input.rs) - forces this battle's first round to go
-    /// to the player regardless of Speed, and triples the damage of
-    /// whichever action the player picks first. Cleared (one-shot) the
-    /// instant that first PlayerMenu action resolves, whatever it was -
-    /// see screens/battle.rs's BattleTurn::PlayerMenu handling.
+    /// systems/player_input.rs) - triples the damage of whichever action
+    /// the player picks first. Cleared (one-shot) the instant that first
+    /// PlayerMenu action resolves, whatever it was - see
+    /// screens/battle.rs's BattleTurn::PlayerMenu handling. Under the old
+    /// fixed-round system this also forced "player goes first regardless
+    /// of Speed"; under ATB, as_sneak_attack achieves the same guarantee
+    /// more directly, by starting player_gauge already at max (see
+    /// as_sneak_attack) rather than overriding a turn-order decision that
+    /// no longer exists.
     pub sneak_attack: bool,
 }
 
@@ -330,9 +359,9 @@ impl Battle {
             player,
             enemy,
             enemy_name,
-            turn: BattleTurn::PlayerMenu,
-            first_actor: Combatant::Player,
-            awaiting_order_decision: true,
+            turn: BattleTurn::Filling,
+            player_gauge: 0.0,
+            enemy_gauge: 0.0,
             player_defending: false,
             enemy_statuses: StatusSet::default(),
             player_statuses: StatusSet::default(),
@@ -348,19 +377,33 @@ impl Battle {
     }
 
     /// Marks this battle as a Stealth ambush - see Battle::sneak_attack.
-    /// Chainable so player_input.rs can set it right after Battle::new
-    /// without an extra statement.
+    /// Also starts the player's ATB gauge already full (and jumps
+    /// straight to PlayerMenu, skipping Filling for this one opening
+    /// beat) rather than leaving both gauges to race from zero - an
+    /// ambush should mean "you act immediately," not merely "you have a
+    /// speed edge this race." The enemy's gauge is left at its default
+    /// zero, same as Battle::new already set it. Chainable so
+    /// player_input.rs can set it right after Battle::new without an
+    /// extra statement.
     pub fn as_sneak_attack(mut self) -> Self {
         self.sneak_attack = true;
+        self.player_gauge = ATB_GAUGE_MAX;
+        self.turn = BattleTurn::PlayerMenu;
         self
     }
 
-    /// Switches to FirstResult or SecondResult and (re)arms the
-    /// auto-advance timer. Use this instead of assigning `self.turn`
-    /// directly for those two states, so the timer can never be left
-    /// stale from a previous result screen.
-    pub fn enter_result(&mut self, turn: BattleTurn) {
-        self.turn = turn;
+    /// Switches to ActionResult(acting) and (re)arms the auto-advance
+    /// timer, resetting `acting`'s own gauge back to 0.0 - the other
+    /// combatant's gauge is left untouched (see the field doc comment on
+    /// player_gauge/enemy_gauge). Use this instead of assigning
+    /// `self.turn`/gauges directly, so the timer and the gauge reset can
+    /// never be left stale or forgotten.
+    pub fn enter_result(&mut self, acting: Combatant) {
+        match acting {
+            Combatant::Player => self.player_gauge = 0.0,
+            Combatant::Enemy => self.enemy_gauge = 0.0,
+        }
+        self.turn = BattleTurn::ActionResult(acting);
         self.result_timer_ms = RESULT_AUTO_ADVANCE_MS;
     }
 
@@ -415,11 +458,41 @@ pub const DAMAGE_POPUP_DURATION_MS: f32 = 700.0;
 /// Battle::log is trimmed to this many most-recent lines - see push_log.
 pub const MAX_LOG_LINES: usize = 4;
 
-/// How long FirstResult/SecondResult sit on screen before battle_tick
-/// advances automatically - see Battle::result_timer_ms/enter_result. A
-/// keypress still skips ahead immediately; this is just the natural pace
-/// when the player doesn't bother pressing anything.
+/// How long an ActionResult sits on screen before battle_tick advances
+/// automatically - see Battle::result_timer_ms/enter_result. A keypress
+/// still skips ahead immediately; this is just the natural pace when the
+/// player doesn't bother pressing anything.
 pub const RESULT_AUTO_ADVANCE_MS: f32 = 1100.0;
+
+/// The value an ATB gauge counts up to before that combatant is ready to
+/// act - see Battle::player_gauge/enemy_gauge and atb_fill_rate. An
+/// arbitrary round number, not tied to any other unit; only the RATIO
+/// between two combatants' fill rates (i.e. their relative Speed) affects
+/// who acts more often, not this constant's absolute value.
+pub const ATB_GAUGE_MAX: f32 = 100.0;
+
+/// How many ATB gauge points a combatant with a given Speed gains per
+/// millisecond of real time while `turn == BattleTurn::Filling` - i.e.
+/// this entity's Speed stat times a shared per-point rate. At the
+/// project's typical Speed range (roughly 2-10, see template.ron), this
+/// puts full-gauge times in the ballpark of 1.5-8 real seconds: fast
+/// (Speed 10) acts roughly every ~1.7s, slow (Speed 2) roughly every
+/// ~8.3s, average (Speed 6) roughly every ~2.8s. Tune this one constant
+/// to make every battle in the game faster/slower at once, since it's
+/// the only place the real-time-to-fill relationship is defined.
+pub const ATB_GAUGE_PER_MS_PER_SPEED: f32 = 0.006;
+
+/// How fast `entity`'s ATB gauge fills, in gauge points per millisecond -
+/// see ATB_GAUGE_PER_MS_PER_SPEED. Speed 0 or below would never fill at
+/// all, which would softlock a battle, so this floors the effective
+/// Speed used for the rate at 1 (entity_speed's own "no Speed component"
+/// default is already 5, well above this floor - this only guards
+/// against a template that explicitly sets speed: Some(0) or a negative
+/// value).
+pub fn atb_fill_rate(ecs: &World, entity: Entity) -> f32 {
+    let speed = entity_speed(ecs, entity).max(1) as f32;
+    speed * ATB_GAUGE_PER_MS_PER_SPEED
+}
 
 /// Defend used to be a guaranteed 50% reduction on the next hit taken. Now
 /// it's a gamble: this is the percent chance that reduction actually

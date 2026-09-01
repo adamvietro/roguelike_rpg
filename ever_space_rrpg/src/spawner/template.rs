@@ -530,6 +530,10 @@ impl Templates {
                         elapsed_ms: MOVE_ANIM_DURATION_MS,
                     },
                 );
+                // See IdleAnimation's own doc comment - same placeholder
+                // (all frames = the base glyph) as the player gets in
+                // spawner/mod.rs's spawn_player.
+                commands.add_component(entity, idle_frames_for(to_cp437(template.glyph)));
             }
         }
         Self::apply_effect(template, entity, commands);

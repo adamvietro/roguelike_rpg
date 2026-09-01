@@ -2638,3 +2638,49 @@ One note: the reference should be something you have rights to use, or just loos
 There are **19 open icons** total (18 abilities + the Shopkeeper) — that's a lot to do in one blind batch, so I'd suggest going a handful at a time so you can sign off on style/fit before we commit to the rest.
 
 All Icons are set and done.
+
+# ATB and Animations
+Good — the ATB-affected fields are contained to `battle/mod.rs` and `screens/battle.rs`. Let me check a couple more things (sneak-attack trigger site, and `render_helpers.rs`'s battle-portrait wiggle) before writing the rewrite.Good, no changes needed there. Now let's rewrite `battle/mod.rs`'s Battle struct/state section.Now the `Battle` struct fields:Now the `sneak_attack` doc comment, `Battle::new`, `as_sneak_attack`, and `enter_result`:Now add the ATB gauge constants and a fill-rate helper near the other constants/helpers:Now let's rewrite the `battle_tick` function in `screens/battle.rs`. First let me re-view the exact current boundaries to replace precisely.Now let's add the visible gauge bars next to each HP bar, and adjust the dot-status row to make room:Now move the enemy dot-status line from row 43 (now occupied by the gauge) to row 44:Good, no collisions. Now let's update the final `match battle.turn` block:Good, `crate::battle::*` is globbed, so `Combatant`, `atb_fill_rate`, `ATB_GAUGE_MAX`, etc. are all available. Now let's check for `battle::mod.rs` line where `entity_speed` and `Speed` component are still valid, and check remaining references to removed fields/enum variants across the whole repo to make sure nothing's left dangling.Only comments remain — let me clean up the stale doc comments so they reflect the new states rather than referencing removed ones:Now let's verify this compiles. Per the project's own workflow, I'll use a scratch copy of `Cargo.lock` since this sandbox's rustc may be older than the real lockfile needs.rustc 1.75 is available via apt, matching what the project instructions describe as this sandbox's constraint. Let's install it and set up a scratch copy for verification.Exactly the known issue from the project instructions. Downgrading per the established workaround:It compiles cleanly. Now confirm the real `Cargo.lock` was never touched:Matches the original checksum — untouched. ATB compiles clean. Now let's move to the idle walk-in-place animation. First let's check the render pipeline for how the sprite sheet glyphs map and whether I can add multi-frame cycling without new art (procedural bob), or should scope it as infra + ask about art.Good progress before hitting the tool limit — here's where things stand:
+
+**ATB combat system — done and verified.**
+- Replaced the old fixed-round `BattleTurn::{PlayerMenu, FirstResult, SecondResult}` with `BattleTurn::{Filling, PlayerMenu, ActionResult(Combatant)}` in `battle/mod.rs`.
+- Each combatant now has a `player_gauge`/`enemy_gauge` (0.0–100.0) that fills continuously from Speed (`atb_fill_rate`, tuned so Speed 6 fills in ~2.8s, Speed 10 in ~1.7s, Speed 2 in ~8.3s). Whichever gauge hits max first gets to act — the enemy automatically, the player via the menu — same-frame ties favor the player.
+- This is "Wait" ATB (one of FFVII's actual three modes): both gauges freeze the instant either fills, for the whole menu/result exchange, and only resume once back in `Filling`. Keeps it race-condition-free and sets up cleanly for multiple enemies later (each just gets its own gauge).
+- Stealth ambush (`as_sneak_attack`) now starts the player's gauge already at max instead of overriding a turn-order decision that no longer exists — cleaner translation of "you act first."
+- Added visible cyan/green gauge bars next to both HP bars in the battle screen so the fill is actually visible to the player.
+- Verified with a real `cargo check` (installed rustc/cargo 1.75 via apt in this sandbox, downgraded `rayon`/`rayon-core` in a **scratch copy** the same way your project instructions describe as routine — confirmed your real `Cargo.lock` checksum is untouched). Compiles clean, zero warnings from these changes.
+
+**Idle walk-in-place animation — scoping, not yet built.** I was mapping out class/enemy glyphs (Barbarian `@`, Mage `m`, Rogue `r`, Amazon `a`, Hunter `B`; enemies Goblin `g`, Orc `o`, Ogre `O`, Ettin `E`, plus bosses `G`/`K`/`V`) when I ran out of tool calls. My plan, which I still need your sign-off on:
+
+True hand-drawn walk-cycle frames (legs actually moving) would need new reference images per class/enemy, following the same batch process as last session's ability icons — that's a big ask I don't want to assume my way into. My proposed pragmatic first pass instead: **procedurally generate 2 extra frames per glyph by duplicating each existing sprite's pixels and nudging the character 1px vertically (a cheap "idle bob")** — no new art content invented, just a mechanical transform of already-approved art — reserve free codepoints for those frames (rows 8–14 are wide open per the glyph map), and build the real code infrastructure (new component, a cycling system, and an `entity_render` hook that only animates entities that aren't currently mid-`MovingAnimation`).
+
+Want me to go ahead with that bob-based placeholder approach, or would you rather hold off on any new frames until you can supply real walk-cycle references for at least one class to set the style?
+
+```
+Okay So for right now let's assume that we will have 2-5 animations for the walking-in-place animations. 
+
+We should from the moment, not worry about you building all the different frames as it will take all my tokens for that. And to be honest we should move away from a single sheet for all the icons and a sheet for each class, that way we can have all the abilities and animations separate. 
+
+With all this being said we should build the animation assuming that we will use up to 5 icons for the animations BUT just use the same icon that we currently have for all of them. There will not be any real animation atm but we can work on the sprite sheets later.
+
+does all this make sense?
+```
+
+Good, matches the pattern. Let's confirm this plan and then implement. Yes, this all makes sense — here's exactly what I'll build:Now let's add the `IdleAnimation` component right after `MovingAnimation`:Now register this system in the schedules, right alongside `tick_animations`:Now add the `idle_glyph` helper near `tinted_color`:Now the enemy side in `spawner/template.rs`:My replace accidentally clobbered the original `tick_animations` function itself instead of appending. Let me fix by restoring it alongside the new one:Clean compile, zero warnings. Let's confirm the real `Cargo.lock` is still untouched, then package the delivered files.Confirmed unchanged (`489c6b4...`). Now let's package the six modified files for delivery.Yes, that all makes sense — and it's exactly what I built. Eight **modified** files above (no new files, no deletes):
+
+- `src/battle/mod.rs` — ATB gauges (`Battle::player_gauge`/`enemy_gauge`), new `BattleTurn` states, `atb_fill_rate`
+- `src/screens/battle.rs` — new gauge-filling/racing loop, visible ATB bars, unified result handling
+- `src/components.rs` — new `IdleAnimation` component + `idle_frames_for` helper
+- `src/systems/animation.rs` — new `tick_idle_animation` system
+- `src/systems/mod.rs` — registers it in every schedule that already ticks movement
+- `src/systems/entity_render.rs` — draws the current idle frame instead of the raw glyph
+- `src/spawner/mod.rs`, `src/spawner/template.rs` — attach `IdleAnimation` to the player and every enemy at spawn
+
+**On the animation, concretely:** every player/enemy now carries a real `IdleAnimation { frames: Vec<FontCharType>, frame_index, elapsed_ms }` that cycles every 350ms whenever that entity isn't mid-glide, wrapping after however many frames it has (currently 3, ceiling documented at 5 via `MAX_IDLE_FRAMES`). Every frame today points at the *same* glyph as that entity's base sprite — genuinely cycling, zero visible difference — so when real art shows up, it's purely a change to what `idle_frames_for` returns, no other code touches.
+
+**On the sheet split:** I didn't touch `dungeonfont.png` or the cell map this round, per "we can work on the sprite sheets later." One thing worth flagging now rather than after we've built more on top of it: `IdleAnimation.frames` is just a `Vec<FontCharType>` with no opinion about which texture a `FontCharType` lives in — but bracket-lib ties each *console* to one font/atlas, so "a sheet per class" will mean either (a) one console+font per class, with `entity_render` bucketing draws by sheet, or (b) keeping one runtime atlas but organizing the *source* files separately and stitching them at build time. Worth deciding which before that work starts, but it doesn't block anything we did today.
+
+Both verified with a real `cargo check` (clean, zero warnings) against a scratch lockfile — your real `Cargo.lock` checksum is unchanged.
+
+Ready for AOE + multi-enemy battles whenever you want to move to that.
+

@@ -534,6 +534,80 @@ pub struct MovingAnimation {
     pub elapsed_ms: f32,
 }
 
+/// Upper bound on how many "standing still" frames any entity will ever
+/// be set up with - a documented ceiling (agreed as part of scoping this
+/// feature), not something IdleAnimation enforces structurally. Any Vec
+/// length up to this works with zero code changes elsewhere. Not read by
+/// any code path today (nothing currently checks a frame count against
+/// it) - it exists purely as a written-down agreement for future art
+/// work to size itself against, hence the explicit dead_code allowance.
+#[allow(dead_code)]
+pub const MAX_IDLE_FRAMES: usize = 5;
+
+/// How many idle frames a class/enemy gets by default, and how long each
+/// one shows before advancing to the next - see idle_frames_for. Every
+/// entity in the game currently gets DEFAULT_IDLE_FRAME_COUNT frames that
+/// all point at the exact same glyph as its base Render (see
+/// idle_frames_for's own doc comment) - kept below MAX_IDLE_FRAMES so
+/// there's room to grow a specific class/enemy up to 5 real, visually
+/// distinct frames later without touching this constant.
+pub const DEFAULT_IDLE_FRAME_COUNT: usize = 3;
+pub const IDLE_FRAME_DURATION_MS: f32 = 350.0;
+
+/// The "walking in place" idle loop: a small set of glyphs a stationary
+/// entity cycles through, advancing one frame every IDLE_FRAME_DURATION_MS
+/// (see systems/animation.rs's tick_idle_animation) and wrapping back to
+/// frame 0 after the last. Every frame is a plain FontCharType - this
+/// component doesn't know or care which sprite sheet/cell-map any of them
+/// came from, so it's unaffected by any future move to per-class sheets
+/// (see idle_frames_for's doc comment for today's specific values).
+/// Deliberately only advances while the entity is NOT in an in-flight
+/// MovingAnimation (see gliding_position) - real movement already has its
+/// own glide animation, and cycling frames underneath that too would just
+/// be visual noise on top of it. tick_idle_animation still exists and
+/// runs on a moving entity, it just doesn't advance elapsed_ms for it
+/// that frame, so an interrupted glide always resumes idling from
+/// whichever frame it left off on rather than losing its place.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdleAnimation {
+    pub frames: Vec<FontCharType>,
+    pub frame_index: usize,
+    pub elapsed_ms: f32,
+}
+
+impl IdleAnimation {
+    /// The glyph this animation is currently showing.
+    pub fn current_glyph(&self) -> FontCharType {
+        self.frames
+            .get(self.frame_index)
+            .copied()
+            .unwrap_or_default()
+    }
+}
+
+/// Builds a fresh IdleAnimation for a creature whose base dungeon-view
+/// glyph is `base_glyph` - called once at spawn time (spawn_player,
+/// spawner/template.rs's spawn_entity) for every player and Enemy.
+///
+/// Every frame today is the SAME glyph as the entity's base Render - this
+/// is a deliberate placeholder, not a bug: real distinct walk-cycle art
+/// (and very likely a move to a separate sprite sheet per class/category,
+/// rather than more cells crammed into the one shared dungeonfont.png -
+/// discussed but not yet started) is a real future art pass, agreed to be
+/// scoped separately so it doesn't block this session's actual code
+/// infrastructure. Until that happens, every entity's idle "animation"
+/// is frame-complete and genuinely cycling under the hood, it just has no
+/// visible effect yet - swapping in real per-frame art later means
+/// changing what this one function returns, nothing else in the
+/// animation/render pipeline needs to change.
+pub fn idle_frames_for(base_glyph: FontCharType) -> IdleAnimation {
+    IdleAnimation {
+        frames: vec![base_glyph; DEFAULT_IDLE_FRAME_COUNT],
+        frame_index: 0,
+        elapsed_ms: 0.0,
+    }
+}
+
 /// Wall-clock milliseconds since the last frame (see BTerm::frame_time_ms),
 /// inserted as a resource every tick so animation systems advance at a
 /// consistent real-world speed regardless of the current frame rate.

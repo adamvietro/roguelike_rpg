@@ -238,38 +238,46 @@ impl State {
             }
         }
 
-        // --- Initiative: decided once at the start of each round, from
-        // Speed. Any active damage-over-time effect (Rend, Burn, etc.)
-        // ticks first, before initiative is even decided - it's a
-        // lingering wound, not an action. If the enemy is faster, they
-        // attack immediately here - no menu shown - before the player
-        // ever gets a choice this round.
-        if battle.awaiting_order_decision {
-            let dot_message = tick_dot(&mut self.ecs, &mut battle);
+        // --- ATB gauges: fill continuously from Speed while turn ==
+        // Filling (see BattleTurn::Filling's doc comment and
+        // atb_fill_rate) - the FFVII-style replacement for the old fixed
+        // "whoever's faster goes first this round" system. Both gauges
+        // freeze the instant either reaches ATB_GAUGE_MAX (Wait-ATB) for
+        // the ensuing PlayerMenu/ActionResult exchange, and only resume
+        // once back in Filling - see enter_result, which is what returns
+        // things to Filling.
+        if battle.turn == BattleTurn::Filling {
+            battle.player_gauge = (battle.player_gauge
+                + atb_fill_rate(&self.ecs, battle.player) * ctx.frame_time_ms)
+                .min(ATB_GAUGE_MAX);
+            battle.enemy_gauge = (battle.enemy_gauge
+                + atb_fill_rate(&self.ecs, battle.enemy) * ctx.frame_time_ms)
+                .min(ATB_GAUGE_MAX);
 
-            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-            if enemy_hp_now < 1 {
-                self.finish_battle_victory(&battle);
-                return;
-            }
-
-            let player_speed = entity_speed(&self.ecs, battle.player);
-            let enemy_speed = entity_speed(&self.ecs, battle.enemy);
-            battle.first_actor = if battle.sneak_attack || player_speed >= enemy_speed {
-                Combatant::Player
-            } else {
-                Combatant::Enemy
-            };
-            battle.awaiting_order_decision = false;
-
-            if battle.first_actor == Combatant::Enemy {
+            // A same-frame tie always favors the player - simplest
+            // deterministic rule, and it means the player is never the
+            // one left waiting an extra frame purely due to check order.
+            if battle.player_gauge >= ATB_GAUGE_MAX {
+                battle.turn = BattleTurn::PlayerMenu;
+            } else if battle.enemy_gauge >= ATB_GAUGE_MAX {
+                // The enemy acts automatically the moment its gauge
+                // fills - no menu, same as the old "enemy is faster"
+                // branch. Any active Dot ticks first (a lingering wound,
+                // not an action in its own right) and can end the fight
+                // before the enemy ever gets to swing.
+                let dot_message = tick_dot(&mut self.ecs, &mut battle);
                 if let Some(dot_message) = dot_message {
                     battle.push_log(dot_message);
                 }
+
+                let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+                if enemy_hp_now < 1 {
+                    self.finish_battle_victory(&battle);
+                    return;
+                }
+
                 resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.enter_result(BattleTurn::FirstResult);
-            } else if let Some(dot_message) = dot_message {
-                battle.push_log(dot_message);
+                battle.enter_result(Combatant::Enemy);
             }
         }
 
@@ -302,6 +310,24 @@ impl State {
                 enemy_max
             ),
         );
+        // ATB gauge, drawn as the same bracket-style bar as the HP bar
+        // just above it - reuses hp_bar_string's ratio/width logic
+        // directly by treating the gauge as a "current/max" pair of its
+        // own. CYAN (rather than the HP bar's implicit yellow-on-black)
+        // so the two bars read as different things at a glance. Full-ready
+        // shows in GREEN instead, as a clear "it's ready" signal distinct
+        // from "it's filling."
+        ctx.print_color(
+            96,
+            43,
+            if battle.enemy_gauge >= ATB_GAUGE_MAX {
+                GREEN
+            } else {
+                CYAN
+            },
+            BLACK,
+            &hp_bar_string(battle.enemy_gauge as i32, ATB_GAUGE_MAX as i32, 16),
+        );
 
         ctx.print_color(32, 58, WHITE, BLACK, "You");
         ctx.print_color(
@@ -315,6 +341,17 @@ impl State {
                 player_hp.max(0),
                 player_max
             ),
+        );
+        ctx.print_color(
+            32,
+            56,
+            if battle.player_gauge >= ATB_GAUGE_MAX {
+                GREEN
+            } else {
+                CYAN
+            },
+            BLACK,
+            &hp_bar_string(battle.player_gauge as i32, ATB_GAUGE_MAX as i32, 16),
         );
 
         // --- Active-status lines: previously Defending, Ice Armor, an
@@ -335,7 +372,7 @@ impl State {
         {
             ctx.print_color(
                 96,
-                43,
+                44,
                 RED,
                 BLACK,
                 &format!("{} ({} turns left)", label, turns_remaining),
@@ -439,9 +476,11 @@ impl State {
         // 480 / (800/67) = ~40 on the HUD console's finer grid.
         //
         // Drawn here, before the match on battle.turn, so it's visible on
-        // every battle_tick frame - PlayerMenu, FirstResult, and
-        // SecondResult alike - rather than disappearing while a result
-        // message is on screen. `actions` is computed here too since both
+        // every battle_tick frame - Filling, PlayerMenu, and ActionResult
+        // alike - rather than disappearing while a result message is on
+        // screen (it's only interactive during PlayerMenu, but staying
+        // visible the rest of the time avoids it popping in and out).
+        // `actions` is computed here too since both
         // the box's labels and PlayerMenu's key-selection logic below need
         // the same list.
         let actions = available_actions(&self.ecs, battle.player);
@@ -579,6 +618,11 @@ impl State {
         ctx.set_active_console(2);
 
         match battle.turn {
+            BattleTurn::Filling => {
+                // Nothing to show beyond the gauges already drawn above -
+                // there's no menu to interact with and no result to
+                // dismiss while both sides are still racing to full.
+            }
             BattleTurn::PlayerMenu => {
                 if let Some(key) = ctx.key {
                     let chosen = number_key_index(key)
@@ -637,19 +681,24 @@ impl State {
                         // so it can never linger and apply again later in
                         // the same fight.
                         battle.sneak_attack = false;
-                        // The player is first_actor at the start of a round
-                        // they act in unprompted; if the enemy already
-                        // opened the round (first_actor == Enemy), this
-                        // menu is the player's second action instead.
-                        battle.enter_result(if battle.first_actor == Combatant::Player {
-                            BattleTurn::FirstResult
-                        } else {
-                            BattleTurn::SecondResult
-                        });
+                        battle.enter_result(Combatant::Player);
                     }
                 }
             }
-            BattleTurn::FirstResult => {
+            // Payload intentionally unused: unlike the old FirstResult/
+            // SecondResult split, an ActionResult's handling doesn't
+            // actually depend on which combatant acted - by the time
+            // either one lands here, their action (attack, technique,
+            // resolve_enemy_attack, whatever) has already fully
+            // resolved, including any Counter Attack side effect. This
+            // one block just checks whether EITHER side is now dead
+            // (matching the old SecondResult's own "check both, not just
+            // the expected one" logic) and returns to Filling if not.
+            // Kept as a payload rather than a bare unit variant since a
+            // future feature (a per-actor result flavor, a camera focus
+            // cue, etc.) would want to know without restructuring this
+            // enum again.
+            BattleTurn::ActionResult(_acting) => {
                 // Auto-advances once result_timer_ms runs out (see
                 // Battle::enter_result/RESULT_AUTO_ADVANCE_MS) - a keypress
                 // still skips ahead immediately, it just isn't required.
@@ -662,61 +711,6 @@ impl State {
                         return;
                     }
 
-                    match battle.first_actor {
-                        Combatant::Player => {
-                            // Player went first and attacked the enemy -
-                            // check whether that finished the fight before
-                            // letting the enemy retaliate.
-                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-                            if enemy_hp_now < 1 {
-                                self.finish_battle_victory(&battle);
-                                return;
-                            }
-                            resolve_enemy_attack(&mut self.ecs, &mut battle);
-                            battle.enter_result(BattleTurn::SecondResult);
-                        }
-                        Combatant::Enemy => {
-                            // Enemy went first (they're faster) and already
-                            // attacked the player - check whether that
-                            // ended things before the player gets a turn.
-                            let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
-                            if player_hp_now < 1 {
-                                self.resources.insert(None::<Battle>);
-                                self.resources.insert(TurnState::GameOver);
-                                return;
-                            }
-
-                            // A Counter Attack can kill the enemy as a
-                            // side effect of their own attack (see
-                            // resolve_enemy_attack) - check for that too,
-                            // or the player gets an extra prompt against
-                            // an already-dead enemy.
-                            let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-                            if enemy_hp_now < 1 {
-                                self.finish_battle_victory(&battle);
-                                return;
-                            }
-
-                            battle.turn = BattleTurn::PlayerMenu;
-                        }
-                    }
-                }
-            }
-            BattleTurn::SecondResult => {
-                battle.result_timer_ms -= ctx.frame_time_ms;
-                ctx.print_color_centered(51, YELLOW, BLACK, "(press any key to skip ahead)");
-                if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
-                    if battle.fled {
-                        self.resources.insert(None::<Battle>);
-                        self.resources.insert(TurnState::AwaitingInput);
-                        return;
-                    }
-
-                    // Whoever acted second this round attacked whoever
-                    // acted first - but a Counter Attack can also kill the
-                    // enemy as a side effect of an enemy attack regardless
-                    // of who that attack's "real" target was, so check
-                    // both sides here rather than just the expected one.
                     let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
                     let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
 
@@ -731,8 +725,7 @@ impl State {
                         return;
                     }
 
-                    battle.turn = BattleTurn::PlayerMenu;
-                    battle.awaiting_order_decision = true;
+                    battle.turn = BattleTurn::Filling;
                 }
             }
         }
