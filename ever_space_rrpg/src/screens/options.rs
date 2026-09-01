@@ -15,12 +15,14 @@ impl State {
     ///
     /// Two sub-modes, tracked by `self.options_awaiting`:
     /// - None (browsing): shows every Action and its current key, plus a
-    ///   Battle Speed row below them. A number key 1-4 selects an Action
-    ///   and enters capture mode; 5 cycles Battle Speed (Slow -> Normal
-    ///   -> Fast -> Slow) immediately, no capture mode needed since
-    ///   there are only ever 3 fixed choices - see BattleSpeed::next. R
-    ///   resets every Action to its default key (see
-    ///   Keymap::reset_to_defaults) without entering capture mode at all.
+    ///   Battle Speed row and an ATB Mode row below them. A number key
+    ///   1-4 selects an Action and enters capture mode; 5 cycles Battle
+    ///   Speed (Slow -> Normal -> Fast -> Slow); 6 toggles ATB Mode (Wait
+    ///   <-> True ATB) - see BattleSpeed::next/AtbMode::next. Neither 5
+    ///   nor 6 needs a capture sub-mode, since both are a small fixed set
+    ///   of choices rather than an arbitrary key. R resets every Action
+    ///   to its default key (see Keymap::reset_to_defaults) without
+    ///   entering capture mode at all.
     /// - Some(action) (capturing): shows a prompt; the next recognized
     ///   key (see keymap::is_rebindable_key) rebinds `action` to it,
     ///   saves to disk, and returns to browsing. Escape cancels back to
@@ -62,11 +64,11 @@ impl State {
                 } // keymap's borrow of self.resources ends here, before
                   // the possible self.resources.insert(...) below.
 
-                // Battle Speed - its own row directly below the rebind
-                // list, numbered as one more menu entry (5) rather than
-                // a separate section, so "press a number to act on that
-                // row" stays a single consistent rule across this whole
-                // screen.
+                // Battle Speed and ATB Mode - their own rows directly
+                // below the rebind list, numbered as two more menu
+                // entries (5, 6) rather than a separate section, so
+                // "press a number to act on that row" stays a single
+                // consistent rule across this whole screen.
                 let battle_speed_row = 10 + Action::ALL.len() as i32;
                 {
                     let battle_speed = self
@@ -85,8 +87,26 @@ impl State {
                         ),
                     );
                 }
+                let atb_mode_row = battle_speed_row + 1;
+                {
+                    let atb_mode = self
+                        .resources
+                        .get::<AtbMode>()
+                        .expect("AtbMode resource missing");
+                    ctx.print_color(
+                        30,
+                        atb_mode_row,
+                        WHITE,
+                        BLACK,
+                        &format!(
+                            "{}) ATB Mode: {} (press to toggle)",
+                            Action::ALL.len() + 2,
+                            atb_mode.label()
+                        ),
+                    );
+                }
 
-                let total_rows = Action::ALL.len() as i32 + 1;
+                let total_rows = Action::ALL.len() as i32 + 2;
                 ctx.print_color_centered(
                     10 + total_rows + 2,
                     GRAY,
@@ -112,6 +132,15 @@ impl State {
                     *speed = speed.next();
                     let saved = *speed;
                     drop(speed);
+                    saved.save();
+                } else if ctx.key == Some(VirtualKeyCode::Key6) {
+                    let mut mode = self
+                        .resources
+                        .get_mut::<AtbMode>()
+                        .expect("AtbMode resource missing");
+                    *mode = mode.next();
+                    let saved = *mode;
+                    drop(mode);
                     saved.save();
                 } else if ctx.key == Some(VirtualKeyCode::R) {
                     let mut keymap = self

@@ -1,4 +1,3 @@
-use crate::prelude::*;
 use std::fs;
 
 // --- Battle Speed --------------------------------------------------------
@@ -91,6 +90,79 @@ impl BattleSpeed {
             ron::ser::to_string_pretty(&self.label().to_string(), ron::ser::PrettyConfig::default())
         {
             let _ = fs::write(BATTLE_SPEED_PATH, text);
+        }
+    }
+}
+
+// --- ATB Mode ------------------------------------------------------------
+//
+// FFVII itself shipped three ATB modes (Wait/Active/Semi) - this project
+// only offers the two extremes, named to match what the project
+// instructions/design chat actually called them: "Wait" (today's
+// default) and "True ATB" (FFVII's "Active"). See screens/battle.rs's
+// battle_tick for exactly which gauges tick in which BattleTurn state
+// under each mode - the short version:
+// - Wait: every gauge freezes solid the instant ANYONE has something "in
+//   progress" (the player's menu is open, or either side's action result
+//   is being shown) - nothing can interrupt a menu or a result screen.
+// - Active (True ATB): the enemy's gauge keeps filling even while the
+//   PLAYER's menu is open, and can interrupt it (forcing an attack
+//   before the player finishes choosing) - "select fast or take the
+//   hit" is the entire point. The one exception, kept identical to Wait
+//   mode on purpose: while the PLAYER's own action is actually resolving
+//   (BattleTurn::ActionResult(Combatant::Player)), everything still
+//   freezes, the same "wait while attacking" pause Wait mode always has
+//   - only the ENEMY's own action result (ActionResult(Combatant::Enemy))
+//   lets gauges keep moving underneath it in Active mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtbMode {
+    Wait,
+    Active,
+}
+
+/// Where the chosen AtbMode is persisted - see AtbMode::load/save. Same
+/// saves/ treatment as BATTLE_SPEED_PATH/KEYMAP_PATH.
+const ATB_MODE_PATH: &str = "saves/atb_mode.ron";
+
+impl AtbMode {
+    pub const ALL: [AtbMode; 2] = [AtbMode::Wait, AtbMode::Active];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AtbMode::Wait => "Wait",
+            AtbMode::Active => "True ATB",
+        }
+    }
+
+    /// Only two choices, so "cycle" is just a toggle.
+    pub fn next(self) -> Self {
+        match self {
+            AtbMode::Wait => AtbMode::Active,
+            AtbMode::Active => AtbMode::Wait,
+        }
+    }
+
+    /// Same load contract as BattleSpeed::load - falls back to Wait
+    /// (today's long-standing default behavior) on anything missing,
+    /// corrupt, or unrecognized.
+    pub fn load() -> Self {
+        if let Ok(text) = fs::read_to_string(ATB_MODE_PATH) {
+            if let Ok(name) = ron::de::from_str::<String>(&text) {
+                if let Some(mode) = Self::ALL.iter().copied().find(|m| m.label() == name) {
+                    return mode;
+                }
+            }
+        }
+        AtbMode::Wait
+    }
+
+    /// Same save contract as BattleSpeed::save.
+    pub fn save(self) {
+        let _ = fs::create_dir_all("saves");
+        if let Ok(text) =
+            ron::ser::to_string_pretty(&self.label().to_string(), ron::ser::PrettyConfig::default())
+        {
+            let _ = fs::write(ATB_MODE_PATH, text);
         }
     }
 }

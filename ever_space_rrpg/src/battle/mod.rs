@@ -341,6 +341,20 @@ pub struct Battle {
     /// as_sneak_attack) rather than overriding a turn-order decision that
     /// no longer exists.
     pub sneak_attack: bool,
+    /// True ATB (AtbMode::Active) only: a player action chosen while the
+    /// player couldn't yet actually act - specifically, while the
+    /// enemy's own ActionResult was still playing (see
+    /// screens/battle.rs's BattleTurn::ActionResult(Combatant::Enemy)
+    /// handling) - held here to resolve the INSTANT it's safe to
+    /// (battle_tick's Filling handling checks this before anything
+    /// else), rather than forcing the player to wait for a fresh
+    /// PlayerMenu prompt that might not come again for a while. Without
+    /// this, an enemy interrupt used to just discard the player's chance
+    /// to act entirely until the next race - which, under Wait's normal
+    /// enemy-goes-first framing plus True ATB's "enemy never stops"
+    /// framing together, made it very hard to ever land a hit at all.
+    /// Always None in Wait mode - nothing ever writes to it there.
+    pub queued_player_action: Option<BattleAction>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -394,6 +408,7 @@ impl Battle {
             player_damage_popup: None,
             result_timer_ms: 0.0,
             sneak_attack: false,
+            queued_player_action: None,
         }
     }
 

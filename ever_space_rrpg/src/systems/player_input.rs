@@ -50,6 +50,19 @@ pub fn player_input(
         // buy, which never re-sets it at all).
         *shop_message = None;
 
+        // Only a genuinely turn-consuming action - movement (a real step
+        // OR a wall/enemy bump, both of which cost a turn same as
+        // before), using a Potion/Map/out-of-combat ability item, or a
+        // successful shop purchase - actually advances the dungeon turn
+        // below. Every other keypress (an unrecognized key, a number key
+        // on an empty inventory slot, a failed purchase) leaves
+        // turn_state untouched, so the player can just try again with no
+        // penalty instead of quietly handing the monsters a free move.
+        // This revives (and actually wires up) a `did_something` flag
+        // that used to sit here commented out and unused - the intent
+        // was already half-built, just never finished.
+        let mut did_something = false;
+
         // Movement keys go through Keymap now instead of a hardcoded
         // VirtualKeyCode match, so a rebind made in the Options screen
         // (see screens/options.rs) takes effect immediately - the
@@ -61,18 +74,49 @@ pub fn player_input(
             Some(Action::MoveLeft) => Point::new(-1, 0),
             Some(Action::MoveRight) => Point::new(1, 0),
             None => match key {
-                VirtualKeyCode::Key1 => use_item(0, ecs, commands),
-                VirtualKeyCode::Key2 => use_item(1, ecs, commands),
-                VirtualKeyCode::Key3 => use_item(2, ecs, commands),
-                VirtualKeyCode::Key4 => use_item(3, ecs, commands),
-                VirtualKeyCode::Key5 => use_item(4, ecs, commands),
-                VirtualKeyCode::Key6 => use_item(5, ecs, commands),
-                VirtualKeyCode::Key7 => use_item(6, ecs, commands),
-                VirtualKeyCode::Key8 => use_item(7, ecs, commands),
-                VirtualKeyCode::Key9 => use_item(8, ecs, commands),
-                VirtualKeyCode::Key0 => use_item(9, ecs, commands),
+                VirtualKeyCode::Key1 => {
+                    did_something |= use_item(0, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key2 => {
+                    did_something |= use_item(1, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key3 => {
+                    did_something |= use_item(2, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key4 => {
+                    did_something |= use_item(3, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key5 => {
+                    did_something |= use_item(4, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key6 => {
+                    did_something |= use_item(5, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key7 => {
+                    did_something |= use_item(6, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key8 => {
+                    did_something |= use_item(7, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key9 => {
+                    did_something |= use_item(8, ecs, commands);
+                    Point::zero()
+                }
+                VirtualKeyCode::Key0 => {
+                    did_something |= use_item(9, ecs, commands);
+                    Point::zero()
+                }
                 VirtualKeyCode::Return if shopping.is_some() => {
-                    buy_nearby_item(ecs, commands, shop_message)
+                    did_something |= buy_nearby_item(ecs, commands, shop_message);
+                    Point::zero()
                 }
                 _ => Point::new(0, 0),
             },
@@ -83,8 +127,16 @@ pub fn player_input(
             .find_map(|(entity, pos)| Some((*entity, *pos + delta)))
             .unwrap();
 
-        // let mut did_something = false;
         if delta.x != 0 || delta.y != 0 {
+            // A movement key was pressed - this always consumes a turn,
+            // whether it's a real step, a wall bump (movement.rs silently
+            // drops an invalid destination but the turn still passes), or
+            // it starts a battle (which returns early below before ever
+            // reaching the did_something check at the bottom, so this
+            // assignment is moot in that case - InBattle isn't a dungeon
+            // turn at all).
+            did_something = true;
+
             let attacked_enemy = enemies
                 .iter(ecs)
                 .find(|(_, pos)| **pos == destination)
@@ -95,10 +147,8 @@ pub fn player_input(
                 // Invisible Cloak item), walking into an enemy is blocked
                 // like a wall instead of starting a battle - no
                 // WantsToMove is queued either, so the player doesn't step
-                // onto that tile. The turn still passes via the
-                // unconditional TurnState::PlayerTurn below, same as
-                // bumping a real wall does (movement.rs silently drops an
-                // invalid destination but still consumes the move).
+                // onto that tile. The turn still passes via did_something
+                // above, same as bumping a real wall does.
                 let player_is_invisible = <(Entity, &Invisible)>::query()
                     .iter(ecs)
                     .any(|(e, _)| *e == player_entity);
@@ -133,7 +183,6 @@ pub fn player_input(
                     return;
                 }
             } else {
-                // did_something = true;
                 commands.push((
                     (),
                     WantsToMove {
@@ -143,7 +192,10 @@ pub fn player_input(
                 ));
             }
         };
-        *turn_state = TurnState::PlayerTurn;
+
+        if did_something {
+            *turn_state = TurnState::PlayerTurn;
+        }
     }
 }
 
@@ -154,7 +206,10 @@ pub fn player_input(
 /// arm above). Checks the item's Price against the player's own Gold
 /// before granting anything - insufficient funds sets `shop_message`
 /// instead of completing the purchase, and neither the stock nor the
-/// player's gold changes at all in that case.
+/// player's gold changes at all in that case. Returns true only for an
+/// actual completed purchase - callers use this to decide whether the
+/// dungeon turn should advance at all (see player_input's did_something),
+/// since nothing really happened on a failed/no-op attempt.
 ///
 /// Shop items are ShopStock counter markers, not real Items sitting on
 /// the floor (see spawner::spawn_shop_stock_at) - the counter row is a
@@ -169,13 +224,13 @@ fn buy_nearby_item(
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
     shop_message: &mut Option<ShopMessage>,
-) -> Point {
+) -> bool {
     let player = <(Entity, &Point)>::query()
         .iter(ecs)
         .find_map(|(entity, pos)| Some((*entity, *pos)));
     let (player_entity, player_pos) = match player {
         Some(p) => p,
-        None => return Point::zero(),
+        None => return false,
     };
 
     const ADJACENT: [Point; 5] = [
@@ -194,7 +249,7 @@ fn buy_nearby_item(
 
     let (stock_entity, remaining, name, price) = match found {
         Some(f) => f,
-        None => return Point::zero(),
+        None => return false,
     };
 
     let current_gold = ecs
@@ -213,7 +268,7 @@ fn buy_nearby_item(
 
     if !affordable {
         *shop_message = Some(ShopMessage("Not enough gold!".to_string()));
-        return Point::zero();
+        return false;
     }
 
     if let Some(Gold(amount)) = current_gold {
@@ -245,10 +300,16 @@ fn buy_nearby_item(
         commands.add_component(stock_entity, ShopStock(remaining - 1));
     }
 
-    Point::zero()
+    true
 }
 
-fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point {
+/// Queues an ActivateItem for the item in usable_item_slots' slot `n`
+/// (see that function's doc comment for the fixed-identity Potion/Map
+/// layout), if one is actually there. Returns true only when a real item
+/// was found and queued - callers use this to decide whether the dungeon
+/// turn should advance at all (see player_input's did_something), since
+/// pressing a number key over an empty slot didn't actually do anything.
+fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> bool {
     let player_entity = <(Entity, &Player)>::query()
         .iter(ecs)
         .find_map(|(entity, _player)| Some(*entity))
@@ -263,15 +324,17 @@ fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> Point
         .and_then(|slot| slot.as_ref())
         .map(|(_, _, entity)| *entity);
 
-    if let Some(item_entity) = item_entity {
-        commands.push((
-            (),
-            ActivateItem {
-                used_by: player_entity,
-                item: item_entity,
-            },
-        ));
+    match item_entity {
+        Some(item_entity) => {
+            commands.push((
+                (),
+                ActivateItem {
+                    used_by: player_entity,
+                    item: item_entity,
+                },
+            ));
+            true
+        }
+        None => false,
     }
-
-    Point::zero()
 }

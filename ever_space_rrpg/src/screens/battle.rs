@@ -1,6 +1,15 @@
 use crate::prelude::*;
 use crate::State;
 
+/// Outcome of State::dismiss_action_result - whether battle_tick should
+/// keep going this frame (back to Filling for a fresh race) or stop
+/// immediately because something already fully resolved the resources
+/// (fled/GameOver/BattleVictory all replace `Option<Battle>` themselves).
+enum ResultOutcome {
+    Continue,
+    EndBattleTick,
+}
+
 impl State {
     /// Draws the battle arena background (console 0: the current theme's
     /// floor/walls/scenery) and both combatant portraits (console 3).
@@ -13,6 +22,7 @@ impl State {
         player_render: Option<Render>,
         enemy_flash: Option<(FlashKind, f32)>,
         player_flash: Option<(FlashKind, f32)>,
+        player_can_act: bool,
     ) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
@@ -119,8 +129,22 @@ impl State {
             }
         }
         if let Some(render) = player_render {
+            // "You can act" tint takes priority visually only when no
+            // flash is active - an Attacking/Hit flash is a brief,
+            // meaningful event and shouldn't be silently overridden by
+            // the longer-lived "can act" state (in practice the two
+            // rarely overlap anyway, since PlayerMenu is a calm waiting
+            // beat, not one where the player was just hit or just
+            // attacked). See battle_tick's own player_can_act comment
+            // for what this state actually means in each ATB mode.
+            let flash_color = flash_tint(render.color, player_flash);
+            let color = if player_flash.is_none() && player_can_act {
+                ColorPair::new(YELLOW, flash_color.bg)
+            } else {
+                flash_color
+            };
             let tinted = Render {
-                color: flash_tint(render.color, player_flash),
+                color,
                 glyph: render.glyph,
             };
             if !draw_wiggling_portrait(&mut wiggle, 1, 3, tinted, player_flash) {
@@ -196,6 +220,118 @@ impl State {
         self.resources.insert(TurnState::BattleVictory);
     }
 
+    /// Fires the enemy's attack right now: ticks any active Dot first (a
+    /// lingering wound, not an action in its own right), checks whether
+    /// that alone finished the enemy off, then actually resolves the
+    /// attack and enters ActionResult(Enemy). Shared by two triggers:
+    /// the normal "enemy_gauge just reached ATB_GAUGE_MAX while nothing
+    /// else was in progress" case (Filling), and - under True ATB
+    /// (AtbMode::Active) only - the enemy's gauge filling WHILE the
+    /// player is still stuck in their own menu (see BattleTurn::PlayerMenu's
+    /// handling below) - "decide fast or take the hit" is the entire
+    /// point of that mode. Returns true if the enemy died to its own Dot
+    /// tick before it could even swing - finish_battle_victory has
+    /// already been called in that case, and the caller should return
+    /// from battle_tick immediately without touching `battle` again.
+    fn trigger_enemy_action(&mut self, battle: &mut Battle) -> bool {
+        let dot_message = tick_dot(&mut self.ecs, battle);
+        if let Some(dot_message) = dot_message {
+            battle.push_log(dot_message);
+        }
+
+        let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+        if enemy_hp_now < 1 {
+            self.finish_battle_victory(battle);
+            return true;
+        }
+
+        resolve_enemy_attack(&mut self.ecs, battle);
+        battle.enter_result(Combatant::Enemy);
+        false
+    }
+
+    /// Resolves a player-chosen BattleAction: applies its effect, logs
+    /// the result, clears the one-shot sneak_attack bonus, and enters
+    /// ActionResult(Player). Shared by two callers: PlayerMenu's own
+    /// immediate resolution (the common case - nothing else was
+    /// happening) and Filling's queued-action resolution (True ATB only
+    /// - see Battle::queued_player_action) for a choice made earlier,
+    /// while the enemy's own result was still on screen. Both need the
+    /// exact same effect logic; only WHEN it runs differs.
+    fn resolve_player_action(&mut self, battle: &mut Battle, chosen: BattleAction) {
+        // Every technique's mechanical effect is resolved in one place
+        // (battle::apply_player_technique) rather than a match arm per
+        // item here - adding a new class's technique needs no change here.
+        match chosen {
+            BattleAction::Attack => {
+                let mut dmg = player_attack_damage(&self.ecs, battle.player);
+                if battle.sneak_attack {
+                    dmg *= 3;
+                }
+                let dmg = damage::strike(&mut self.ecs, battle, Combatant::Player, dmg);
+                battle.push_log(damage::strike_message(dmg));
+            }
+            BattleAction::Defend => {
+                battle.player_defending = true;
+                battle.push_log("Defend.".to_string());
+            }
+            BattleAction::Flee => {
+                battle.fled = true;
+                battle.push_log("Flee.".to_string());
+            }
+            BattleAction::Technique(item) => {
+                // Recorded BEFORE apply_player_technique runs - it
+                // removes `item` from the ECS as part of consuming it,
+                // so its Name/Class have to be read while it's still
+                // there. Keyed off the item's own class, same reasoning
+                // as Stats::record_ability_used's doc comment.
+                if let Some(class) = entity_class(&self.ecs, item) {
+                    let name = entity_name(&self.ecs, item);
+                    if let Some(mut stats) = self.resources.get_mut::<Stats>() {
+                        stats.record_ability_used(&class, &name);
+                    }
+                }
+                let result = apply_player_technique(&mut self.ecs, battle, item);
+                battle.push_log(result);
+            }
+        }
+        // Sneak attack is a one-shot ambush bonus for the guaranteed
+        // first action only - clear it here regardless of which action
+        // was actually chosen, so it can never linger and apply again
+        // later in the same fight.
+        battle.sneak_attack = false;
+        battle.enter_result(Combatant::Player);
+    }
+
+    /// Outcome of dismiss_action_result - see that function.
+    fn dismiss_action_result(&mut self, battle: &mut Battle) -> ResultOutcome {
+        if battle.fled {
+            self.resources.insert(None::<Battle>);
+            self.resources.insert(TurnState::AwaitingInput);
+            return ResultOutcome::EndBattleTick;
+        }
+
+        // Check both sides regardless of which one just acted - a
+        // Counter Attack can kill the enemy as a side effect of an ENEMY
+        // attack, and symmetric reasoning applies the other way too.
+        let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
+        let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
+
+        if player_hp_now < 1 {
+            self.resources.insert(None::<Battle>);
+            self.resources.insert(TurnState::GameOver);
+            return ResultOutcome::EndBattleTick;
+        }
+
+        if enemy_hp_now < 1 {
+            self.finish_battle_victory(battle);
+            return ResultOutcome::EndBattleTick;
+        }
+
+        battle.turn = BattleTurn::Filling;
+        ResultOutcome::Continue
+    }
+
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
     pub fn battle_tick(&mut self, ctx: &mut BTerm) {
         let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
@@ -238,52 +374,70 @@ impl State {
             }
         }
 
-        // --- ATB gauges: fill continuously from Speed while turn ==
-        // Filling (see BattleTurn::Filling's doc comment and
-        // atb_fill_rate) - the FFVII-style replacement for the old fixed
-        // "whoever's faster goes first this round" system. Both gauges
-        // freeze the instant either reaches ATB_GAUGE_MAX (Wait-ATB) for
-        // the ensuing PlayerMenu/ActionResult exchange, and only resume
-        // once back in Filling - see enter_result, which is what returns
-        // things to Filling. Every fill rate is also scaled by the
-        // player's chosen BattleSpeed (Options screen) - a pure pacing
-        // knob applied uniformly to both sides, so it changes how long
+        // --- ATB gauges: fill continuously from Speed (see
+        // BattleTurn::Filling's doc comment and atb_fill_rate) - the
+        // FFVII-style replacement for the old fixed "whoever's faster
+        // goes first this round" system. Every fill rate is scaled by
+        // the player's chosen BattleSpeed (Options screen) - a pure
+        // pacing knob applied uniformly to both sides, changing how long
         // battles take to sit through without changing who's faster than
         // whom.
+        //
+        // WHICH gauges actually tick this frame depends on both the
+        // current BattleTurn and the chosen AtbMode - see AtbMode's own
+        // doc comment for the full rules. Filling always ticks both,
+        // regardless of mode: neither side has anything "in progress" to
+        // protect a wait-pause for. Wait mode freezes everything outside
+        // Filling, exactly as before this setting existed. Active (True
+        // ATB) mode additionally lets the enemy's gauge fill during the
+        // player's own PlayerMenu (see the interrupt check further down),
+        // and lets BOTH gauges keep filling during the enemy's own
+        // ActionResult - but still freezes everything during the
+        // PLAYER's own ActionResult, the one deliberate exception (see
+        // AtbMode::Active's doc comment for why).
         let battle_speed = *self.resources.get::<BattleSpeed>().unwrap();
-        if battle.turn == BattleTurn::Filling {
+        let atb_mode = *self.resources.get::<AtbMode>().unwrap();
+        let (tick_player, tick_enemy) = match battle.turn {
+            BattleTurn::Filling => (true, true),
+            BattleTurn::PlayerMenu => (false, atb_mode == AtbMode::Active),
+            BattleTurn::ActionResult(Combatant::Enemy) => {
+                let active = atb_mode == AtbMode::Active;
+                (active, active)
+            }
+            BattleTurn::ActionResult(Combatant::Player) => (false, false),
+        };
+        if tick_player || tick_enemy {
             let speed_mult = battle_speed.rate_multiplier();
-            battle.player_gauge = (battle.player_gauge
-                + atb_fill_rate(&self.ecs, battle.player) * speed_mult * ctx.frame_time_ms)
-                .min(ATB_GAUGE_MAX);
-            battle.enemy_gauge = (battle.enemy_gauge
-                + atb_fill_rate(&self.ecs, battle.enemy) * speed_mult * ctx.frame_time_ms)
-                .min(ATB_GAUGE_MAX);
+            if tick_player {
+                battle.player_gauge = (battle.player_gauge
+                    + atb_fill_rate(&self.ecs, battle.player) * speed_mult * ctx.frame_time_ms)
+                    .min(ATB_GAUGE_MAX);
+            }
+            if tick_enemy {
+                battle.enemy_gauge = (battle.enemy_gauge
+                    + atb_fill_rate(&self.ecs, battle.enemy) * speed_mult * ctx.frame_time_ms)
+                    .min(ATB_GAUGE_MAX);
+            }
+        }
 
-            // A same-frame tie always favors the player - simplest
-            // deterministic rule, and it means the player is never the
-            // one left waiting an extra frame purely due to check order.
-            if battle.player_gauge >= ATB_GAUGE_MAX {
+        if battle.turn == BattleTurn::Filling {
+            if let Some(chosen) = battle.queued_player_action.take() {
+                // A True ATB queued choice (see Battle::queued_player_action)
+                // - resolve it right now rather than waiting for the
+                // player_gauge check below: it's already at max (that's
+                // what made queuing possible in the first place), and the
+                // whole point of queuing was to not make the player wait
+                // any longer than necessary once it's finally safe to act.
+                self.resolve_player_action(&mut battle, chosen);
+            } else if battle.player_gauge >= ATB_GAUGE_MAX {
+                // A same-frame tie always favors the player - simplest
+                // deterministic rule, and it means the player is never the
+                // one left waiting an extra frame purely due to check order.
                 battle.turn = BattleTurn::PlayerMenu;
             } else if battle.enemy_gauge >= ATB_GAUGE_MAX {
-                // The enemy acts automatically the moment its gauge
-                // fills - no menu, same as the old "enemy is faster"
-                // branch. Any active Dot ticks first (a lingering wound,
-                // not an action in its own right) and can end the fight
-                // before the enemy ever gets to swing.
-                let dot_message = tick_dot(&mut self.ecs, &mut battle);
-                if let Some(dot_message) = dot_message {
-                    battle.push_log(dot_message);
-                }
-
-                let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-                if enemy_hp_now < 1 {
-                    self.finish_battle_victory(&battle);
+                if self.trigger_enemy_action(&mut battle) {
                     return;
                 }
-
-                resolve_enemy_attack(&mut self.ecs, &mut battle);
-                battle.enter_result(Combatant::Enemy);
             }
         }
 
@@ -292,11 +446,22 @@ impl State {
 
         let enemy_render = entity_render_component(&self.ecs, battle.enemy);
         let player_render = entity_render_component(&self.ecs, battle.player);
+        // "You can act" tint: whenever battle.turn == PlayerMenu - i.e.
+        // whenever player_gauge is at max, in EITHER ATB mode - the
+        // player's own portrait glyph is recolored yellow instead of
+        // framed with a separate outline box. In Wait mode this reads as
+        // "it's your turn"; in Active/True ATB mode (see AtbMode) it
+        // reads as "you have the option to attack RIGHT NOW, and the
+        // enemy's gauge is still moving" - same underlying state either
+        // way, since PlayerMenu is only ever entered once player_gauge
+        // reaches ATB_GAUGE_MAX regardless of mode.
+        let player_can_act = battle.turn == BattleTurn::PlayerMenu;
         self.draw_battle_arena(
             enemy_render,
             player_render,
             battle.enemy_flash,
             battle.player_flash,
+            player_can_act,
         );
 
         // --- Text: name + HP bar anchored next to each portrait, and a
@@ -635,105 +800,80 @@ impl State {
                         .and_then(|i| actions.get(i))
                         .and_then(|entry| entry.action);
                     if let Some(chosen) = chosen {
-                        // Every technique's mechanical effect is resolved
-                        // in one place (battle::apply_player_technique)
-                        // rather than a match arm per item here - adding a
-                        // new class's technique needs no main.rs change.
-                        match chosen {
-                            BattleAction::Attack => {
-                                let mut dmg = player_attack_damage(&self.ecs, battle.player);
-                                if battle.sneak_attack {
-                                    dmg *= 3;
-                                }
-                                let dmg = damage::strike(
-                                    &mut self.ecs,
-                                    &mut battle,
-                                    Combatant::Player,
-                                    dmg,
-                                );
-                                battle.push_log(damage::strike_message(dmg));
-                            }
-                            BattleAction::Defend => {
-                                battle.player_defending = true;
-                                battle.push_log("Defend.".to_string());
-                            }
-                            BattleAction::Flee => {
-                                battle.fled = true;
-                                battle.push_log("Flee.".to_string());
-                            }
-                            BattleAction::Technique(item) => {
-                                // Recorded BEFORE apply_player_technique
-                                // runs - it removes `item` from the ECS
-                                // as part of consuming it, so its Name/
-                                // Class have to be read while it's still
-                                // there. Keyed off the item's own class,
-                                // same reasoning as
-                                // Stats::record_ability_used's doc
-                                // comment.
-                                if let Some(class) = entity_class(&self.ecs, item) {
-                                    let name = entity_name(&self.ecs, item);
-                                    if let Some(mut stats) = self.resources.get_mut::<Stats>() {
-                                        stats.record_ability_used(&class, &name);
-                                    }
-                                }
-                                let result =
-                                    apply_player_technique(&mut self.ecs, &mut battle, item);
-                                battle.push_log(result);
-                            }
+                        self.resolve_player_action(&mut battle, chosen);
+                    }
+                }
+
+                // True ATB interrupt: if the player DIDN'T just act above
+                // (battle.turn is still PlayerMenu - the resolve call
+                // above would have moved it to ActionResult(Player)
+                // otherwise) and the enemy's gauge has since filled all
+                // the way (see this function's tick_enemy logic, which
+                // only lets it fill during PlayerMenu under
+                // AtbMode::Active), the enemy attacks right now instead
+                // of waiting for a menu choice that never came in time.
+                // This is the entire point of True ATB - "select an
+                // attack ASAP or take the hit." The player isn't locked
+                // out afterward, though - see ActionResult(Enemy) below,
+                // which keeps accepting a choice (queued rather than
+                // resolved immediately) for exactly this situation.
+                if atb_mode == AtbMode::Active
+                    && battle.turn == BattleTurn::PlayerMenu
+                    && battle.enemy_gauge >= ATB_GAUGE_MAX
+                    && self.trigger_enemy_action(&mut battle)
+                {
+                    return;
+                }
+            }
+            BattleTurn::ActionResult(Combatant::Enemy) => {
+                // True ATB queuing: the enemy's own result may still be
+                // playing while gauges keep moving underneath it (see
+                // this function's tick_player/tick_enemy match - Active
+                // mode lets both continue here). If the player's gauge
+                // is already full and they haven't queued anything yet,
+                // let them choose right now instead of forcing them to
+                // wait for a fresh PlayerMenu prompt once this dismisses
+                // - see Battle::queued_player_action's own doc comment
+                // for why this was the actual fix needed: without it, an
+                // enemy interrupt (just above) used to fully lock the
+                // player out of choosing anything until its result
+                // finished, making it very hard to ever land a hit under
+                // True ATB. Wait mode never reaches this branch with
+                // player_gauge at max in the first place (tick_player is
+                // false for it here), so this is a no-op there.
+                if atb_mode == AtbMode::Active
+                    && battle.queued_player_action.is_none()
+                    && battle.player_gauge >= ATB_GAUGE_MAX
+                {
+                    if let Some(key) = ctx.key {
+                        let chosen = number_key_index(key)
+                            .and_then(|i| actions.get(i))
+                            .and_then(|entry| entry.action);
+                        if let Some(chosen) = chosen {
+                            battle.queued_player_action = Some(chosen);
                         }
-                        // Sneak attack is a one-shot ambush bonus for the
-                        // guaranteed first action only - clear it here
-                        // regardless of which action was actually chosen,
-                        // so it can never linger and apply again later in
-                        // the same fight.
-                        battle.sneak_attack = false;
-                        battle.enter_result(Combatant::Player);
+                    }
+                }
+
+                battle.result_timer_ms -= ctx.frame_time_ms;
+                if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
+                    if let ResultOutcome::EndBattleTick = self.dismiss_action_result(&mut battle) {
+                        return;
                     }
                 }
             }
-            // Payload intentionally unused: unlike the old FirstResult/
-            // SecondResult split, an ActionResult's handling doesn't
-            // actually depend on which combatant acted - by the time
-            // either one lands here, their action (attack, technique,
-            // resolve_enemy_attack, whatever) has already fully
-            // resolved, including any Counter Attack side effect. This
-            // one block just checks whether EITHER side is now dead
-            // (matching the old SecondResult's own "check both, not just
-            // the expected one" logic) and returns to Filling if not.
-            // Kept as a payload rather than a bare unit variant since a
-            // future feature (a per-actor result flavor, a camera focus
-            // cue, etc.) would want to know without restructuring this
-            // enum again.
-            BattleTurn::ActionResult(_acting) => {
-                // Auto-advances once result_timer_ms runs out (see
-                // Battle::enter_result/RESULT_AUTO_ADVANCE_MS) - any
-                // keypress still skips ahead immediately too, it's just
-                // not called out on screen anymore (removed the old
-                // "press any key to skip ahead" prompt - it was clutter
-                // most players tune out anyway).
+            BattleTurn::ActionResult(Combatant::Player) => {
+                // No queuing capture here (unlike the Enemy variant above)
+                // - gauges are fully frozen during the player's OWN
+                // action result in every mode (see this function's
+                // tick_player/tick_enemy match), so player_gauge can't
+                // possibly be back at max yet for there to be anything
+                // to queue.
                 battle.result_timer_ms -= ctx.frame_time_ms;
                 if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
-                    if battle.fled {
-                        self.resources.insert(None::<Battle>);
-                        self.resources.insert(TurnState::AwaitingInput);
+                    if let ResultOutcome::EndBattleTick = self.dismiss_action_result(&mut battle) {
                         return;
                     }
-
-                    let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
-                    let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-
-                    if player_hp_now < 1 {
-                        self.resources.insert(None::<Battle>);
-                        self.resources.insert(TurnState::GameOver);
-                        return;
-                    }
-
-                    if enemy_hp_now < 1 {
-                        self.finish_battle_victory(&battle);
-                        return;
-                    }
-
-                    battle.turn = BattleTurn::Filling;
                 }
             }
         }
@@ -758,7 +898,7 @@ impl State {
         };
 
         let player_render = entity_render_component(&self.ecs, victory.player);
-        self.draw_battle_arena(None, player_render, None, None);
+        self.draw_battle_arena(None, player_render, None, None, false);
 
         ctx.set_active_console(2);
         ctx.print_color_centered(
@@ -778,9 +918,24 @@ impl State {
                 ctx.print_color_centered(48, WHITE, BLACK, "No loot this time.");
             }
         }
-        ctx.print_color_centered(51, YELLOW, BLACK, "Press any key to continue.");
+        ctx.print_color_centered(51, YELLOW, BLACK, "Press ENTER to continue.");
 
-        if ctx.key.is_some() {
+        // Requires Enter specifically, not "any key" - this is the one
+        // dismiss point in the whole battle flow that genuinely needed
+        // it. Holding down an attack hotkey to keep queuing attacks ASAP
+        // under Fast + True ATB (see Battle::queued_player_action) means
+        // that key can still be held the instant the enemy actually
+        // dies. If this screen dismissed on any key, that same held key
+        // would instantly exit back to the dungeon map - where, if it
+        // happens to double as a Potion/Map slot key, it would keep
+        // "using" that item and consuming a real dungeon turn on every
+        // single frame it's still held, potentially burning through an
+        // entire stack of potions and handing the monsters a pile of
+        // free turns before the player even lets go of the key. The
+        // in-battle ActionResult screens deliberately keep dismissing on
+        // any key, unlike this one - blowing through those as fast as
+        // possible while held is exactly the desired behavior there.
+        if ctx.key == Some(VirtualKeyCode::Return) {
             self.resources.insert(None::<BattleVictory>);
             let arena_run = self.resources.get::<Option<ArenaRun>>().unwrap().clone();
             match arena_run {

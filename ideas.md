@@ -114,8 +114,16 @@ If you stack the enemies on top of each other and initiate and attack you will b
 # ATB
 Different speed modes
 Different modes (full atb and standard)
+Yellow outline when its your turn
+
 
 # Dungeon Shop
+Replace most of the dungeon items with a shop at the end of floors that you can buy items from.
+Mobs will need to drop gold. 
+
+
+# Chests
+You can find chests in the dungeon that will hold items so there is a chance you will be able to find items, this will help after we make the change to remove items from the dungeon and replace them with the shop. These chest will need to be defended by enemies.
 
 
 Sounds and Music

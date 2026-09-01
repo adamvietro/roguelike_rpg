@@ -261,6 +261,7 @@ impl State {
         // long-lived copy on State itself.
         resources.insert(Keymap::load());
         resources.insert(BattleSpeed::load());
+        resources.insert(AtbMode::load());
         resources.insert(Stats::load());
         let mut state = Self {
             ecs: World::default(),
@@ -313,6 +314,7 @@ impl State {
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
+        self.resources.insert(AtbMode::load());
         // Always present (see systems/end_turn.rs's Exit-tile branch) -
         // None here means "this is an ordinary dungeon crawl", not
         // "unknown". start_arena is the only place this is ever Some.
@@ -430,6 +432,7 @@ impl State {
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
+        self.resources.insert(AtbMode::load());
         self.resources.insert(Some(arena_run));
         self.resources.insert(Some(ShoppingActive));
         self.resources.insert(None::<ShopMessage>);
@@ -772,6 +775,7 @@ impl State {
         self.resources.insert(None::<ShopMessage>);
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
+        self.resources.insert(AtbMode::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
 
         let mut stats = Stats::load();
