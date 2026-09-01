@@ -353,15 +353,36 @@ pub enum FlashKind {
     Hit,
 }
 
+/// Upper bound for each combatant's RANDOM starting ATB gauge value (see
+/// Battle::new) - a fraction of ATB_GAUGE_MAX rather than the full range,
+/// so a battle's opening instant always shows at least a little bit of
+/// gauge-filling before anyone can act, rather than an occasional
+/// zero-warning instant attack the moment the screen appears. Raise this
+/// toward ATB_GAUGE_MAX for more frequent/dramatic "caught you off
+/// guard" opens (at 100%, either side could occasionally act the instant
+/// battle starts); lower it toward 0 to make Speed the dominant factor
+/// in who acts first again, same as before this was added.
+pub const ATB_RANDOM_START_MAX: f32 = ATB_GAUGE_MAX * 0.8;
+
 impl Battle {
     pub fn new(player: Entity, enemy: Entity, enemy_name: String) -> Self {
+        // Each gauge starts at an independent random value instead of a
+        // flat 0.0 - without this, the higher-Speed combatant would
+        // reach ATB_GAUGE_MAX first in literally every battle (Speed
+        // alone would fully determine who acts first, every time), with
+        // no randomness at all in who opens a fight. A random head start
+        // means an enemy can occasionally begin close enough to full
+        // that it reaches ATB_GAUGE_MAX before a faster player does,
+        // regardless of either one's actual fill rate - see
+        // ATB_RANDOM_START_MAX for how large that head start can be.
+        let mut rng = RandomNumberGenerator::new();
         Self {
             player,
             enemy,
             enemy_name,
             turn: BattleTurn::Filling,
-            player_gauge: 0.0,
-            enemy_gauge: 0.0,
+            player_gauge: rng.range(0.0, ATB_RANDOM_START_MAX),
+            enemy_gauge: rng.range(0.0, ATB_RANDOM_START_MAX),
             player_defending: false,
             enemy_statuses: StatusSet::default(),
             player_statuses: StatusSet::default(),

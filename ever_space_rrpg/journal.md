@@ -2684,3 +2684,16 @@ Both verified with a real `cargo check` (clean, zero warnings) against a scratch
 
 Ready for AOE + multi-enemy battles whenever you want to move to that.
 
+## Starting ATB Value
+The threshold is `ATB_GAUGE_MAX = 100.0` in `battle/mod.rs` — whichever combatant's gauge reaches (or passes) that value gets to act. Right now both gauges start at `0.0`, so with the current setup, whoever has the higher `atb_fill_rate` (i.e., higher Speed) will *always* reach 100 first, every single battle — there's no randomness in who acts first today, only in *how often* each one gets a turn over the course of a longer fight.
+
+Let's fix that by giving each gauge a random starting value instead of `0.0`.Now let's add the random-start constant and wire it into `Battle::new`:`f32` implements `SampleUniform`, so `rng.range(0.0, ATB_RANDOM_START_MAX)` works directly. Let's verify with a compile check.Clean compile, zero warnings. Real `Cargo.lock` still untouched:**Modified:** `src/battle/mod.rs` — one file, `Battle::new` only.
+
+To answer your question directly: **100.0** (`ATB_GAUGE_MAX`) is the value a gauge needs to reach before that combatant can act.
+
+What changed: both `player_gauge` and `enemy_gauge` now start at a random value instead of `0.0` — pulled from `0.0..ATB_RANDOM_START_MAX`, where `ATB_RANDOM_START_MAX = ATB_GAUGE_MAX * 0.8` (i.e. 0–80). That 80% cap is a deliberate choice on my part, not a hard requirement: it guarantees a battle always shows at least a little bit of gauge-filling before anyone can act, rather than occasionally having someone attack the instant the screen appears with zero warning. If you'd rather allow that instant-attack-on-open possibility, bump the `0.8` in that one constant up toward `1.0` — that's the only place it's defined.
+
+With this in place, Speed still controls how *often* each side gets to act over a longer fight, but no longer guarantees who acts *first* — a slow enemy can occasionally roll a big head start and get the opening hit.
+
+## Option for Battle Speed and Remove Press Key to Advance
+
