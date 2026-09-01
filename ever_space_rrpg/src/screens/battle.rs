@@ -245,13 +245,19 @@ impl State {
         // freeze the instant either reaches ATB_GAUGE_MAX (Wait-ATB) for
         // the ensuing PlayerMenu/ActionResult exchange, and only resume
         // once back in Filling - see enter_result, which is what returns
-        // things to Filling.
+        // things to Filling. Every fill rate is also scaled by the
+        // player's chosen BattleSpeed (Options screen) - a pure pacing
+        // knob applied uniformly to both sides, so it changes how long
+        // battles take to sit through without changing who's faster than
+        // whom.
+        let battle_speed = *self.resources.get::<BattleSpeed>().unwrap();
         if battle.turn == BattleTurn::Filling {
+            let speed_mult = battle_speed.rate_multiplier();
             battle.player_gauge = (battle.player_gauge
-                + atb_fill_rate(&self.ecs, battle.player) * ctx.frame_time_ms)
+                + atb_fill_rate(&self.ecs, battle.player) * speed_mult * ctx.frame_time_ms)
                 .min(ATB_GAUGE_MAX);
             battle.enemy_gauge = (battle.enemy_gauge
-                + atb_fill_rate(&self.ecs, battle.enemy) * ctx.frame_time_ms)
+                + atb_fill_rate(&self.ecs, battle.enemy) * speed_mult * ctx.frame_time_ms)
                 .min(ATB_GAUGE_MAX);
 
             // A same-frame tie always favors the player - simplest
@@ -700,10 +706,12 @@ impl State {
             // enum again.
             BattleTurn::ActionResult(_acting) => {
                 // Auto-advances once result_timer_ms runs out (see
-                // Battle::enter_result/RESULT_AUTO_ADVANCE_MS) - a keypress
-                // still skips ahead immediately, it just isn't required.
+                // Battle::enter_result/RESULT_AUTO_ADVANCE_MS) - any
+                // keypress still skips ahead immediately too, it's just
+                // not called out on screen anymore (removed the old
+                // "press any key to skip ahead" prompt - it was clutter
+                // most players tune out anyway).
                 battle.result_timer_ms -= ctx.frame_time_ms;
-                ctx.print_color_centered(51, YELLOW, BLACK, "(press any key to skip ahead)");
                 if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
                     if battle.fled {
                         self.resources.insert(None::<Battle>);

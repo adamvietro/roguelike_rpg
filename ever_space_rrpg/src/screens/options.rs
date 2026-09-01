@@ -14,9 +14,12 @@ impl State {
     /// wipes them).
     ///
     /// Two sub-modes, tracked by `self.options_awaiting`:
-    /// - None (browsing): shows every Action and its current key; a
-    ///   number key 1-4 selects that action and enters capture mode, R
-    ///   resets every action to its default key (see
+    /// - None (browsing): shows every Action and its current key, plus a
+    ///   Battle Speed row below them. A number key 1-4 selects an Action
+    ///   and enters capture mode; 5 cycles Battle Speed (Slow -> Normal
+    ///   -> Fast -> Slow) immediately, no capture mode needed since
+    ///   there are only ever 3 fixed choices - see BattleSpeed::next. R
+    ///   resets every Action to its default key (see
     ///   Keymap::reset_to_defaults) without entering capture mode at all.
     /// - Some(action) (capturing): shows a prompt; the next recognized
     ///   key (see keymap::is_rebindable_key) rebinds `action` to it,
@@ -58,18 +61,39 @@ impl State {
                     }
                 } // keymap's borrow of self.resources ends here, before
                   // the possible self.resources.insert(...) below.
+
+                // Battle Speed - its own row directly below the rebind
+                // list, numbered as one more menu entry (5) rather than
+                // a separate section, so "press a number to act on that
+                // row" stays a single consistent rule across this whole
+                // screen.
+                let battle_speed_row = 10 + Action::ALL.len() as i32;
+                {
+                    let battle_speed = self
+                        .resources
+                        .get::<BattleSpeed>()
+                        .expect("BattleSpeed resource missing");
+                    ctx.print_color(
+                        30,
+                        battle_speed_row,
+                        WHITE,
+                        BLACK,
+                        &format!(
+                            "{}) Battle Speed: {} (press to cycle)",
+                            Action::ALL.len() + 1,
+                            battle_speed.label()
+                        ),
+                    );
+                }
+
+                let total_rows = Action::ALL.len() as i32 + 1;
                 ctx.print_color_centered(
-                    10 + Action::ALL.len() as i32 + 2,
+                    10 + total_rows + 2,
                     GRAY,
                     BLACK,
                     "Press R to reset all keys to defaults",
                 );
-                ctx.print_color_centered(
-                    10 + Action::ALL.len() as i32 + 3,
-                    GRAY,
-                    BLACK,
-                    "Press ESC to go back",
-                );
+                ctx.print_color_centered(10 + total_rows + 3, GRAY, BLACK, "Press ESC to go back");
 
                 let chosen = match ctx.key {
                     Some(VirtualKeyCode::Key1) => Action::ALL.get(0),
@@ -80,6 +104,15 @@ impl State {
                 };
                 if let Some(action) = chosen {
                     self.options_awaiting = Some(*action);
+                } else if ctx.key == Some(VirtualKeyCode::Key5) {
+                    let mut speed = self
+                        .resources
+                        .get_mut::<BattleSpeed>()
+                        .expect("BattleSpeed resource missing");
+                    *speed = speed.next();
+                    let saved = *speed;
+                    drop(speed);
+                    saved.save();
                 } else if ctx.key == Some(VirtualKeyCode::R) {
                     let mut keymap = self
                         .resources

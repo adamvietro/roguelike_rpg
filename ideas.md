@@ -111,6 +111,12 @@ system whenever the first one of these actually gets built.
 If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
 
 
+# ATB
+Different speed modes
+Different modes (full atb and standard)
+
+# Dungeon Shop
+
 
 Sounds and Music
 
@@ -145,6 +151,8 @@ battle messages damage centered right and message centered left
 Wiggle when attacking
 
 ### ATB Battle System
+Implemented with starting ATB value. 
+
 
 
 ### Bosses

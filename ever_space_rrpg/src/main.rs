@@ -9,6 +9,7 @@ mod map;
 mod map_builder;
 mod render_helpers;
 mod screens;
+mod settings;
 mod spawner;
 mod stats;
 mod systems;
@@ -157,6 +158,7 @@ mod prelude {
     pub use crate::map::*;
     pub use crate::map_builder::*;
     pub use crate::render_helpers::*;
+    pub use crate::settings::*;
     pub use crate::spawner::*;
     pub use crate::stats::*;
     pub use crate::systems::*;
@@ -258,6 +260,7 @@ impl State {
         // returning to the title screen, without needing a separate
         // long-lived copy on State itself.
         resources.insert(Keymap::load());
+        resources.insert(BattleSpeed::load());
         resources.insert(Stats::load());
         let mut state = Self {
             ecs: World::default(),
@@ -309,6 +312,7 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
+        self.resources.insert(BattleSpeed::load());
         // Always present (see systems/end_turn.rs's Exit-tile branch) -
         // None here means "this is an ordinary dungeon crawl", not
         // "unknown". start_arena is the only place this is ever Some.
@@ -425,6 +429,7 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
+        self.resources.insert(BattleSpeed::load());
         self.resources.insert(Some(arena_run));
         self.resources.insert(Some(ShoppingActive));
         self.resources.insert(None::<ShopMessage>);
@@ -766,6 +771,7 @@ impl State {
         self.resources.insert(None::<ArenaRun>);
         self.resources.insert(None::<ShopMessage>);
         self.resources.insert(Keymap::load());
+        self.resources.insert(BattleSpeed::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
 
         let mut stats = Stats::load();
