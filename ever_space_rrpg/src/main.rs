@@ -150,6 +150,24 @@ mod prelude {
     /// one thing that's changed since; the rest of this console's setup
     /// is otherwise identical in spirit to that first attempt.
     pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 10;
+    /// Console 11: a plain console, same 40x25 grid/32px cells as
+    /// BIG_TEXT_CONSOLE (registered identically, just later - console
+    /// z-order is registration order), used ONLY for the floating
+    /// damage-number popups in screens/battle.rs. Needed because
+    /// BATTLE_PORTRAIT_WIGGLE_CONSOLE (index 10, above BIG_TEXT_CONSOLE
+    /// at index 7) is now also used for every NON-wiggling multi-enemy
+    /// portrait (see draw_portrait_fancy - fractional positions need a
+    /// fancy console even when nothing's actually shaking), which meant
+    /// an idle enemy portrait was painting directly over its own damage
+    /// number every frame. The player never showed this bug (a "Hit"
+    /// flash, which is what its own popup coincides with, never goes
+    /// through the wiggle path at all - only "Attacking" does), which is
+    /// exactly why it was easy to miss at first. Registering the popup
+    /// text on its own console at the very end of the chain, rather than
+    /// moving it onto an existing one, guarantees it renders above
+    /// EVERY portrait regardless of which of those consoles a portrait
+    /// happens to use.
+    pub const DAMAGE_POPUP_CONSOLE: usize = 11;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -913,6 +931,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(DAMAGE_POPUP_CONSOLE);
+        ctx.cls();
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
@@ -1050,6 +1070,13 @@ fn main() -> BError {
             BATTLE_PORTRAIT_ROWS,
             "dungeonfont.png",
         )
+        // Console 11 (DAMAGE_POPUP_CONSOLE): a plain console, identical
+        // grid/font/cell-size to BIG_TEXT_CONSOLE above, registered last
+        // so it renders above every other console including the fancy
+        // portrait-wiggle one - see DAMAGE_POPUP_CONSOLE's own doc
+        // comment in the prelude module for why a separate console (not
+        // just moving the draw calls) was the actual fix needed.
+        .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 

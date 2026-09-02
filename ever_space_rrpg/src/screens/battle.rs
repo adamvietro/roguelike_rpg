@@ -19,58 +19,87 @@ struct EnemyPortrait {
     flash: Option<(FlashKind, f32)>,
 }
 
-/// Coarse portrait-grid row for the enemy at `index` of `count` total -
-/// see BATTLE_PORTRAIT_COLS/ROWS in main.rs. A single-enemy battle (by
-/// far the common case) uses row 1, EXACTLY the position a solo enemy
-/// has always used - multi-enemy battles were explicitly scoped to leave
-/// that case visually untouched.
+/// Fractional (col, row) position, in the coarse BATTLE_PORTRAIT_COLS x
+/// BATTLE_PORTRAIT_ROWS grid, for enemy #`index` of `count` total - a
+/// deliberate formation per count rather than a plain vertical stack
+/// (which is what the old enemy_portrait_row did, and it visually
+/// collided with the Actions box the moment 3+ enemies were actually on
+/// screen - see the screenshot that prompted this rework). Whole-number
+/// draw_portrait can't express most of these (a "1.2 spaces up" shift
+/// isn't one of the 5 whole rows) - see render_helpers.rs's
+/// draw_portrait_fancy/draw_wiggling_portrait, both fractional now.
 ///
-/// Multi-enemy NEVER uses row 0 - your own screenshots showed the top
-/// enemy's text clipped against the very top edge when it did, so row 0
-/// is being treated as unsafe territory until that's actually confirmed
-/// fixed with eyes on a real render (I can't preview bracket-lib's
-/// output myself, only reason about the same pixel math the rest of this
-/// file already uses). With 2 enemies there's slack to also add a full
-/// blank row of breathing room between them (rows 1, 3) rather than
-/// leaving them touching - 3-4 enemies use every remaining row (1-4)
-/// adjacent to each other, since there isn't room left to space those
-/// out too. All still column 3 - the same column a solo enemy uses, no
-/// need to also shift columns.
-fn enemy_portrait_row(count: usize, index: usize) -> i32 {
-    match count {
-        0 | 1 => 1,
-        2 => 1 + 2 * index as i32,
-        _ => 1 + index as i32,
+/// The formation, one count at a time:
+/// - 1: the classic single-enemy spot, unchanged - (3, 1).
+/// - 2: side by side at (2, 1) and (4, 1) - straddling column 3, so the
+///   midpoint between the two lands exactly on the classic spot.
+/// - 3: that same side-by-side pair, shifted up to row 0.6 (staying
+///   clear of row 0 itself - see enemy_text_position's own note on why
+///   that row is treated as unsafe), plus a third enemy below and
+///   centered at (3, 1.8) - a 1.2-row gap between the two tiers.
+/// - 4: the count-3 formation plus a fourth enemy immediately to the
+///   right of the bottom-center one, at (4, 1.8).
+fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
+    match (count, index) {
+        (0, _) | (1, _) => (3.0, 1.0),
+        (2, 0) => (2.0, 1.0),
+        (2, _) => (4.0, 1.0),
+        (_, 0) => (2.0, 0.6),
+        (_, 1) => (4.0, 0.6),
+        (_, 2) => (3.0, 1.8),
+        _ => (4.0, 1.8),
     }
 }
 
-/// HUD_CONSOLE row where enemy #`index` (of `count`) starts its own
-/// name/HP-bar/ATB-bar/status text block - see the block this feeds in
-/// battle_tick. Single-enemy keeps the exact original rows (41-44).
-/// Multi-enemy derives its row from enemy_portrait_row directly (rather
-/// than a separate index-based formula) so the text block always tracks
-/// wherever that enemy's portrait actually is, including the row-0
-/// avoidance and the count-2 spacing - each coarse portrait row is
-/// ~13.4 HUD rows tall (see the Actions box's own BOX_Y comment below
-/// for that same pixel-to-HUD-row conversion), with a +1 margin so text
-/// starts just past the portrait's own top edge rather than flush
-/// against it.
-fn enemy_text_base_row(count: usize, index: usize) -> i32 {
+/// HUD_CONSOLE (col, row) for enemy #`index` (of `count`)'s own name/HP-
+/// bar/ATB-bar/status text block, anchored directly BELOW that enemy's
+/// own portrait (see enemy_portrait_position) instead of in one shared
+/// column off to the side. A single shared column stopped making sense
+/// once portraits spread across columns instead of stacking in one - it
+/// used to land squarely on top of the Actions box, which sits in that
+/// same horizontal territory (see the screenshot that prompted this
+/// whole rework). Single-enemy keeps the exact original spot (col 96,
+/// row 41) - completely unaffected by any of this.
+///
+/// NOTE: despite living in a variable named after HUD_CONSOLE
+/// conventions elsewhere in this file, this text actually renders on
+/// console 2 (see battle_tick's own `ctx.set_active_console(2)` right
+/// before this block runs), NOT HUD_CONSOLE - the ratios below (32
+/// columns and 20 rows per one coarse portrait-grid unit) are console
+/// 2's own. Confirmed against the original single-enemy constants
+/// themselves: portrait position (3, 1) gives col 3*32=96 and row
+/// (1+1)*20+1=41, exactly matching the values already proven correct -
+/// console 2 is a 160x100 grid over the same 1280x800 window, so each
+/// portrait-grid unit (256x160px) is exactly 32 console-2 columns and 20
+/// console-2 rows, no rounding even needed. An earlier version of this
+/// function used HUD_CONSOLE's own ~21.4/~13.4 ratios by mistake, which
+/// put every multi-enemy text block in the wrong place entirely. Row is
+/// measured from the portrait's own BOTTOM edge (position + 1.0, since
+/// every portrait is exactly one grid unit tall regardless of its
+/// fractional top-left anchor), plus a 1-row margin so text starts just
+/// past the sprite rather than flush against it.
+fn enemy_text_position(count: usize, index: usize) -> (i32, i32) {
     if count <= 1 {
-        41
-    } else {
-        (enemy_portrait_row(count, index) as f32 * 13.4).round() as i32 + 1
+        return (96, 41);
     }
+    let (col, row) = enemy_portrait_position(count, index);
+    let console2_col = (col * 32.0).round() as i32;
+    let console2_row = ((row + 1.0) * 20.0).round() as i32 + 1;
+    (console2_col, console2_row)
 }
 
-/// BIG_TEXT_CONSOLE row to center a floating damage number over enemy
-/// #`index` (of `count`) - see the floating-damage-number block in
-/// battle_tick. Derived the same way the original single-enemy constant
-/// (7, for portrait row 1) was: each coarse portrait row is 5
-/// BIG_TEXT_CONSOLE rows tall (both consoles cover the same physical
-/// window), centered 2 rows into that band.
-fn enemy_damage_popup_row(count: usize, index: usize) -> i32 {
-    5 * enemy_portrait_row(count, index) + 2
+/// BIG_TEXT_CONSOLE (col, row) to center a floating damage number over
+/// enemy #`index` (of `count`) - see the floating-damage-number block in
+/// battle_tick. Derived the same way the original single-enemy constants
+/// (28, 7 - for portrait position (3, 1)) were: BIG_TEXT_CONSOLE and the
+/// portrait console cover the same physical window, at ratios of 8
+/// BIG_TEXT columns and 5 BIG_TEXT rows per one portrait-grid unit,
+/// centered half a unit into whichever cell the portrait occupies.
+fn enemy_damage_popup_position(count: usize, index: usize) -> (i32, i32) {
+    let (col, row) = enemy_portrait_position(count, index);
+    let big_col = (col * 8.0 + 4.0).round() as i32;
+    let big_row = (row * 5.0 + 2.0).round() as i32;
+    (big_col, big_row)
 }
 
 /// A natural-language join of names for the victory message - "the Goblin!",
@@ -200,13 +229,23 @@ impl State {
         wiggle.target(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
         let enemy_count = enemies.len();
         for (index, enemy) in enemies.iter().enumerate() {
-            let row = enemy_portrait_row(enemy_count, index);
+            let (col, row) = enemy_portrait_position(enemy_count, index);
             let tinted = Render {
                 color: flash_tint(enemy.render.color, enemy.flash),
                 glyph: enemy.render.glyph,
             };
-            if !draw_wiggling_portrait(&mut wiggle, 3, row, tinted, enemy.flash) {
-                draw_portrait(&mut portraits, 3, row, tinted);
+            if !draw_wiggling_portrait(&mut wiggle, col, row, tinted, enemy.flash) {
+                if enemy_count <= 1 {
+                    // Single enemy - the exact original whole-cell draw,
+                    // unchanged, on console 3 like it always has been.
+                    draw_portrait(&mut portraits, col as i32, row as i32, tinted);
+                } else {
+                    // 2+ enemies - fractional position (see
+                    // enemy_portrait_position), which the whole-cell-only
+                    // draw_portrait can't express, so this goes through
+                    // the fancy console instead even while idle.
+                    draw_portrait_fancy(&mut wiggle, col, row, tinted);
+                }
             }
         }
         if let Some(render) = player_render {
@@ -214,7 +253,7 @@ impl State {
                 color: flash_tint(render.color, player_flash),
                 glyph: render.glyph,
             };
-            if !draw_wiggling_portrait(&mut wiggle, 1, 3, tinted, player_flash) {
+            if !draw_wiggling_portrait(&mut wiggle, 1.0, 3.0, tinted, player_flash) {
                 draw_portrait(&mut portraits, 1, 3, tinted);
             }
         }
@@ -643,9 +682,23 @@ impl State {
         // enemy present.
         let primary_target = battle.primary_target(&self.ecs);
         let enemy_count = battle.enemies.len();
+        // A narrower bar for multi-enemy - text now sits directly below
+        // each enemy's own (narrower, spread-out) portrait slot instead
+        // of one shared wide column, so the old width-16 bar (an 18+
+        // character string once the current/max numbers are appended)
+        // would run into the NEXT enemy's own text. Single-enemy keeps
+        // the original width entirely unchanged.
+        // A narrower bar for multi-enemy - even though the corrected
+        // console-2 math above gives a genuine 32-column gap between
+        // adjacent enemy columns (comfortable room for a full-width bar
+        // on its own), keeping this a bit narrower leaves visible
+        // breathing room on either side rather than filling the gap
+        // edge-to-edge. Single-enemy keeps the original width entirely
+        // unchanged.
+        let bar_width = if enemy_count <= 1 { 16 } else { 10 };
         for (index, enemy) in battle.enemies.iter().enumerate() {
             let (enemy_hp, enemy_max) = entity_health(&self.ecs, enemy.entity);
-            let base = enemy_text_base_row(enemy_count, index);
+            let (col, base) = enemy_text_position(enemy_count, index);
             let is_target = Some(enemy.entity) == primary_target;
             let name_color = if is_target { YELLOW } else { WHITE };
             let name_text = if is_target && enemy_count > 1 {
@@ -653,15 +706,15 @@ impl State {
             } else {
                 enemy.name.clone()
             };
-            ctx.print_color(96, base, name_color, BLACK, &name_text);
+            ctx.print_color(col, base, name_color, BLACK, &name_text);
             ctx.print_color(
-                96,
+                col,
                 base + 1,
                 YELLOW,
                 BLACK,
                 &format!(
                     "{} {}/{}",
-                    hp_bar_string(enemy_hp, enemy_max, 16),
+                    hp_bar_string(enemy_hp, enemy_max, bar_width),
                     enemy_hp.max(0),
                     enemy_max
                 ),
@@ -674,7 +727,7 @@ impl State {
             // glance. Full-ready shows in GREEN instead, as a clear
             // "it's ready" signal distinct from "it's filling."
             ctx.print_color(
-                96,
+                col,
                 base + 2,
                 if enemy.gauge >= ATB_GAUGE_MAX {
                     GREEN
@@ -682,7 +735,7 @@ impl State {
                     CYAN
                 },
                 BLACK,
-                &hp_bar_string(enemy.gauge as i32, ATB_GAUGE_MAX as i32, 16),
+                &hp_bar_string(enemy.gauge as i32, ATB_GAUGE_MAX as i32, bar_width),
             );
             if let Some(ActiveStatus::Dot {
                 label,
@@ -691,11 +744,11 @@ impl State {
             }) = enemy.statuses.get(StatusKind::Dot)
             {
                 ctx.print_color(
-                    96,
+                    col,
                     base + 3,
                     RED,
                     BLACK,
-                    &format!("{} ({} turns left)", label, turns_remaining),
+                    &format!("{} ({}t)", label, turns_remaining),
                 );
             }
         }
@@ -781,31 +834,38 @@ impl State {
             ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 1 + i as i32, WHITE, BLACK, line);
         }
 
-        // --- Floating damage numbers: bigger (BIG_TEXT_CONSOLE's 32px cells,
-        // same "big text" console used for title/class-select screens),
-        // and centered directly over each portrait now rather than off to
-        // the side - big enough now to read clearly on top of the sprite
-        // instead of needing to dodge it. BIG_TEXT_CONSOLE is registered after
-        // the portrait console, so it renders above the portraits, and
-        // every console gets
-        // ctx.cls()'d at the top of every frame (see State::tick), so
-        // nothing lingers once a popup's timer expires.
+        // --- Floating damage numbers: bigger (32px cells, same "big
+        // text" font used for title/class-select screens), and centered
+        // directly over each portrait now rather than off to the side -
+        // big enough now to read clearly on top of the sprite instead of
+        // needing to dodge it. Drawn on DAMAGE_POPUP_CONSOLE specifically
+        // (not BIG_TEXT_CONSOLE, despite sharing its exact grid/font) -
+        // BIG_TEXT_CONSOLE sits BELOW BATTLE_PORTRAIT_WIGGLE_CONSOLE in
+        // z-order, and every non-wiggling multi-enemy portrait now draws
+        // on that wiggle console too (see draw_portrait_fancy - it needs
+        // a fancy console for fractional positions even when nothing's
+        // actually shaking), which meant an idle enemy portrait was
+        // painting directly over its own damage number every frame.
+        // DAMAGE_POPUP_CONSOLE is registered last, so it renders above
+        // every portrait regardless of which console that portrait used.
+        // Every console gets ctx.cls()'d at the top of every frame (see
+        // State::tick), so nothing lingers once a popup's timer expires.
         //
         // Both the portrait console (5x5) and this one (40x25) cover the
         // same physical 1280x800 window. Player portrait spans columns
         // 8-16 (center 12), rows 15-20 (center 17) - unaffected by enemy
-        // count. Each enemy's own popup centers at column 28 (column 3's
-        // horizontal center, same regardless of count) and a row derived
-        // from its own portrait row - see enemy_damage_popup_row.
-        // print_color draws left-to-right from the given column, so the
-        // start column is nudged left by half the number's length to
-        // actually center it rather than just its left edge.
-        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        // count. Each enemy's own popup centers over wherever its own
+        // portrait actually is now (see enemy_damage_popup_position),
+        // rather than a single shared column/row. print_color draws
+        // left-to-right from the given column, so the start column is
+        // nudged left by half the number's length to actually center it
+        // rather than just its left edge.
+        ctx.set_active_console(DAMAGE_POPUP_CONSOLE);
         for (index, enemy) in battle.enemies.iter().enumerate() {
             if let Some(popup) = &enemy.damage_popup {
                 let text = format!("-{}", popup.amount);
-                let start_col = 28 - (text.chars().count() as i32) / 2;
-                let row = enemy_damage_popup_row(enemy_count, index);
+                let (center_col, row) = enemy_damage_popup_position(enemy_count, index);
+                let start_col = center_col - (text.chars().count() as i32) / 2;
                 ctx.print_color(start_col, row, RED, BLACK, &text);
             }
         }
@@ -892,14 +952,20 @@ impl State {
         }
 
         const BOX_X: i32 = 44;
-        const BOX_Y: i32 = 40;
+        // Anchored to the player's own portrait top edge (see the doc
+        // comment below) in the common case, but pushed down further
+        // whenever there are 3+ enemies - the bottom tier of that
+        // formation (see enemy_portrait_position) reaches down to around
+        // row 39-42 of this same console, which would otherwise land
+        // right under this box's own top edge.
+        let box_y_base = if battle.enemies.len() >= 3 { 44 } else { 40 };
         const BOX_COL_WIDTH: i32 = 20;
         let box_width = BOX_COL_WIDTH * 2 + 3;
         let box_content_rows = main_actions.len().max(other_actions.len()) as i32;
         let box_height = box_content_rows + 4;
         // Clamp so a tall action list (more techniques than fit below row
         // 40) never runs off the bottom of the console.
-        let box_y = BOX_Y.min(HUD_ROWS - box_height);
+        let box_y = box_y_base.min(HUD_ROWS - box_height);
 
         let mut menu_batch = DrawBatch::new();
         menu_batch.target(HUD_CONSOLE);

@@ -107,8 +107,7 @@ out-of-combat use (Effect, used once from the item list). A true passive
 system whenever the first one of these actually gets built.
 
 
-## Multi Battle
-If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
+
 
 
 # Dungeon Shop
@@ -367,3 +366,5 @@ Any time you use an ability be sure to keep track of it by class.
 ---
 
 ## Multi-Enemy Battles
+If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
+Space will trigger a "wait" action

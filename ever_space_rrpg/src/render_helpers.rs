@@ -28,17 +28,42 @@ pub fn draw_portrait(batch: &mut DrawBatch, col: i32, row: i32, render: Render) 
 /// constant is the first place to check.
 const WIGGLE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
 
+/// Draws `render`'s glyph via set_fancy at a POSSIBLY-fractional (col,
+/// row) position - the multi-enemy layout (see screens/battle.rs's
+/// enemy_portrait_position) needs sub-cell positions the plain integer-
+/// only draw_portrait above can't express (a staggered/pyramid formation
+/// isn't just "which of the 5 whole rows/columns"). Same
+/// WIGGLE_CONSOLE_Y_ANCHOR_OFFSET correction as draw_wiggling_portrait
+/// below - both are set_fancy calls on the same fancy console, so the
+/// same anchor quirk applies. This is the NOT-currently-Attacking-flash
+/// case; draw_wiggling_portrait still owns the Attacking-flash shake,
+/// now also updated to accept fractional coordinates for the same
+/// reason.
+pub fn draw_portrait_fancy(batch: &mut DrawBatch, col: f32, row: f32, render: Render) {
+    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    batch.set_fancy(
+        PointF::new(col, row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
+        0,
+        Degrees::new(0.0),
+        PointF::new(1.0, 1.0),
+        ColorPair::new(render.color.fg, bg_transparent),
+        render.glyph,
+    );
+}
+
 /// Draws `render`'s glyph with a small shake instead of the plain
-/// `draw_portrait` above - only for the side currently mid-"Attacking"
-/// flash (see attack_wiggle_offset). Returns true if it drew (onto
-/// `batch`, which must already be targeting BATTLE_PORTRAIT_WIGGLE_CONSOLE)
-/// - false if `flash` isn't an active Attacking flash, in which case the
-/// caller should fall back to the plain draw_portrait on console 3
-/// instead. Never both for the same portrait on the same frame.
+/// `draw_portrait`/`draw_portrait_fancy` above - only for the side
+/// currently mid-"Attacking" flash (see attack_wiggle_offset). Returns
+/// true if it drew (onto `batch`, which must already be targeting
+/// BATTLE_PORTRAIT_WIGGLE_CONSOLE) - false if `flash` isn't an active
+/// Attacking flash, in which case the caller should fall back to
+/// draw_portrait/draw_portrait_fancy instead. Never both for the same
+/// portrait on the same frame. Takes fractional (col, row) now (not just
+/// whole numbers) for the same reason draw_portrait_fancy does.
 pub fn draw_wiggling_portrait(
     batch: &mut DrawBatch,
-    col: i32,
-    row: i32,
+    col: f32,
+    row: f32,
     render: Render,
     flash: Option<(FlashKind, f32)>,
 ) -> bool {
@@ -57,10 +82,7 @@ pub fn draw_wiggling_portrait(
     // background, and had to be abandoned for exactly that reason.
     let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
     batch.set_fancy(
-        PointF::new(
-            col as f32 + offset_x,
-            row as f32 + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET,
-        ),
+        PointF::new(col + offset_x, row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
         0,
         Degrees::new(0.0),
         PointF::new(1.0, 1.0),
