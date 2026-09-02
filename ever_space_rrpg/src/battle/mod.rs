@@ -229,11 +229,40 @@ pub fn entity_name(ecs: &World, entity: Entity) -> String {
 
 // --- Battle state ------------------------------------------------------
 
-/// Which combatant is acting.
+/// Up to this many enemies can be in one battle at once - see
+/// systems/player_input.rs (and random_move.rs/chasing.rs) for where a
+/// battle's roster is actually gathered: every enemy sharing the tile
+/// that triggered the fight, capped here. Drives both the ATB race (one
+/// gauge per enemy - see EnemyCombatant) and the battle screen's layout
+/// (a stacked column of up to this many portraits - see screens/battle.rs).
+pub const MAX_BATTLE_ENEMIES: usize = 4;
+
+/// One enemy currently in the battle - bundles everything that used to
+/// be a single flat field directly on Battle (gauge, statuses, flash,
+/// damage popup) back when there was only ever exactly one enemy. Now
+/// that a battle can hold up to MAX_BATTLE_ENEMIES of these, each needs
+/// its own independent copy of all of it - you can poison one enemy
+/// while stunning another, and each fills its own ATB gauge at its own
+/// Speed-derived rate, completely independently of its neighbors.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnemyCombatant {
+    pub entity: Entity,
+    pub name: String,
+    /// See Battle::player_gauge's own doc comment - identical mechanics,
+    /// just one of these per enemy instead of a single shared field.
+    pub gauge: f32,
+    pub statuses: StatusSet,
+    pub flash: Option<(FlashKind, f32)>,
+    pub damage_popup: Option<DamagePopup>,
+}
+
+/// Which combatant is acting - Player, or a specific enemy (there can be
+/// up to MAX_BATTLE_ENEMIES of them at once, so "Enemy" alone is no
+/// longer enough to say which).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Combatant {
     Player,
-    Enemy,
+    Enemy(Entity),
 }
 
 /// ATB (Active Time Battle, FFVII-style) turn structure. There is no more
@@ -280,23 +309,20 @@ pub enum BattleTurn {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Battle {
     pub player: Entity,
-    pub enemy: Entity,
-    pub enemy_name: String,
+    /// Every enemy currently in this fight, up to MAX_BATTLE_ENEMIES -
+    /// see EnemyCombatant. Shrinks as enemies die (see
+    /// screens/battle.rs's record_enemy_kill); the battle itself ends
+    /// (BattleVictory) the instant this becomes empty.
+    pub enemies: Vec<EnemyCombatant>,
     pub turn: BattleTurn,
-    /// Current fill level of each combatant's ATB gauge, 0.0..=ATB_GAUGE_MAX.
-    /// Both advance every frame while `turn == Filling` (see battle_tick
-    /// and atb_fill_rate); frozen otherwise. Reset to 0.0 the instant that
-    /// combatant's action resolves (see Battle::enter_result) - the OTHER
-    /// combatant's gauge is deliberately left exactly where it was, since
-    /// under Wait-ATB nothing should have advanced it while time was
-    /// stopped for the menu/result screen.
+    /// Current fill level of the player's ATB gauge, 0.0..=ATB_GAUGE_MAX.
+    /// Advances every frame while `turn == Filling` (see battle_tick and
+    /// atb_fill_rate); frozen otherwise. Reset to 0.0 the instant the
+    /// player's action resolves (see Battle::enter_result) - every
+    /// enemy's own gauge (EnemyCombatant::gauge) works the same way,
+    /// independently.
     pub player_gauge: f32,
-    pub enemy_gauge: f32,
     pub player_defending: bool,
-    /// Every currently-active status affecting the ENEMY (Stun, Dot) -
-    /// see battle::status::StatusSet. Replaces the old bespoke
-    /// `enemy_stunned`/`enemy_dot` fields.
-    pub enemy_statuses: StatusSet,
     /// Every currently-active status affecting the PLAYER (Buff,
     /// Counter) - see battle::status::StatusSet. Replaces the old
     /// bespoke `dodge_bonus`/`war_cry`/`countering` fields.
@@ -309,20 +335,11 @@ pub struct Battle {
     /// push_log; main.rs renders the tail of this Vec every battle_tick
     /// frame instead of a single centered line.
     pub log: Vec<String>,
-    /// A brief post-action color flash for each portrait - which kind
-    /// (Attacking/Hit, picking the tint color) and how many milliseconds
-    /// are left, ticked down each frame in battle_tick using
-    /// ctx.frame_time_ms and cleared to None once it reaches zero. Set
-    /// whenever that combatant acts or takes damage; draw_battle_arena
-    /// reads these to tint the portrait's foreground color while active
-    /// (see flash_tint in render_helpers.rs).
-    pub enemy_flash: Option<(FlashKind, f32)>,
     pub player_flash: Option<(FlashKind, f32)>,
-    /// A briefly-shown floating damage number over each portrait - set by
-    /// show_enemy_damage/show_player_damage right after apply_damage
-    /// returns the real (post-Defense) amount, and ticked down each frame
-    /// in battle_tick the same way as enemy_flash/player_flash.
-    pub enemy_damage_popup: Option<DamagePopup>,
+    /// A briefly-shown floating damage number over the player's portrait
+    /// - set by show_player_damage right after apply_damage returns the
+    /// real (post-Defense) amount, and ticked down each frame in
+    /// battle_tick. Each enemy has its own equivalent on EnemyCombatant.
     pub player_damage_popup: Option<DamagePopup>,
     /// Counts down while `turn` is ActionResult - once it hits zero,
     /// battle_tick advances automatically instead of waiting for a
@@ -342,9 +359,9 @@ pub struct Battle {
     /// no longer exists.
     pub sneak_attack: bool,
     /// True ATB (AtbMode::Active) only: a player action chosen while the
-    /// player couldn't yet actually act - specifically, while the
+    /// player couldn't yet actually act - specifically, while some
     /// enemy's own ActionResult was still playing (see
-    /// screens/battle.rs's BattleTurn::ActionResult(Combatant::Enemy)
+    /// screens/battle.rs's BattleTurn::ActionResult(Combatant::Enemy(_))
     /// handling) - held here to resolve the INSTANT it's safe to
     /// (battle_tick's Filling handling checks this before anything
     /// else), rather than forcing the player to wait for a fresh
@@ -353,8 +370,26 @@ pub struct Battle {
     /// to act entirely until the next race - which, under Wait's normal
     /// enemy-goes-first framing plus True ATB's "enemy never stops"
     /// framing together, made it very hard to ever land a hit at all.
-    /// Always None in Wait mode - nothing ever writes to it there.
+    /// Always None in Wait mode - nothing ever writes to it there. Only
+    /// ever holds ONE action regardless of how many enemies act while
+    /// it's queued - not a stack of several moves lined up in advance.
     pub queued_player_action: Option<BattleAction>,
+    /// Gold accumulated so far THIS fight, across every enemy killed in
+    /// it (Battle Arena only - see record_enemy_kill). A multi-enemy
+    /// fight can end with several kills' worth of gold; this is what
+    /// gets shown as one combined total on the eventual BattleVictory
+    /// screen rather than just the last kill's own reward.
+    pub gold_earned: i32,
+    /// Loot found so far this fight, one entry per kill that happened to
+    /// drop something (Dungeon Crawl only - Battle Arena kills grant
+    /// gold instead, never loot, same as before this was a Vec). Shown
+    /// as a list on BattleVictory instead of a single item.
+    pub loot_found: Vec<String>,
+    /// One name per enemy defeated so far this fight, in kill order -
+    /// needed because by the time the whole battle ends (enemies is
+    /// empty), there's nothing left in `enemies` itself to read names
+    /// from. See screens/battle.rs's record_enemy_kill/finish_battle.
+    pub defeated_names: Vec<String>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -379,46 +414,60 @@ pub enum FlashKind {
 pub const ATB_RANDOM_START_MAX: f32 = ATB_GAUGE_MAX * 0.8;
 
 impl Battle {
-    pub fn new(player: Entity, enemy: Entity, enemy_name: String) -> Self {
-        // Each gauge starts at an independent random value instead of a
-        // flat 0.0 - without this, the higher-Speed combatant would
-        // reach ATB_GAUGE_MAX first in literally every battle (Speed
-        // alone would fully determine who acts first, every time), with
-        // no randomness at all in who opens a fight. A random head start
-        // means an enemy can occasionally begin close enough to full
-        // that it reaches ATB_GAUGE_MAX before a faster player does,
-        // regardless of either one's actual fill rate - see
-        // ATB_RANDOM_START_MAX for how large that head start can be.
+    /// `enemies` is every (Entity, Name) pair joining this fight - see
+    /// systems/player_input.rs (and random_move.rs/chasing.rs) for where
+    /// that roster is actually gathered (every enemy sharing the tile
+    /// that triggered the battle) and capped to MAX_BATTLE_ENEMIES.
+    pub fn new(player: Entity, enemies: Vec<(Entity, String)>) -> Self {
+        // Each gauge - the player's AND every enemy's own - starts at an
+        // independent random value instead of a flat 0.0 - without this,
+        // the higher-Speed combatant would reach ATB_GAUGE_MAX first in
+        // literally every battle (Speed alone would fully determine who
+        // acts first, every time), with no randomness at all in who
+        // opens a fight. A random head start means a slower combatant
+        // can occasionally begin close enough to full that it reaches
+        // ATB_GAUGE_MAX before a faster one does, regardless of either
+        // one's actual fill rate - see ATB_RANDOM_START_MAX for how large
+        // that head start can be.
         let mut rng = RandomNumberGenerator::new();
+        let enemies = enemies
+            .into_iter()
+            .map(|(entity, name)| EnemyCombatant {
+                entity,
+                name,
+                gauge: rng.range(0.0, ATB_RANDOM_START_MAX),
+                statuses: StatusSet::default(),
+                flash: None,
+                damage_popup: None,
+            })
+            .collect();
         Self {
             player,
-            enemy,
-            enemy_name,
+            enemies,
             turn: BattleTurn::Filling,
             player_gauge: rng.range(0.0, ATB_RANDOM_START_MAX),
-            enemy_gauge: rng.range(0.0, ATB_RANDOM_START_MAX),
             player_defending: false,
-            enemy_statuses: StatusSet::default(),
             player_statuses: StatusSet::default(),
             fled: false,
             log: Vec::new(),
-            enemy_flash: None,
             player_flash: None,
-            enemy_damage_popup: None,
             player_damage_popup: None,
             result_timer_ms: 0.0,
             sneak_attack: false,
             queued_player_action: None,
+            gold_earned: 0,
+            loot_found: Vec::new(),
+            defeated_names: Vec::new(),
         }
     }
 
     /// Marks this battle as a Stealth ambush - see Battle::sneak_attack.
     /// Also starts the player's ATB gauge already full (and jumps
     /// straight to PlayerMenu, skipping Filling for this one opening
-    /// beat) rather than leaving both gauges to race from zero - an
+    /// beat) rather than leaving every gauge to race from zero - an
     /// ambush should mean "you act immediately," not merely "you have a
-    /// speed edge this race." The enemy's gauge is left at its default
-    /// zero, same as Battle::new already set it. Chainable so
+    /// speed edge this race." Every enemy's gauge is left at whatever
+    /// Battle::new already randomized it to. Chainable so
     /// player_input.rs can set it right after Battle::new without an
     /// extra statement.
     pub fn as_sneak_attack(mut self) -> Self {
@@ -428,16 +477,54 @@ impl Battle {
         self
     }
 
+    /// The enemy in this battle with entity == `target`, if it's still
+    /// alive/present (it won't be, right after it dies - see
+    /// screens/battle.rs's record_enemy_kill, which removes it from
+    /// `enemies` immediately).
+    pub fn enemy(&self, target: Entity) -> Option<&EnemyCombatant> {
+        self.enemies.iter().find(|e| e.entity == target)
+    }
+
+    /// Mutable version of `enemy` - see that method's doc comment.
+    pub fn enemy_mut(&mut self, target: Entity) -> Option<&mut EnemyCombatant> {
+        self.enemies.iter_mut().find(|e| e.entity == target)
+    }
+
+    /// Which enemy the player's own single-target actions (plain Attack,
+    /// or a single-target Technique) hit, since the player doesn't
+    /// choose a target directly with more than one enemy present -
+    /// always whichever living enemy currently has the highest Speed,
+    /// ties broken by whoever's earlier in `enemies` (a stable, always-
+    /// reproducible order - the same two enemies with equal Speed always
+    /// resolve the tie the same way). Recomputed fresh every time it's
+    /// called rather than cached, so it automatically shifts onto the
+    /// next-fastest survivor the instant the current target dies -
+    /// there's deliberately no "locked-in" target that would need
+    /// separate invalidation logic. Returns None only if `enemies` is
+    /// empty, which shouldn't be reachable in practice: the battle ends
+    /// (see record_enemy_kill) the instant that happens, before
+    /// anything would need a target again.
+    pub fn primary_target(&self, ecs: &World) -> Option<Entity> {
+        self.enemies
+            .iter()
+            .max_by_key(|e| entity_speed(ecs, e.entity))
+            .map(|e| e.entity)
+    }
+
     /// Switches to ActionResult(acting) and (re)arms the auto-advance
-    /// timer, resetting `acting`'s own gauge back to 0.0 - the other
-    /// combatant's gauge is left untouched (see the field doc comment on
-    /// player_gauge/enemy_gauge). Use this instead of assigning
-    /// `self.turn`/gauges directly, so the timer and the gauge reset can
-    /// never be left stale or forgotten.
+    /// timer, resetting `acting`'s own gauge back to 0.0 - every OTHER
+    /// combatant's gauge is left untouched (see the field doc comments
+    /// on player_gauge/EnemyCombatant::gauge). Use this instead of
+    /// assigning `self.turn`/gauges directly, so the timer and the gauge
+    /// reset can never be left stale or forgotten.
     pub fn enter_result(&mut self, acting: Combatant) {
         match acting {
             Combatant::Player => self.player_gauge = 0.0,
-            Combatant::Enemy => self.enemy_gauge = 0.0,
+            Combatant::Enemy(target) => {
+                if let Some(enemy) = self.enemy_mut(target) {
+                    enemy.gauge = 0.0;
+                }
+            }
         }
         self.turn = BattleTurn::ActionResult(acting);
         self.result_timer_ms = RESULT_AUTO_ADVANCE_MS;
@@ -457,13 +544,16 @@ impl Battle {
         }
     }
 
-    /// Arms a floating damage number over the enemy's portrait - call with
-    /// the real (post-Defense) amount apply_damage returned.
-    pub fn show_enemy_damage(&mut self, amount: i32) {
-        self.enemy_damage_popup = Some(DamagePopup {
-            amount,
-            remaining_ms: DAMAGE_POPUP_DURATION_MS,
-        });
+    /// Arms a floating damage number over `target`'s portrait - call with
+    /// the real (post-Defense) amount apply_damage returned. A no-op if
+    /// `target` isn't (or is no longer) in this battle.
+    pub fn show_enemy_damage(&mut self, target: Entity, amount: i32) {
+        if let Some(enemy) = self.enemy_mut(target) {
+            enemy.damage_popup = Some(DamagePopup {
+                amount,
+                remaining_ms: DAMAGE_POPUP_DURATION_MS,
+            });
+        }
     }
 
     /// Arms a floating damage number over the player's portrait - call with
@@ -473,6 +563,14 @@ impl Battle {
             amount,
             remaining_ms: DAMAGE_POPUP_DURATION_MS,
         });
+    }
+
+    /// Sets `target`'s post-action flash - see EnemyCombatant::flash. A
+    /// no-op if `target` isn't (or is no longer) in this battle.
+    pub fn set_enemy_flash(&mut self, target: Entity, kind: FlashKind) {
+        if let Some(enemy) = self.enemy_mut(target) {
+            enemy.flash = Some((kind, PORTRAIT_FLASH_DURATION_MS));
+        }
     }
 }
 
@@ -537,20 +635,26 @@ pub fn atb_fill_rate(ecs: &World, entity: Entity) -> f32 {
 pub const DEFEND_SUCCESS_CHANCE_PERCENT: i32 = 30;
 
 /// What to show on the post-battle victory screen (TurnState::BattleVictory)
-/// - set right when an enemy dies in battle_tick, read once by
-/// battle_victory_tick, then cleared when the player dismisses it.
-/// `player` stays valid since the player entity is never removed, so its
-/// Render is looked up live - the enemy is gone by this point and isn't
-/// shown.
+/// - accumulated across every kill in the fight (see
+/// screens/battle.rs's record_enemy_kill), shown once the whole battle
+/// ends, then cleared when the player dismisses it. `player` stays valid
+/// since the player entity is never removed, so its Render is looked up
+/// live - every enemy is gone by this point and isn't shown.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BattleVictory {
     pub player: Entity,
-    pub enemy_name: String,
-    pub loot: Option<String>,
-    /// Gold earned from this kill, Battle Arena only - None for a
-    /// Dungeon Crawl kill (gold doesn't exist there at all) or if this
-    /// kill somehow granted none. See screens/battle.rs's
-    /// finish_battle_victory, the only place this is ever set.
+    /// One name per enemy defeated this fight, in kill order - a single-
+    /// enemy fight (the common case) just has one entry, same message as
+    /// before this was a Vec.
+    pub enemy_names: Vec<String>,
+    /// One entry per kill that happened to drop something - empty if
+    /// nothing dropped at all (Dungeon Crawl), always empty in the
+    /// Battle Arena (kills grant gold there instead, never loot).
+    pub loot: Vec<String>,
+    /// Total gold earned across every kill this fight, Battle Arena only
+    /// - None for a Dungeon Crawl fight (gold doesn't exist there at
+    /// all). See screens/battle.rs's record_enemy_kill, the only place
+    /// this is ever accumulated.
     pub gold_earned: Option<i32>,
 }
 
@@ -638,7 +742,7 @@ pub fn heal_entity(ecs: &mut World, entity: Entity, amount: i32) {
         .for_each(|(_, hp)| hp.current = (hp.current + amount).min(hp.max));
 }
 
-/// The enemy automatically attacks the player. Enemies currently only ever
+/// An enemy automatically attacks the player. Enemies currently only ever
 /// know Attack (see CanAttack / available_actions), so this is a simple
 /// hardcoded action - a natural place for smarter enemy AI to hook in
 /// later.
@@ -650,14 +754,18 @@ pub fn heal_entity(ecs: &mut World, entity: Entity, amount: i32) {
 /// Armor/War Cry (each reduce the damage that lands) -> Counter (reacts
 /// to a landed hit). Each of those checks now delegates to its own
 /// category module instead of being inlined here - this function is the
-/// ORDER they happen in, not their individual mechanics.
-pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
+/// ORDER they happen in, not their individual mechanics. `attacker` is
+/// which specific enemy is swinging this time - Stun is checked/ticked
+/// on THAT enemy specifically (a different enemy in the same battle could
+/// be perfectly free to act), and a landed Counter reflects damage back
+/// at THAT enemy, not just "the enemy" generically.
+pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle, attacker: Entity) {
     // A stunned enemy (Hunter's Stun or Feint) doesn't attack at all this
     // turn - checked ahead of even the Evasion check below, since this is
     // "the enemy never swings" rather than "the enemy swings and misses."
     // No Defend/Ice Armor/Counter gets consumed either, same reasoning as
     // the full-dodge early return further down.
-    if stun::check_and_tick(battle) {
+    if stun::check_and_tick(battle, attacker) {
         battle.push_log("The enemy is stunned and can't act.".to_string());
         battle.player_defending = false;
         return;
@@ -678,13 +786,13 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
     buff::tick_on_attack_faced(battle, BuffKind::Evasion);
 
     if evaded {
-        battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+        battle.set_enemy_flash(attacker, FlashKind::Attacking);
         battle.push_log("Dodge attack.".to_string());
         battle.player_defending = false;
         return;
     }
 
-    let mut dmg = entity_damage(ecs, battle.enemy);
+    let mut dmg = entity_damage(ecs, attacker);
     if battle.player_defending && dmg > 0 {
         // Gamble, not a guarantee: roll separately from the dodge check
         // above (Defend and Evasion are different mechanics and shouldn't
@@ -711,7 +819,7 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
     // no damage landed to reduce.
     dmg = buff::tick_and_reduce(battle, BuffKind::DamageReduction, dmg);
 
-    let dmg = damage::strike(ecs, battle, Combatant::Enemy, dmg);
+    let dmg = damage::strike_player(ecs, battle, attacker, dmg);
     battle.push_log(damage::take_message(dmg));
     battle.player_defending = false;
 
@@ -734,7 +842,7 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle) {
         cb.flush(ecs);
     }
 
-    counter::resolve_on_hit(ecs, battle);
+    counter::resolve_on_hit(ecs, battle, attacker);
 }
 
 /// An entity's active IceArmored bonus, if any - see resolve_enemy_attack.
@@ -746,26 +854,35 @@ pub fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
         .map(|(_, armor)| *armor)
 }
 
-/// If a damage-over-time effect is active on the enemy, ticks it down by
-/// one and applies its damage. Called once at the start of each round.
-/// Thin wrapper over battle::dot::tick - kept as a top-level name since
+/// If a damage-over-time effect is active on `target`, ticks it down by
+/// one and applies its damage. Called once per enemy, right before that
+/// enemy would act - see screens/battle.rs's battle_tick. Thin wrapper
+/// over battle::dot::tick - kept as a top-level name since
 /// screens/battle.rs already calls it that way.
-pub fn tick_dot(ecs: &mut World, battle: &mut Battle) -> Option<String> {
-    dot::tick(ecs, battle)
+pub fn tick_dot(ecs: &mut World, battle: &mut Battle, target: Entity) -> Option<String> {
+    dot::tick(ecs, battle, target)
 }
 
-/// Applies a chosen technique's effect on behalf of the player, consuming
-/// one copy of `item` first. This is the single place a technique's
-/// mechanical effect is dispatched - main.rs no longer needs one match
-/// arm per technique, and neither does this function anymore: each
-/// variant's actual mechanics live in its category module (battle::damage,
-/// battle::dot, battle::stun, etc.) above. Adding a new class's technique
-/// that reuses an existing TechniqueEffect shape needs zero code changes
-/// here (just a template.ron entry); a genuinely new mechanic needs one
-/// new module (or one new function in an existing one) plus one new match
-/// arm here, not a new component/BattleAction variant/main.rs block like
-/// before this refactor.
-pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity) -> String {
+/// Applies a chosen technique's effect on behalf of the player against
+/// `target` (the auto-selected enemy - see Battle::primary_target;
+/// ignored entirely by the self-buff effects, Heal/Evade/WarCry/Counter,
+/// which have no target), consuming one copy of `item` first. This is
+/// the single place a technique's mechanical effect is dispatched -
+/// main.rs no longer needs one match arm per technique, and neither does
+/// this function anymore: each variant's actual mechanics live in its
+/// category module (battle::damage, battle::dot, battle::stun, etc.)
+/// above. Adding a new class's technique that reuses an existing
+/// TechniqueEffect shape needs zero code changes here (just a
+/// template.ron entry); a genuinely new mechanic needs one new module
+/// (or one new function in an existing one) plus one new match arm here,
+/// not a new component/BattleAction variant/main.rs block like before
+/// this refactor.
+pub fn apply_player_technique(
+    ecs: &mut World,
+    battle: &mut Battle,
+    item: Entity,
+    target: Entity,
+) -> String {
     let effect = match technique_effect(ecs, item) {
         Some(e) => e,
         None => return String::new(),
@@ -778,16 +895,16 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
 
     match effect {
         TechniqueEffect::DamageMultiplier(multiplier) => {
-            damage::damage_multiplier(ecs, battle, multiplier)
+            damage::damage_multiplier(ecs, battle, target, multiplier)
         }
-        TechniqueEffect::FlatDamage(amount) => damage::flat_damage(ecs, battle, amount),
-        TechniqueEffect::MultiHit(hits) => damage::multi_hit(ecs, battle, hits),
+        TechniqueEffect::FlatDamage(amount) => damage::flat_damage(ecs, battle, target, amount),
+        TechniqueEffect::MultiHit(hits) => damage::multi_hit(ecs, battle, target, hits),
         TechniqueEffect::Counter {
             chance_percent,
             multiplier,
         } => counter::apply(battle, chance_percent, multiplier),
         TechniqueEffect::DamageOverTime { damage, turns } => {
-            dot::apply(battle, damage, turns, name.to_lowercase());
+            dot::apply(battle, target, damage, turns, name.to_lowercase());
             "Apply bleed.".to_string()
         }
         TechniqueEffect::Heal { amount } => heal::apply(ecs, battle, amount),
@@ -825,8 +942,8 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
             dot_turns,
         } => {
             let total = initial + carried_weapon_damage(ecs, battle.player);
-            let dmg = damage::strike(ecs, battle, Combatant::Player, total);
-            dot::apply(battle, dot_damage, dot_turns, name.to_lowercase());
+            let dmg = damage::strike_enemy(ecs, battle, target, total);
+            dot::apply(battle, target, dot_damage, dot_turns, name.to_lowercase());
             if dmg == 0 {
                 "Dodge attack. Poison lingers.".to_string()
             } else {
@@ -836,8 +953,8 @@ pub fn apply_player_technique(ecs: &mut World, battle: &mut Battle, item: Entity
         TechniqueEffect::Stun {
             chance_percent,
             turns,
-        } => stun::roll(battle, chance_percent, turns),
-        TechniqueEffect::Feint => stun::feint(battle),
+        } => stun::roll(battle, target, chance_percent, turns),
+        TechniqueEffect::Feint => stun::feint(battle, target),
     }
 }
 

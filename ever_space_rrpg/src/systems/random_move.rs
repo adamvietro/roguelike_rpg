@@ -5,6 +5,7 @@ use crate::prelude::*;
 #[read_component(MovingRandomly)]
 #[read_component(Health)]
 #[read_component(Player)]
+#[read_component(Enemy)]
 #[read_component(Name)]
 #[read_component(Invisible)]
 pub fn random_move(
@@ -25,6 +26,7 @@ pub fn random_move(
 
     let mut movers = <(Entity, &Point, &MovingRandomly)>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
+    let mut enemies_at = <(Entity, &Point)>::query().filter(component::<Enemy>());
     movers.iter(ecs).for_each(|(entity, pos, _)| {
         // Once a battle has been queued this turn, let the rest of this
         // turn's movers wait - they'll get another chance next monster turn.
@@ -51,14 +53,38 @@ pub fn random_move(
                         .get_component::<Player>()
                         .is_ok()
                 {
-                    let enemy_name = ecs
-                        .entry_ref(*entity)
-                        .ok()
-                        .and_then(|e| e.get_component::<Name>().ok().cloned())
-                        .map(|n| n.0)
-                        .unwrap_or_else(|| "the enemy".to_string());
+                    // Every enemy already AT the player's tile joins too
+                    // (not just this mover) - see player_input.rs's own
+                    // roster-gathering comment for the same rule applied
+                    // from the other direction. `entity` (this mover)
+                    // hasn't actually moved onto `destination` in the ECS
+                    // yet, so it has to be included explicitly rather
+                    // than found by the position query below.
+                    let mut roster: Vec<(Entity, String)> = vec![(
+                        *entity,
+                        ecs.entry_ref(*entity)
+                            .ok()
+                            .and_then(|e| e.get_component::<Name>().ok().cloned())
+                            .map(|n| n.0)
+                            .unwrap_or_else(|| "the enemy".to_string()),
+                    )];
+                    roster.extend(
+                        enemies_at
+                            .iter(ecs)
+                            .filter(|(e, pos)| *e != entity && **pos == destination)
+                            .map(|(e, _)| {
+                                let name = ecs
+                                    .entry_ref(*e)
+                                    .ok()
+                                    .and_then(|er| er.get_component::<Name>().ok().cloned())
+                                    .map(|n| n.0)
+                                    .unwrap_or_else(|| "the enemy".to_string());
+                                (*e, name)
+                            }),
+                    );
+                    roster.truncate(MAX_BATTLE_ENEMIES);
 
-                    *battle = Some(Battle::new(*victim, *entity, enemy_name));
+                    *battle = Some(Battle::new(*victim, roster));
                     *turn_state = TurnState::InBattle;
                 }
                 attacked = true;

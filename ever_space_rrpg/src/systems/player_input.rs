@@ -137,12 +137,23 @@ pub fn player_input(
             // turn at all).
             did_something = true;
 
-            let attacked_enemy = enemies
+            // Every enemy actually AT the destination tile joins the
+            // battle at once, not just whichever one this find() would
+            // have picked first - enemies can and do stack on the same
+            // tile (confirmed - see the project instructions doc), and
+            // "any enemy in the space of the entity initiating battle"
+            // is exactly the rule this project settled on. Capped at
+            // MAX_BATTLE_ENEMIES; any additional enemy beyond that still
+            // sitting on the tile simply doesn't join THIS fight - it's
+            // still there afterward for a follow-up battle.
+            let roster: Vec<Entity> = enemies
                 .iter(ecs)
-                .find(|(_, pos)| **pos == destination)
-                .map(|(entity, _)| *entity);
+                .filter(|(_, pos)| **pos == destination)
+                .map(|(entity, _)| *entity)
+                .take(MAX_BATTLE_ENEMIES)
+                .collect();
 
-            if let Some(enemy_entity) = attacked_enemy {
+            if !roster.is_empty() {
                 // While Invisible (see components::Invisible / the
                 // Invisible Cloak item), walking into an enemy is blocked
                 // like a wall instead of starting a battle - no
@@ -154,12 +165,18 @@ pub fn player_input(
                     .any(|(e, _)| *e == player_entity);
 
                 if !player_is_invisible {
-                    let enemy_name = ecs
-                        .entry_ref(enemy_entity)
-                        .ok()
-                        .and_then(|e| e.get_component::<Name>().ok().cloned())
-                        .map(|n| n.0)
-                        .unwrap_or_else(|| "the enemy".to_string());
+                    let roster: Vec<(Entity, String)> = roster
+                        .into_iter()
+                        .map(|enemy_entity| {
+                            let name = ecs
+                                .entry_ref(enemy_entity)
+                                .ok()
+                                .and_then(|e| e.get_component::<Name>().ok().cloned())
+                                .map(|n| n.0)
+                                .unwrap_or_else(|| "the enemy".to_string());
+                            (enemy_entity, name)
+                        })
+                        .collect();
 
                     // Stealth (Rogue) doesn't block the battle like
                     // Invisible does - it starts normally, but as an
@@ -172,7 +189,7 @@ pub fn player_input(
                         .iter(ecs)
                         .any(|(e, _)| *e == player_entity);
 
-                    let new_battle = Battle::new(player_entity, enemy_entity, enemy_name);
+                    let new_battle = Battle::new(player_entity, roster);
                     *battle = Some(if player_is_stealthed {
                         commands.remove_component::<Stealthed>(player_entity);
                         new_battle.as_sneak_attack()

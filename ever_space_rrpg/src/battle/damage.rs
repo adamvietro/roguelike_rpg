@@ -3,35 +3,39 @@ use crate::prelude::*;
 // --- Pure damage ------------------------------------------------------------
 //
 // Everything here is "hit the other combatant for N right now" - no
-// lingering status, no roll beyond the hit itself. Before this refactor
-// this exact 6-line apply_damage+popup+flash block was duplicated five
-// separate times (plain Attack in screens/battle.rs, DamageMultiplier,
-// FlatDamage, MultiHit, and PoisonStrike's immediate half). `strike` below
-// is the one shared landing point all five (plus Counter and the enemy's
-// own normal attack) now go through.
+// lingering status, no roll beyond the hit itself. Before the ATB/multi-
+// enemy refactors this exact block was duplicated multiple times across
+// the plain Attack, DamageMultiplier, FlatDamage, MultiHit, and
+// PoisonStrike's immediate half. `strike_enemy`/`strike_player` below are
+// the two shared landing points everything (including Counter and an
+// enemy's own normal attack) now goes through - split into two functions,
+// rather than the old single `strike(Combatant)`, because "which enemy"
+// needs an explicit Entity now that a battle can hold more than one; the
+// player, being singular, never needed that ambiguity in the first place.
 
-/// Deals `amount` damage from `attacker`'s side to the other combatant,
-/// arms the defender's damage popup, and flashes both portraits the way
-/// every direct hit in this game always has (attacker flashes Attacking,
-/// defender flashes Hit). Returns the actual post-Defense damage dealt -
-/// callers should use this, not `amount`, when building a message.
-pub fn strike(ecs: &mut World, battle: &mut Battle, attacker: Combatant, amount: i32) -> i32 {
-    match attacker {
-        Combatant::Player => {
-            let dmg = apply_damage(ecs, battle.enemy, amount);
-            battle.show_enemy_damage(dmg);
-            battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.enemy_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            dmg
-        }
-        Combatant::Enemy => {
-            let dmg = apply_damage(ecs, battle.player, amount);
-            battle.show_player_damage(dmg);
-            battle.enemy_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-            battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
-            dmg
-        }
-    }
+/// Deals `amount` damage from the PLAYER to `target` (a specific enemy in
+/// this battle), arms that enemy's damage popup, and flashes both
+/// portraits the way every direct hit in this game always has (player
+/// flashes Attacking, target flashes Hit). Returns the actual post-
+/// Defense damage dealt - callers should use this, not `amount`, when
+/// building a message.
+pub fn strike_enemy(ecs: &mut World, battle: &mut Battle, target: Entity, amount: i32) -> i32 {
+    let dmg = apply_damage(ecs, target, amount);
+    battle.show_enemy_damage(target, dmg);
+    battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
+    battle.set_enemy_flash(target, FlashKind::Hit);
+    dmg
+}
+
+/// Deals `amount` damage from `attacker` (a specific enemy in this
+/// battle) to the PLAYER, arms the player's damage popup, and flashes
+/// both portraits.
+pub fn strike_player(ecs: &mut World, battle: &mut Battle, attacker: Entity, amount: i32) -> i32 {
+    let dmg = apply_damage(ecs, battle.player, amount);
+    battle.show_player_damage(dmg);
+    battle.set_enemy_flash(attacker, FlashKind::Attacking);
+    battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+    dmg
 }
 
 /// Standard "Deal N damage." / "Dodge attack." log line for a strike
@@ -56,30 +60,35 @@ pub fn take_message(dmg: i32) -> String {
     }
 }
 
-/// TechniqueEffect::DamageMultiplier - attack right now for `multiplier`x
-/// normal attack damage.
-pub fn damage_multiplier(ecs: &mut World, battle: &mut Battle, multiplier: i32) -> String {
+/// TechniqueEffect::DamageMultiplier - attack `target` right now for
+/// `multiplier`x normal attack damage.
+pub fn damage_multiplier(
+    ecs: &mut World,
+    battle: &mut Battle,
+    target: Entity,
+    multiplier: i32,
+) -> String {
     let amount = player_attack_damage(ecs, battle.player) * multiplier;
-    strike_message(strike(ecs, battle, Combatant::Player, amount))
+    strike_message(strike_enemy(ecs, battle, target, amount))
 }
 
-/// TechniqueEffect::FlatDamage - attack for a fixed `amount` plus any
-/// carried weapon damage (unlike DamageMultiplier, which scales off the
-/// normal attack rather than adding a flat base).
-pub fn flat_damage(ecs: &mut World, battle: &mut Battle, amount: i32) -> String {
+/// TechniqueEffect::FlatDamage - attack `target` for a fixed `amount`
+/// plus any carried weapon damage (unlike DamageMultiplier, which scales
+/// off the normal attack rather than adding a flat base).
+pub fn flat_damage(ecs: &mut World, battle: &mut Battle, target: Entity, amount: i32) -> String {
     let total = amount + carried_weapon_damage(ecs, battle.player);
-    strike_message(strike(ecs, battle, Combatant::Player, total))
+    strike_message(strike_enemy(ecs, battle, target, total))
 }
 
-/// TechniqueEffect::MultiHit - attack `hits` times in a row, each for
-/// full normal attack damage. Only the last hit's damage gets a
+/// TechniqueEffect::MultiHit - attack `target` `hits` times in a row,
+/// each for full normal attack damage. Only the last hit's damage gets a
 /// popup/log line - showing every hit would need a queue of popups
 /// rather than one slot, which is more than this technique needs.
-pub fn multi_hit(ecs: &mut World, battle: &mut Battle, hits: i32) -> String {
+pub fn multi_hit(ecs: &mut World, battle: &mut Battle, target: Entity, hits: i32) -> String {
     let raw = player_attack_damage(ecs, battle.player);
     let mut dmg = 0;
     for _ in 0..hits {
-        dmg = strike(ecs, battle, Combatant::Player, raw);
+        dmg = strike_enemy(ecs, battle, target, raw);
     }
     strike_message(dmg)
 }

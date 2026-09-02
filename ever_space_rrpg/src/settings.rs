@@ -112,7 +112,7 @@ impl BattleSpeed {
 //   mode on purpose: while the PLAYER's own action is actually resolving
 //   (BattleTurn::ActionResult(Combatant::Player)), everything still
 //   freezes, the same "wait while attacking" pause Wait mode always has
-//   - only the ENEMY's own action result (ActionResult(Combatant::Enemy))
+//   - only the ENEMY's own action result (ActionResult(Combatant::Enemy(_)))
 //   lets gauges keep moving underneath it in Active mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtbMode {

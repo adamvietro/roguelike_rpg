@@ -2865,3 +2865,26 @@ structure - yeah we will need be able to have statuses for each entity.
 ```
 
 ## Implementation
+Good, confirms `Option<String>` return and `(ecs, rng, player, enemy)` signature — matches what I planned. Now let's add the `defeated_names` accumulator field to `Battle`:Now let's write the complete `screens/battle.rs`:Now let's verify brace balance immediately, then compile-check:Good. Now let's update the trigger sites (`player_input.rs`, `random_move.rs`, `chasing.rs`) to gather multi-enemy rosters.Now let's update this to gather every enemy at the destination tile, capped at `MAX_BATTLE_ENEMIES`:Now let's update `random_move.rs` and `chasing.rs`:Good, it already uses `Name` correctly (I misremembered). Let's redo the replace against the actual content:Now `chasing.rs`:Confirmed — real content uses `Name`. Redoing the replace correctly now:Now let's compile-check everything together:It compiles clean on the first full pass. Let's check for warnings and any remaining loose ends (e.g., `main.rs`'s title-background schedulers might also reference `Battle` in ways affected, and check `traps.rs`/`use_items.rs` for out-of-combat kills that might reference the old single-enemy API).Just a stale doc comment in `settings.rs` referencing the old non-tuple variant — let's fix that for accuracy:Now let's check `traps.rs` and `use_items.rs` for any out-of-combat kill logic that might interact with `Battle` or need `MAX_BATTLE_ENEMIES` awareness:Good, they don't touch `Battle` at all — those are ranged kills resolved directly against `Health`/`Enemy` entities outside the battle system entirely, so they're unaffected. Let's re-sync, do one final full check, and confirm the lockfile is untouched.All clean: compiles with zero warnings, every `.rs` file's braces balance, and the real `Cargo.lock` checksum is unchanged. Let's package everything for delivery.No worries — I finished the whole thing. Here's what landed, matching everything you specified:
+
+**Core architecture (`battle/mod.rs`):**
+- `Battle.enemies: Vec<EnemyCombatant>` (capped at `MAX_BATTLE_ENEMIES = 4`), each with its own gauge, statuses, flash, and damage popup — fully independent per enemy, so one can be poisoned while another is stunned.
+- `Combatant::Enemy(Entity)` now identifies *which* enemy.
+- `Battle::primary_target()` — your rule #2: always the enemy with the highest current Speed among survivors, ties broken by stable list order, recomputed fresh every time so it automatically shifts to the next-fastest the instant the current target dies.
+- `Battle::enter_result`, damage/dot/stun/counter — all rewritten to operate on a specific enemy `Entity` instead of an implicit singular one.
+
+**ATB with multiple enemies (`screens/battle.rs`):** every enemy fills its own gauge independently; whichever one reaches full first acts — matching #3 exactly, using the same tie-break convention already established. True ATB's queuing still holds exactly one action (#4).
+
+**Kill handling:** killing one enemy in a group doesn't end the fight — `record_enemy_kill` removes just that one, keeps going, and only transitions to Victory once the whole group is gone. Gold/loot/names accumulate across every kill in the fight and show together on one combined Victory screen.
+
+**Trigger logic** (`player_input.rs`, `random_move.rs`, `chasing.rs`): gathers *every* enemy on the destination tile into the battle at once, capped at 4 — matches your stated rule exactly.
+
+**Battle screen (#5):** a single enemy still uses the exact original layout (portrait row 1, text rows 41-44) — completely untouched visually. 2-4 enemies stack down column 3 starting at row 0, each with its own name/HP bar/ATB bar. I also added a small `>` marker on whichever enemy is the current auto-target, since you can't choose but probably want to know who Attack will hit.
+
+**Enemy AI (#6):** unchanged — every enemy still just does a plain Attack.
+
+One honest caveat: I built this layout by working through the same pixel-to-console-row math the existing code already used, not by seeing it rendered — the exact row spacing for 3-4 enemies may want a small visual tweak once you can actually look at it in-game.
+
+Verified with `cargo check` (clean, zero warnings), every file's braces balance, and your real `Cargo.lock` is untouched.
+
+## AOE Attacks To Test

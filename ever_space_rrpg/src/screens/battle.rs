@@ -10,17 +10,82 @@ enum ResultOutcome {
     EndBattleTick,
 }
 
+/// One enemy's resolved portrait info for draw_battle_arena - its Render
+/// (looked up live from the ECS) and its own flash state (see
+/// EnemyCombatant::flash). Bundled here rather than passed as two
+/// parallel slices, which would need index-matching to stay correct.
+struct EnemyPortrait {
+    render: Render,
+    flash: Option<(FlashKind, f32)>,
+}
+
+/// Coarse portrait-grid row for the enemy at `index` of `count` total -
+/// see BATTLE_PORTRAIT_COLS/ROWS in main.rs. A single-enemy battle (by
+/// far the common case) uses row 1, EXACTLY the position a solo enemy
+/// has always used - multi-enemy battles were explicitly scoped to leave
+/// that case visually untouched. 2-4 enemies stack top-down starting at
+/// row 0 instead, using column 3 either way (the same column a solo
+/// enemy already used - no need to also shift columns).
+fn enemy_portrait_row(count: usize, index: usize) -> i32 {
+    if count <= 1 {
+        1
+    } else {
+        index as i32
+    }
+}
+
+/// HUD_CONSOLE row where enemy #`index` (of `count`) starts its own
+/// name/HP-bar/ATB-bar/status text block - see the block this feeds in
+/// battle_tick. Single-enemy keeps the exact original rows (41-44);
+/// multi-enemy gives each enemy a fresh ~13-row band starting at row 8,
+/// matching enemy_portrait_row's own row-per-index scheme (each coarse
+/// portrait row is ~13.4 HUD rows tall - see the Actions box's own
+/// BOX_Y comment below for that same pixel-to-HUD-row conversion).
+fn enemy_text_base_row(count: usize, index: usize) -> i32 {
+    if count <= 1 {
+        41
+    } else {
+        8 + index as i32 * 13
+    }
+}
+
+/// BIG_TEXT_CONSOLE row to center a floating damage number over enemy
+/// #`index` (of `count`) - see the floating-damage-number block in
+/// battle_tick. Derived the same way the original single-enemy constant
+/// (7, for portrait row 1) was: each coarse portrait row is 5
+/// BIG_TEXT_CONSOLE rows tall (both consoles cover the same physical
+/// window), centered 2 rows into that band.
+fn enemy_damage_popup_row(count: usize, index: usize) -> i32 {
+    5 * enemy_portrait_row(count, index) + 2
+}
+
+/// A natural-language join of names for the victory message - "the Goblin!",
+/// "the Goblin and the Orc!", "the Goblin, the Orc, and the Rat!". Every
+/// name already includes its own "the " (see how `enemy_names` is built
+/// in record_enemy_kill) - this just handles the comma/and joinery.
+fn join_enemy_names(names: &[String]) -> String {
+    match names.len() {
+        0 => String::new(),
+        1 => names[0].clone(),
+        2 => format!("{} and {}", names[0], names[1]),
+        _ => {
+            let (last, rest) = names.split_last().unwrap();
+            format!("{}, and {}", rest.join(", "), last)
+        }
+    }
+}
+
 impl State {
     /// Draws the battle arena background (console 0: the current theme's
-    /// floor/walls/scenery) and both combatant portraits (console 3).
-    /// Callers look up Render live during an active battle, or pass a
-    /// value captured before an entity was removed (see
-    /// battle_victory_tick, where the enemy no longer exists in the ECS).
+    /// floor/walls/scenery) and every combatant portrait (console 3) -
+    /// the player plus up to MAX_BATTLE_ENEMIES enemies. Callers look up
+    /// each Render live during an active battle, or pass captured values
+    /// (battle_victory_tick, where every enemy has already been removed
+    /// from the ECS - it always passes an empty `enemies` slice).
     fn draw_battle_arena(
         &mut self,
-        enemy_render: Option<Render>,
+        enemies: &[EnemyPortrait],
         player_render: Option<Render>,
-        enemy_flash: Option<(FlashKind, f32)>,
         player_flash: Option<(FlashKind, f32)>,
     ) {
         // --- Arena background: the current dungeon theme's floor/wall
@@ -110,21 +175,24 @@ impl State {
 
         // --- Portraits: each creature's own glyph, drawn once on the
         // coarse BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS console, so it
-        // renders far larger than its normal dungeon-map size. Enemy sits
-        // top-right, player sits bottom-left. Whichever side is currently
-        // "Attacking" gets a small shake instead of the plain draw - see
+        // renders far larger than its normal dungeon-map size. Enemies
+        // stack down column 3 (see enemy_portrait_row); player sits
+        // bottom-left. Whichever side is currently "Attacking" gets a
+        // small shake instead of the plain draw - see
         // draw_wiggling_portrait below.
         let mut portraits = DrawBatch::new();
         portraits.target(3);
         let mut wiggle = DrawBatch::new();
         wiggle.target(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
-        if let Some(render) = enemy_render {
+        let enemy_count = enemies.len();
+        for (index, enemy) in enemies.iter().enumerate() {
+            let row = enemy_portrait_row(enemy_count, index);
             let tinted = Render {
-                color: flash_tint(render.color, enemy_flash),
-                glyph: render.glyph,
+                color: flash_tint(enemy.render.color, enemy.flash),
+                glyph: enemy.render.glyph,
             };
-            if !draw_wiggling_portrait(&mut wiggle, 3, 1, tinted, enemy_flash) {
-                draw_portrait(&mut portraits, 3, 1, tinted);
+            if !draw_wiggling_portrait(&mut wiggle, 3, row, tinted, enemy.flash) {
+                draw_portrait(&mut portraits, 3, row, tinted);
             }
         }
         if let Some(render) = player_render {
@@ -140,16 +208,19 @@ impl State {
         wiggle.submit(1).expect("Batch error");
     }
 
-    /// Shared "the enemy just died in battle" ending - grants loot,
-    /// removes the enemy entity, records an enemies_killed stat for the
-    /// player's class, and transitions to TurnState::BattleVictory. This
-    /// exact sequence used to be pasted at all four points in battle_tick
-    /// where an enemy's Health can drop below 1 (the player's own attack,
-    /// a Counter Attack reacting to an enemy hit whichever order the
-    /// round went, and a DoT tick before initiative is even decided) -
-    /// one shared landing point instead of four copies that would
-    /// otherwise all need the same one more line added to them.
-    fn finish_battle_victory(&mut self, battle: &Battle) {
+    /// Records one enemy's death: stats, loot/gold (accumulated onto
+    /// `battle` - see its gold_earned/loot_found/defeated_names fields),
+    /// removes it from the ECS and from `battle.enemies`. If that was the
+    /// last enemy in the fight, finishes the whole battle (BattleVictory)
+    /// and returns true - the caller should stop touching `battle`
+    /// immediately, same contract the old finish_battle_victory had.
+    /// Returns false if the fight continues (other enemies remain).
+    fn record_enemy_kill(&mut self, battle: &mut Battle, target: Entity) -> bool {
+        let target_name = battle
+            .enemy(target)
+            .map(|e| e.name.clone())
+            .unwrap_or_else(|| "enemy".to_string());
+
         if let Some(class) = entity_class(&self.ecs, battle.player) {
             if let Some(mut stats) = self.resources.get_mut::<Stats>() {
                 stats.record_enemy_killed(&class);
@@ -160,10 +231,13 @@ impl State {
         // BEFORE the enemy is removed below - Gold's own presence (not a
         // separate Option<ArenaRun> check) is what decides whether this
         // is a Battle Arena kill at all, per that component's own doc
-        // comment.
+        // comment. Loot is rolled here too (before the CommandBuffer
+        // below exists) since grant_random_battle_loot also needs
+        // `&mut self.ecs` directly - same ordering finish_battle_victory
+        // always used, for the same reason.
         let is_boss = self
             .ecs
-            .entry_ref(battle.enemy)
+            .entry_ref(target)
             .map(|e| e.get_component::<Boss>().is_ok())
             .unwrap_or(false);
         let current_gold = self
@@ -174,64 +248,97 @@ impl State {
 
         // In the Battle Arena, a kill's reward is gold ONLY - the old
         // random ability-drop loot is deliberately not granted alongside
-        // it (this was the actual gap: gold got added on top of the
-        // existing drop instead of replacing it, so Arena battles kept
-        // handing out ability items neither priced nor meant to still be
-        // free). A Dungeon Crawl kill (no Gold component at all) keeps
-        // the original loot roll exactly as before - gold doesn't exist
-        // there, so there's nothing to replace it with.
+        // it. A Dungeon Crawl kill (no Gold component at all) keeps the
+        // original loot roll exactly as before.
         let mut rng = RandomNumberGenerator::new();
         let loot = if current_gold.is_some() {
             None
         } else {
-            grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, battle.enemy)
+            grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, target)
         };
+        if let Some(item) = loot {
+            battle.loot_found.push(item);
+        }
 
         let mut cb = CommandBuffer::new(&mut self.ecs);
-        let gold_earned = current_gold.map(|Gold(amount)| {
+        if let Some(Gold(amount)) = current_gold {
             let reward = gold_reward_for_kill(is_boss);
             cb.add_component(battle.player, Gold(amount + reward));
-            reward
-        });
-        cb.remove(battle.enemy);
+            battle.gold_earned += reward;
+        }
+        cb.remove(target);
         cb.flush(&mut self.ecs);
+
+        battle.push_log(format!("Defeated the {}!", target_name));
+        battle.defeated_names.push(format!("the {}", target_name));
+        battle.enemies.retain(|e| e.entity != target);
+
+        if battle.enemies.is_empty() {
+            self.finish_battle(battle);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Ends the whole battle in victory, using whatever's accumulated on
+    /// `battle` across every kill this fight (see record_enemy_kill) -
+    /// called the instant `battle.enemies` becomes empty.
+    fn finish_battle(&mut self, battle: &Battle) {
+        // Checked fresh here (not just "was gold_earned > 0") so a
+        // Battle Arena fight that somehow ended with 0 net gold (it
+        // shouldn't - every kill grants at least a few) still correctly
+        // shows "0 gold" rather than being mistaken for a Dungeon Crawl
+        // fight with no loot.
+        let is_arena = self
+            .ecs
+            .entry_ref(battle.player)
+            .ok()
+            .and_then(|e| e.get_component::<Gold>().ok().copied())
+            .is_some();
+
         self.resources.insert(Some(BattleVictory {
             player: battle.player,
-            enemy_name: battle.enemy_name.clone(),
-            loot,
-            gold_earned,
+            enemy_names: battle.defeated_names.clone(),
+            loot: battle.loot_found.clone(),
+            gold_earned: if is_arena {
+                Some(battle.gold_earned)
+            } else {
+                None
+            },
         }));
         self.resources.insert(None::<Battle>);
         self.resources.insert(TurnState::BattleVictory);
     }
 
-    /// Fires the enemy's attack right now: ticks any active Dot first (a
-    /// lingering wound, not an action in its own right), checks whether
-    /// that alone finished the enemy off, then actually resolves the
-    /// attack and enters ActionResult(Enemy). Shared by two triggers:
-    /// the normal "enemy_gauge just reached ATB_GAUGE_MAX while nothing
-    /// else was in progress" case (Filling), and - under True ATB
-    /// (AtbMode::Active) only - the enemy's gauge filling WHILE the
-    /// player is still stuck in their own menu (see BattleTurn::PlayerMenu's
-    /// handling below) - "decide fast or take the hit" is the entire
-    /// point of that mode. Returns true if the enemy died to its own Dot
-    /// tick before it could even swing - finish_battle_victory has
-    /// already been called in that case, and the caller should return
-    /// from battle_tick immediately without touching `battle` again.
-    fn trigger_enemy_action(&mut self, battle: &mut Battle) -> bool {
-        let dot_message = tick_dot(&mut self.ecs, battle);
+    /// Fires `attacker`'s attack right now: ticks its own active Dot
+    /// first (a lingering wound, not an action in its own right), checks
+    /// whether that alone finished it off, then actually resolves the
+    /// attack and enters ActionResult(Enemy(attacker)). Shared by two
+    /// triggers: the normal "this enemy's gauge just reached
+    /// ATB_GAUGE_MAX while nothing else was in progress" case (Filling),
+    /// and - under True ATB (AtbMode::Active) only - an enemy's gauge
+    /// filling WHILE the player is still stuck in their own menu (see
+    /// BattleTurn::PlayerMenu's handling below) - "decide fast or take
+    /// the hit" is the entire point of that mode. Returns true if
+    /// `attacker` died to its own Dot tick before it could even swing (or
+    /// that was the last enemy standing) - record_enemy_kill has already
+    /// been called in that case, possibly ending the whole battle; the
+    /// caller should return from battle_tick immediately without
+    /// touching `battle` again.
+    fn trigger_enemy_action(&mut self, battle: &mut Battle, attacker: Entity) -> bool {
+        let dot_message = tick_dot(&mut self.ecs, battle, attacker);
         if let Some(dot_message) = dot_message {
             battle.push_log(dot_message);
         }
 
-        let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-        if enemy_hp_now < 1 {
-            self.finish_battle_victory(battle);
-            return true;
+        let (hp_now, _) = entity_health(&self.ecs, attacker);
+        if hp_now < 1 {
+            return self.record_enemy_kill(battle, attacker);
         }
 
-        resolve_enemy_attack(&mut self.ecs, battle);
-        battle.enter_result(Combatant::Enemy);
+        resolve_enemy_attack(&mut self.ecs, battle, attacker);
+        battle.enter_result(Combatant::Enemy(attacker));
         false
     }
 
@@ -241,20 +348,31 @@ impl State {
     /// immediate resolution (the common case - nothing else was
     /// happening) and Filling's queued-action resolution (True ATB only
     /// - see Battle::queued_player_action) for a choice made earlier,
-    /// while the enemy's own result was still on screen. Both need the
+    /// while some enemy's own result was still on screen. Both need the
     /// exact same effect logic; only WHEN it runs differs.
+    ///
+    /// Single-target actions (Attack, and every single-target Technique)
+    /// hit whichever enemy Battle::primary_target currently picks - the
+    /// player doesn't choose directly once there's more than one enemy.
+    /// Recomputed fresh here rather than passed in, so a target chosen
+    /// via queuing is still whoever's actually fastest-and-alive at the
+    /// moment this finally runs, not whoever was fastest back when the
+    /// player originally pressed the key.
     fn resolve_player_action(&mut self, battle: &mut Battle, chosen: BattleAction) {
+        let target = battle.primary_target(&self.ecs);
         // Every technique's mechanical effect is resolved in one place
         // (battle::apply_player_technique) rather than a match arm per
         // item here - adding a new class's technique needs no change here.
         match chosen {
             BattleAction::Attack => {
-                let mut dmg = player_attack_damage(&self.ecs, battle.player);
-                if battle.sneak_attack {
-                    dmg *= 3;
+                if let Some(target) = target {
+                    let mut dmg = player_attack_damage(&self.ecs, battle.player);
+                    if battle.sneak_attack {
+                        dmg *= 3;
+                    }
+                    let dmg = damage::strike_enemy(&mut self.ecs, battle, target, dmg);
+                    battle.push_log(damage::strike_message(dmg));
                 }
-                let dmg = damage::strike(&mut self.ecs, battle, Combatant::Player, dmg);
-                battle.push_log(damage::strike_message(dmg));
             }
             BattleAction::Defend => {
                 battle.player_defending = true;
@@ -276,7 +394,18 @@ impl State {
                         stats.record_ability_used(&class, &name);
                     }
                 }
-                let result = apply_player_technique(&mut self.ecs, battle, item);
+                // A self-buff technique (Heal/Evade/WarCry/Counter) just
+                // ignores `target` entirely inside apply_player_technique
+                // - still needs SOME entity to satisfy the signature, so
+                // this falls back to the player itself in the (should be
+                // unreachable - see primary_target's own doc comment)
+                // case there's no enemy to target at all.
+                let result = apply_player_technique(
+                    &mut self.ecs,
+                    battle,
+                    item,
+                    target.unwrap_or(battle.player),
+                );
                 battle.push_log(result);
             }
         }
@@ -296,21 +425,31 @@ impl State {
             return ResultOutcome::EndBattleTick;
         }
 
-        // Check both sides regardless of which one just acted - a
-        // Counter Attack can kill the enemy as a side effect of an ENEMY
-        // attack, and symmetric reasoning applies the other way too.
         let (player_hp_now, _) = entity_health(&self.ecs, battle.player);
-        let (enemy_hp_now, _) = entity_health(&self.ecs, battle.enemy);
-
         if player_hp_now < 1 {
             self.resources.insert(None::<Battle>);
             self.resources.insert(TurnState::GameOver);
             return ResultOutcome::EndBattleTick;
         }
 
-        if enemy_hp_now < 1 {
-            self.finish_battle_victory(battle);
-            return ResultOutcome::EndBattleTick;
+        // Sweep every remaining enemy for death rather than checking just
+        // one specific entity - a Counter Attack can kill the enemy that
+        // just attacked as a side effect of ITS OWN attack, the player's
+        // own action might have killed whichever enemy it targeted, and
+        // (once AOE exists) more than one could die from the same action
+        // at once. record_enemy_kill on one enemy can end the whole
+        // battle (all enemies gone) - stop immediately if so, same
+        // contract trigger_enemy_action's own caller already follows.
+        let dead: Vec<Entity> = battle
+            .enemies
+            .iter()
+            .filter(|e| entity_health(&self.ecs, e.entity).0 < 1)
+            .map(|e| e.entity)
+            .collect();
+        for target in dead {
+            if self.record_enemy_kill(battle, target) {
+                return ResultOutcome::EndBattleTick;
+            }
         }
 
         battle.turn = BattleTurn::Filling;
@@ -329,27 +468,14 @@ impl State {
             }
         };
 
-        // Tick down any active post-action portrait flash (see
-        // Battle::enemy_flash/player_flash and flash_tint).
-        if let Some((_, remaining)) = &mut battle.enemy_flash {
-            *remaining -= ctx.frame_time_ms;
-            if *remaining <= 0.0 {
-                battle.enemy_flash = None;
-            }
-        }
+        // Tick down any active post-action portrait flash/damage popup -
+        // the player's own (still flat fields on Battle) and every
+        // enemy's own (now on EnemyCombatant - see that struct's doc
+        // comment).
         if let Some((_, remaining)) = &mut battle.player_flash {
             *remaining -= ctx.frame_time_ms;
             if *remaining <= 0.0 {
                 battle.player_flash = None;
-            }
-        }
-
-        // Tick down any active floating damage number (see
-        // Battle::enemy_damage_popup/player_damage_popup) the same way.
-        if let Some(popup) = &mut battle.enemy_damage_popup {
-            popup.remaining_ms -= ctx.frame_time_ms;
-            if popup.remaining_ms <= 0.0 {
-                battle.enemy_damage_popup = None;
             }
         }
         if let Some(popup) = &mut battle.player_damage_popup {
@@ -358,50 +484,71 @@ impl State {
                 battle.player_damage_popup = None;
             }
         }
+        for enemy in battle.enemies.iter_mut() {
+            if let Some((_, remaining)) = &mut enemy.flash {
+                *remaining -= ctx.frame_time_ms;
+                if *remaining <= 0.0 {
+                    enemy.flash = None;
+                }
+            }
+            if let Some(popup) = &mut enemy.damage_popup {
+                popup.remaining_ms -= ctx.frame_time_ms;
+                if popup.remaining_ms <= 0.0 {
+                    enemy.damage_popup = None;
+                }
+            }
+        }
 
         // --- ATB gauges: fill continuously from Speed (see
         // BattleTurn::Filling's doc comment and atb_fill_rate) - the
         // FFVII-style replacement for the old fixed "whoever's faster
-        // goes first this round" system. Every fill rate is scaled by
-        // the player's chosen BattleSpeed (Options screen) - a pure
-        // pacing knob applied uniformly to both sides, changing how long
+        // goes first this round" system, now generalized to the player
+        // plus every enemy in the fight (each with its own independent
+        // gauge - see EnemyCombatant::gauge). Every fill rate is scaled
+        // by the player's chosen BattleSpeed (Options screen) - a pure
+        // pacing knob applied uniformly to everyone, changing how long
         // battles take to sit through without changing who's faster than
         // whom.
         //
         // WHICH gauges actually tick this frame depends on both the
         // current BattleTurn and the chosen AtbMode - see AtbMode's own
-        // doc comment for the full rules. Filling always ticks both,
-        // regardless of mode: neither side has anything "in progress" to
-        // protect a wait-pause for. Wait mode freezes everything outside
-        // Filling, exactly as before this setting existed. Active (True
-        // ATB) mode additionally lets the enemy's gauge fill during the
-        // player's own PlayerMenu (see the interrupt check further down),
-        // and lets BOTH gauges keep filling during the enemy's own
+        // doc comment for the full rules; the decision is identical
+        // whether there's one enemy or four, it's just applied to the
+        // whole `enemies` list now instead of a single field. Filling
+        // always ticks everyone, regardless of mode: nobody has anything
+        // "in progress" to protect a wait-pause for. Wait mode freezes
+        // everything outside Filling, exactly as before this setting
+        // existed. Active (True ATB) mode additionally lets every
+        // enemy's gauge fill during the player's own PlayerMenu (see the
+        // interrupt check further down), and lets the player's AND every
+        // enemy's gauge keep filling during any one enemy's own
         // ActionResult - but still freezes everything during the
         // PLAYER's own ActionResult, the one deliberate exception (see
         // AtbMode::Active's doc comment for why).
         let battle_speed = *self.resources.get::<BattleSpeed>().unwrap();
         let atb_mode = *self.resources.get::<AtbMode>().unwrap();
-        let (tick_player, tick_enemy) = match battle.turn {
+        let (tick_player, tick_enemies) = match battle.turn {
             BattleTurn::Filling => (true, true),
             BattleTurn::PlayerMenu => (false, atb_mode == AtbMode::Active),
-            BattleTurn::ActionResult(Combatant::Enemy) => {
+            BattleTurn::ActionResult(Combatant::Enemy(_)) => {
                 let active = atb_mode == AtbMode::Active;
                 (active, active)
             }
             BattleTurn::ActionResult(Combatant::Player) => (false, false),
         };
-        if tick_player || tick_enemy {
+        if tick_player || tick_enemies {
             let speed_mult = battle_speed.rate_multiplier();
             if tick_player {
                 battle.player_gauge = (battle.player_gauge
                     + atb_fill_rate(&self.ecs, battle.player) * speed_mult * ctx.frame_time_ms)
                     .min(ATB_GAUGE_MAX);
             }
-            if tick_enemy {
-                battle.enemy_gauge = (battle.enemy_gauge
-                    + atb_fill_rate(&self.ecs, battle.enemy) * speed_mult * ctx.frame_time_ms)
-                    .min(ATB_GAUGE_MAX);
+            if tick_enemies {
+                for enemy in battle.enemies.iter_mut() {
+                    let rate = atb_fill_rate(&self.ecs, enemy.entity);
+                    enemy.gauge =
+                        (enemy.gauge + rate * speed_mult * ctx.frame_time_ms).min(ATB_GAUGE_MAX);
+                }
             }
         }
 
@@ -419,39 +566,51 @@ impl State {
                 // deterministic rule, and it means the player is never the
                 // one left waiting an extra frame purely due to check order.
                 battle.turn = BattleTurn::PlayerMenu;
-            } else if battle.enemy_gauge >= ATB_GAUGE_MAX {
-                if self.trigger_enemy_action(&mut battle) {
+            } else if let Some(attacker) = battle
+                .enemies
+                .iter()
+                .find(|e| e.gauge >= ATB_GAUGE_MAX)
+                .map(|e| e.entity)
+            {
+                // Whichever enemy is first in stable list order among
+                // those ready wins a same-frame tie, mirroring the
+                // player-favoring rule above - simple and deterministic,
+                // not meant to imply anything about "real" simultaneity.
+                if self.trigger_enemy_action(&mut battle, attacker) {
                     return;
                 }
             }
         }
 
-        let (enemy_hp, enemy_max) = entity_health(&self.ecs, battle.enemy);
         let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
-
-        let enemy_render = entity_render_component(&self.ecs, battle.enemy);
         let player_render = entity_render_component(&self.ecs, battle.player);
-        self.draw_battle_arena(
-            enemy_render,
-            player_render,
-            battle.enemy_flash,
-            battle.player_flash,
-        );
+
+        let enemy_portraits: Vec<EnemyPortrait> = battle
+            .enemies
+            .iter()
+            .filter_map(|e| {
+                entity_render_component(&self.ecs, e.entity).map(|render| EnemyPortrait {
+                    render,
+                    flash: e.flash,
+                })
+            })
+            .collect();
+        self.draw_battle_arena(&enemy_portraits, player_render, battle.player_flash);
 
         // --- "You can act" indicator: whether the player can issue an
         // action RIGHT NOW - either a normal open PlayerMenu, or (True
-        // ATB only) the queuing window during the enemy's own
+        // ATB only) the queuing window during some enemy's own
         // ActionResult (see Battle::queued_player_action's doc comment).
         // Drives the Actions box border color below (green normally,
         // yellow while this is true) rather than tinting the player's
         // own portrait - a portrait tint turned out to read as a stray
         // color change with no clear meaning, and worse, it silently
-        // went dark again the instant the enemy interrupted (turn moved
+        // went dark again the instant an enemy interrupted (turn moved
         // off PlayerMenu) even though - under True ATB - the player
         // could very much still act in that moment via queuing. The box
         // color is checked here, once, against the SAME condition that
         // actually gates input capture in both spots below (PlayerMenu's
-        // own key handling and ActionResult(Enemy)'s queuing capture),
+        // own key handling and ActionResult(Enemy(_))'s queuing capture),
         // so it can never drift out of sync with what's actually
         // interactive.
         let player_can_act = battle.turn == BattleTurn::PlayerMenu
@@ -463,37 +622,69 @@ impl State {
         // message/menu panel centered in the gap between them.
         ctx.set_active_console(2);
 
-        ctx.print_color(96, 41, YELLOW, BLACK, &battle.enemy_name);
-        ctx.print_color(
-            96,
-            42,
-            YELLOW,
-            BLACK,
-            &format!(
-                "{} {}/{}",
-                hp_bar_string(enemy_hp, enemy_max, 16),
-                enemy_hp.max(0),
-                enemy_max
-            ),
-        );
-        // ATB gauge, drawn as the same bracket-style bar as the HP bar
-        // just above it - reuses hp_bar_string's ratio/width logic
-        // directly by treating the gauge as a "current/max" pair of its
-        // own. CYAN (rather than the HP bar's implicit yellow-on-black)
-        // so the two bars read as different things at a glance. Full-ready
-        // shows in GREEN instead, as a clear "it's ready" signal distinct
-        // from "it's filling."
-        ctx.print_color(
-            96,
-            43,
-            if battle.enemy_gauge >= ATB_GAUGE_MAX {
-                GREEN
+        // Whichever enemy the player's own single-target actions will hit
+        // right now (see Battle::primary_target) - highlighted so the
+        // player has SOME visibility into who they're about to attack,
+        // even though they can't choose it directly with more than one
+        // enemy present.
+        let primary_target = battle.primary_target(&self.ecs);
+        let enemy_count = battle.enemies.len();
+        for (index, enemy) in battle.enemies.iter().enumerate() {
+            let (enemy_hp, enemy_max) = entity_health(&self.ecs, enemy.entity);
+            let base = enemy_text_base_row(enemy_count, index);
+            let is_target = Some(enemy.entity) == primary_target;
+            let name_color = if is_target { YELLOW } else { WHITE };
+            let name_text = if is_target && enemy_count > 1 {
+                format!("> {}", enemy.name)
             } else {
-                CYAN
-            },
-            BLACK,
-            &hp_bar_string(battle.enemy_gauge as i32, ATB_GAUGE_MAX as i32, 16),
-        );
+                enemy.name.clone()
+            };
+            ctx.print_color(96, base, name_color, BLACK, &name_text);
+            ctx.print_color(
+                96,
+                base + 1,
+                YELLOW,
+                BLACK,
+                &format!(
+                    "{} {}/{}",
+                    hp_bar_string(enemy_hp, enemy_max, 16),
+                    enemy_hp.max(0),
+                    enemy_max
+                ),
+            );
+            // ATB gauge, drawn as the same bracket-style bar as the HP bar
+            // just above it - reuses hp_bar_string's ratio/width logic
+            // directly by treating the gauge as a "current/max" pair of
+            // its own. CYAN (rather than the HP bar's implicit yellow-on-
+            // black) so the two bars read as different things at a
+            // glance. Full-ready shows in GREEN instead, as a clear
+            // "it's ready" signal distinct from "it's filling."
+            ctx.print_color(
+                96,
+                base + 2,
+                if enemy.gauge >= ATB_GAUGE_MAX {
+                    GREEN
+                } else {
+                    CYAN
+                },
+                BLACK,
+                &hp_bar_string(enemy.gauge as i32, ATB_GAUGE_MAX as i32, 16),
+            );
+            if let Some(ActiveStatus::Dot {
+                label,
+                turns_remaining,
+                ..
+            }) = enemy.statuses.get(StatusKind::Dot)
+            {
+                ctx.print_color(
+                    96,
+                    base + 3,
+                    RED,
+                    BLACK,
+                    &format!("{} ({} turns left)", label, turns_remaining),
+                );
+            }
+        }
 
         ctx.print_color(32, 58, WHITE, BLACK, "You");
         ctx.print_color(
@@ -520,31 +711,14 @@ impl State {
             &hp_bar_string(battle.player_gauge as i32, ATB_GAUGE_MAX as i32, 16),
         );
 
-        // --- Active-status lines: previously Defending, Ice Armor, an
-        // active counter, and enemy damage-over-time all existed as real
-        // state with zero visual presence. One combined line per
-        // combatant, shown whenever any of that combatant's statuses are
-        // active. Enemy's goes below its HP bar (clear of the portrait,
-        // which ends at pixel y=320 / row 40). Player's goes ABOVE its
-        // name/HP block instead of below: the player portrait starts at
-        // pixel y=480 / row 60, so a status line at row 60 would sit
-        // directly under the portrait on console 3 (registered after
-        // console 2) and never actually be visible - row 57 keeps clear.
-        if let Some(ActiveStatus::Dot {
-            label,
-            turns_remaining,
-            ..
-        }) = battle.enemy_statuses.get(StatusKind::Dot)
-        {
-            ctx.print_color(
-                96,
-                44,
-                RED,
-                BLACK,
-                &format!("{} ({} turns left)", label, turns_remaining),
-            );
-        }
-
+        // --- Active-status line for the player: previously Defending,
+        // Ice Armor, and an active counter all existed as real state with
+        // zero visual presence. One combined line, shown whenever any of
+        // it is active, ABOVE the name/HP block instead of below: the
+        // player portrait starts at pixel y=480 / row 60, so a status
+        // line at row 60 would sit directly under the portrait on
+        // console 3 (registered after console 2) and never actually be
+        // visible - row 57 keeps clear.
         let mut player_statuses = Vec::new();
         if battle.player_defending {
             player_statuses.push("Defending".to_string());
@@ -570,9 +744,8 @@ impl State {
         // bordered box centered above the player (not the whole screen) -
         // the player portrait spans console-2 columns 32-64, centered on
         // column 48, so the box is centered there too. Sits in the gap
-        // between the enemy's text block (ends row 43) and the player's
-        // status/name/HP block (starts row 57), with a line of padding on
-        // both sides.
+        // between the enemy panel and the player's status/name/HP block
+        // (starts row 57), with a line of padding on both sides.
         const MSG_BOX_X: i32 = 36;
         const MSG_BOX_Y: i32 = 45;
         const MSG_BOX_WIDTH: i32 = 24;
@@ -605,17 +778,22 @@ impl State {
         // nothing lingers once a popup's timer expires.
         //
         // Both the portrait console (5x5) and this one (40x25) cover the
-        // same physical 1280x800 window. Enemy portrait spans columns
-        // 24-32 (center 28), rows 5-10 (center 7). Player portrait spans
-        // columns 8-16 (center 12), rows 15-20 (center 17). print_color
-        // draws left-to-right from the given column, so the start column
-        // is nudged left by half the number's length to actually center
-        // it rather than just its left edge.
+        // same physical 1280x800 window. Player portrait spans columns
+        // 8-16 (center 12), rows 15-20 (center 17) - unaffected by enemy
+        // count. Each enemy's own popup centers at column 28 (column 3's
+        // horizontal center, same regardless of count) and a row derived
+        // from its own portrait row - see enemy_damage_popup_row.
+        // print_color draws left-to-right from the given column, so the
+        // start column is nudged left by half the number's length to
+        // actually center it rather than just its left edge.
         ctx.set_active_console(BIG_TEXT_CONSOLE);
-        if let Some(popup) = &battle.enemy_damage_popup {
-            let text = format!("-{}", popup.amount);
-            let start_col = 28 - (text.chars().count() as i32) / 2;
-            ctx.print_color(start_col, 7, RED, BLACK, &text);
+        for (index, enemy) in battle.enemies.iter().enumerate() {
+            if let Some(popup) = &enemy.damage_popup {
+                let text = format!("-{}", popup.amount);
+                let start_col = 28 - (text.chars().count() as i32) / 2;
+                let row = enemy_damage_popup_row(enemy_count, index);
+                ctx.print_color(start_col, row, RED, BLACK, &text);
+            }
         }
         if let Some(popup) = &battle.player_damage_popup {
             let text = format!("-{}", popup.amount);
@@ -699,39 +877,10 @@ impl State {
             }
         }
 
-        // Column widths sized to THIS class's own current labels (not a
-        // fixed guess), so the box fits snugly whether it's Archer (no
-        // techniques - right column stays empty) or Barbarian (4). Left
-        // column labels are always short ("N) Defend"), but computing it
-        // the same way keeps both sides consistent if that ever changes.
-        let left_width = main_actions
-            .iter()
-            .map(|(i, entry)| menu_row_label(*i, entry).0.chars().count())
-            .max()
-            .unwrap_or(0) as i32;
-        // max()'d against "Techniques".len() too - every current class's
-        // technique labels are already longer than that header once a
-        // number prefix/count suffix is added, but this keeps the header
-        // from ever overflowing the box if a future class's techniques
-        // all happen to have very short names.
-        let right_width = other_actions
-            .iter()
-            .map(|(i, entry)| menu_row_label(*i, entry).0.chars().count())
-            .max()
-            .unwrap_or(0)
-            .max(if other_actions.is_empty() {
-                0
-            } else {
-                "Techniques".len()
-            }) as i32;
-        const COLUMN_GAP: i32 = 3;
-        let right_col_x_offset = left_width + COLUMN_GAP;
-
         const BOX_X: i32 = 44;
         const BOX_Y: i32 = 40;
-        // +2 for the left/right border columns, +1 so the right column's
-        // text never touches the right border.
-        let box_width = right_col_x_offset + right_width + 3;
+        const BOX_COL_WIDTH: i32 = 20;
+        let box_width = BOX_COL_WIDTH * 2 + 3;
         let box_content_rows = main_actions.len().max(other_actions.len()) as i32;
         let box_height = box_content_rows + 4;
         // Clamp so a tall action list (more techniques than fit below row
@@ -764,38 +913,23 @@ impl State {
             let (label, color) = menu_row_label(*i, entry);
             ctx.print_color(BOX_X + 1, box_y + 3 + row as i32, color, BLACK, &label);
         }
-        // Only label the right column if this class actually has any
-        // techniques at all (Archer/Debug don't) - an empty "Techniques"
-        // header over nothing would just be more clutter, not less.
-        if !other_actions.is_empty() {
-            ctx.print_color(
-                BOX_X + 1 + right_col_x_offset,
-                box_y + 1,
-                YELLOW,
-                BLACK,
-                "Techniques",
-            );
-        }
         for (row, (i, entry)) in other_actions.iter().enumerate() {
             let (label, color) = menu_row_label(*i, entry);
             ctx.print_color(
-                BOX_X + 1 + right_col_x_offset,
+                BOX_X + 1 + BOX_COL_WIDTH + 1,
                 box_y + 3 + row as i32,
                 color,
                 BLACK,
                 &label,
             );
         }
-        // Restore console 2 - the enemy/player name+HP text above and
-        // every match arm below assume it's active (it's set once, above
-        // the whole match block, not re-set per arm).
         ctx.set_active_console(2);
 
         match battle.turn {
             BattleTurn::Filling => {
                 // Nothing to show beyond the gauges already drawn above -
                 // there's no menu to interact with and no result to
-                // dismiss while both sides are still racing to full.
+                // dismiss while everyone is still racing to full.
             }
             BattleTurn::PlayerMenu => {
                 if let Some(key) = ctx.key {
@@ -810,28 +944,36 @@ impl State {
                 // True ATB interrupt: if the player DIDN'T just act above
                 // (battle.turn is still PlayerMenu - the resolve call
                 // above would have moved it to ActionResult(Player)
-                // otherwise) and the enemy's gauge has since filled all
-                // the way (see this function's tick_enemy logic, which
-                // only lets it fill during PlayerMenu under
-                // AtbMode::Active), the enemy attacks right now instead
+                // otherwise) and some enemy's gauge has since filled all
+                // the way (see this function's tick_enemies logic, which
+                // only lets enemies fill during PlayerMenu under
+                // AtbMode::Active), that enemy attacks right now instead
                 // of waiting for a menu choice that never came in time.
                 // This is the entire point of True ATB - "select an
                 // attack ASAP or take the hit." The player isn't locked
-                // out afterward, though - see ActionResult(Enemy) below,
-                // which keeps accepting a choice (queued rather than
-                // resolved immediately) for exactly this situation.
-                if atb_mode == AtbMode::Active
-                    && battle.turn == BattleTurn::PlayerMenu
-                    && battle.enemy_gauge >= ATB_GAUGE_MAX
-                    && self.trigger_enemy_action(&mut battle)
-                {
-                    return;
+                // out afterward, though - see ActionResult(Enemy(_))
+                // below, which keeps accepting a choice (queued rather
+                // than resolved immediately) for exactly this situation.
+                let interrupting =
+                    if atb_mode == AtbMode::Active && battle.turn == BattleTurn::PlayerMenu {
+                        battle
+                            .enemies
+                            .iter()
+                            .find(|e| e.gauge >= ATB_GAUGE_MAX)
+                            .map(|e| e.entity)
+                    } else {
+                        None
+                    };
+                if let Some(attacker) = interrupting {
+                    if self.trigger_enemy_action(&mut battle, attacker) {
+                        return;
+                    }
                 }
             }
-            BattleTurn::ActionResult(Combatant::Enemy) => {
-                // True ATB queuing: the enemy's own result may still be
+            BattleTurn::ActionResult(Combatant::Enemy(_)) => {
+                // True ATB queuing: some enemy's own result may still be
                 // playing while gauges keep moving underneath it (see
-                // this function's tick_player/tick_enemy match - Active
+                // this function's tick_player/tick_enemies match - Active
                 // mode lets both continue here). If the player's gauge
                 // is already full and they haven't queued anything yet,
                 // let them choose right now instead of forcing them to
@@ -869,7 +1011,7 @@ impl State {
                 // No queuing capture here (unlike the Enemy variant above)
                 // - gauges are fully frozen during the player's OWN
                 // action result in every mode (see this function's
-                // tick_player/tick_enemy match), so player_gauge can't
+                // tick_player/tick_enemies match), so player_gauge can't
                 // possibly be back at max yet for there to be anything
                 // to queue.
                 battle.result_timer_ms -= ctx.frame_time_ms;
@@ -901,23 +1043,28 @@ impl State {
         };
 
         let player_render = entity_render_component(&self.ecs, victory.player);
-        self.draw_battle_arena(None, player_render, None, None);
+        self.draw_battle_arena(&[], player_render, None);
 
         ctx.set_active_console(2);
         ctx.print_color_centered(
             45,
             GREEN,
             BLACK,
-            &format!("You defeated the {}!", victory.enemy_name),
+            &format!("You defeated {}!", join_enemy_names(&victory.enemy_names)),
         );
-        match (&victory.loot, victory.gold_earned) {
-            (Some(item), _) => {
-                ctx.print_color_centered(48, YELLOW, BLACK, &format!("You found: {}!", item));
+        match (victory.loot.is_empty(), victory.gold_earned) {
+            (false, _) => {
+                ctx.print_color_centered(
+                    48,
+                    YELLOW,
+                    BLACK,
+                    &format!("You found: {}!", victory.loot.join(", ")),
+                );
             }
-            (None, Some(gold)) => {
+            (true, Some(gold)) => {
                 ctx.print_color_centered(48, YELLOW, BLACK, &format!("You found: {} gold!", gold));
             }
-            (None, None) => {
+            (true, None) => {
                 ctx.print_color_centered(48, WHITE, BLACK, "No loot this time.");
             }
         }
@@ -927,7 +1074,7 @@ impl State {
         // dismiss point in the whole battle flow that genuinely needed
         // it. Holding down an attack hotkey to keep queuing attacks ASAP
         // under Fast + True ATB (see Battle::queued_player_action) means
-        // that key can still be held the instant the enemy actually
+        // that key can still be held the instant the last enemy actually
         // dies. If this screen dismissed on any key, that same held key
         // would instantly exit back to the dungeon map - where, if it
         // happens to double as a Potion/Map slot key, it would keep

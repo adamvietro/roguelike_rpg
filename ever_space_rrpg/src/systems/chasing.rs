@@ -6,6 +6,7 @@ use crate::prelude::*;
 #[read_component(FieldOfView)]
 #[read_component(Health)]
 #[read_component(Player)]
+#[read_component(Enemy)]
 #[read_component(Name)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
@@ -47,6 +48,7 @@ pub fn chasing(
         Option<&Frozen>,
     )>::query();
     let mut positions = <(Entity, &Point, &Health)>::query();
+    let mut enemies_at = <(Entity, &Point)>::query().filter(component::<Enemy>());
     let mut player = <(&Point, &Player)>::query();
     let player_pos = player.iter(ecs).nth(0).unwrap().0;
     let player_idx = map_idx(player_pos.x, player_pos.y);
@@ -91,14 +93,39 @@ pub fn chasing(
                         .get_component::<Player>()
                         .is_ok()
                     {
-                        let enemy_name = ecs
-                            .entry_ref(*entity)
-                            .ok()
-                            .and_then(|e| e.get_component::<Name>().ok().cloned())
-                            .map(|n| n.0)
-                            .unwrap_or_else(|| "the enemy".to_string());
+                        // Every enemy already AT the player's tile joins
+                        // too (not just this mover) - see
+                        // player_input.rs's own roster-gathering comment
+                        // for the same rule applied from the other
+                        // direction. `entity` (this mover) hasn't
+                        // actually moved onto `destination` in the ECS
+                        // yet, so it has to be included explicitly
+                        // rather than found by the position query below.
+                        let mut roster: Vec<(Entity, String)> = vec![(
+                            *entity,
+                            ecs.entry_ref(*entity)
+                                .ok()
+                                .and_then(|e| e.get_component::<Name>().ok().cloned())
+                                .map(|n| n.0)
+                                .unwrap_or_else(|| "the enemy".to_string()),
+                        )];
+                        roster.extend(
+                            enemies_at
+                                .iter(ecs)
+                                .filter(|(e, pos)| *e != entity && **pos == destination)
+                                .map(|(e, _)| {
+                                    let name = ecs
+                                        .entry_ref(*e)
+                                        .ok()
+                                        .and_then(|er| er.get_component::<Name>().ok().cloned())
+                                        .map(|n| n.0)
+                                        .unwrap_or_else(|| "the enemy".to_string());
+                                    (*e, name)
+                                }),
+                        );
+                        roster.truncate(MAX_BATTLE_ENEMIES);
 
-                        *battle = Some(Battle::new(*victim, *entity, enemy_name));
+                        *battle = Some(Battle::new(*victim, roster));
                         *turn_state = TurnState::InBattle;
                     }
                     attacked = true;
