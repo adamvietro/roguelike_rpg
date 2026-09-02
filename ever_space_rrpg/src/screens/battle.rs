@@ -23,29 +23,43 @@ struct EnemyPortrait {
 /// see BATTLE_PORTRAIT_COLS/ROWS in main.rs. A single-enemy battle (by
 /// far the common case) uses row 1, EXACTLY the position a solo enemy
 /// has always used - multi-enemy battles were explicitly scoped to leave
-/// that case visually untouched. 2-4 enemies stack top-down starting at
-/// row 0 instead, using column 3 either way (the same column a solo
-/// enemy already used - no need to also shift columns).
+/// that case visually untouched.
+///
+/// Multi-enemy NEVER uses row 0 - your own screenshots showed the top
+/// enemy's text clipped against the very top edge when it did, so row 0
+/// is being treated as unsafe territory until that's actually confirmed
+/// fixed with eyes on a real render (I can't preview bracket-lib's
+/// output myself, only reason about the same pixel math the rest of this
+/// file already uses). With 2 enemies there's slack to also add a full
+/// blank row of breathing room between them (rows 1, 3) rather than
+/// leaving them touching - 3-4 enemies use every remaining row (1-4)
+/// adjacent to each other, since there isn't room left to space those
+/// out too. All still column 3 - the same column a solo enemy uses, no
+/// need to also shift columns.
 fn enemy_portrait_row(count: usize, index: usize) -> i32 {
-    if count <= 1 {
-        1
-    } else {
-        index as i32
+    match count {
+        0 | 1 => 1,
+        2 => 1 + 2 * index as i32,
+        _ => 1 + index as i32,
     }
 }
 
 /// HUD_CONSOLE row where enemy #`index` (of `count`) starts its own
 /// name/HP-bar/ATB-bar/status text block - see the block this feeds in
-/// battle_tick. Single-enemy keeps the exact original rows (41-44);
-/// multi-enemy gives each enemy a fresh ~13-row band starting at row 8,
-/// matching enemy_portrait_row's own row-per-index scheme (each coarse
-/// portrait row is ~13.4 HUD rows tall - see the Actions box's own
-/// BOX_Y comment below for that same pixel-to-HUD-row conversion).
+/// battle_tick. Single-enemy keeps the exact original rows (41-44).
+/// Multi-enemy derives its row from enemy_portrait_row directly (rather
+/// than a separate index-based formula) so the text block always tracks
+/// wherever that enemy's portrait actually is, including the row-0
+/// avoidance and the count-2 spacing - each coarse portrait row is
+/// ~13.4 HUD rows tall (see the Actions box's own BOX_Y comment below
+/// for that same pixel-to-HUD-row conversion), with a +1 margin so text
+/// starts just past the portrait's own top edge rather than flush
+/// against it.
 fn enemy_text_base_row(count: usize, index: usize) -> i32 {
     if count <= 1 {
         41
     } else {
-        8 + index as i32 * 13
+        (enemy_portrait_row(count, index) as f32 * 13.4).round() as i32 + 1
     }
 }
 

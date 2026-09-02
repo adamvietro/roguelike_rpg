@@ -50,6 +50,84 @@ pub fn player_input(
         // buy, which never re-sets it at all).
         *shop_message = None;
 
+        // "Wait" - gathers every enemy within 1 tile (including
+        // diagonals) into a single battle at once, the same way walking
+        // into an already-stacked tile does, EXCEPT it doesn't require
+        // them to already be stacked on one tile first - it also catches
+        // several separate nearby enemies that just haven't happened to
+        // converge onto the same square. Getting enemies to actually
+        // stack turned out to be rare enough in practice that testing
+        // multi-enemy battles at all was hard without this. If nothing's
+        // close enough, this just passes the turn instead - a genuine
+        // "wait a turn in place," the same as many roguelikes bind to
+        // this key anyway.
+        //
+        // Space rather than a letter key - every letter (see
+        // keymap::REBINDABLE_KEYS) can be rebound to a movement action,
+        // so hardcoding one here risks silently colliding with whatever
+        // the player remaps movement to. Space is never rebindable,
+        // guaranteeing no such collision regardless of the player's own
+        // keymap.
+        if key == VirtualKeyCode::Space {
+            let player = players.iter(ecs).map(|(e, pos)| (*e, *pos)).next();
+            if let Some((player_entity, player_pos)) = player {
+                let player_is_invisible = <(Entity, &Invisible)>::query()
+                    .iter(ecs)
+                    .any(|(e, _)| *e == player_entity);
+
+                let roster: Vec<(Entity, String)> = if player_is_invisible {
+                    // While Invisible, this can't start a battle either -
+                    // same rule as bumping into an enemy directly (see
+                    // the movement branch below) - so there's nothing to
+                    // gather; this just falls through to "wait" instead.
+                    Vec::new()
+                } else {
+                    enemies
+                        .iter(ecs)
+                        .filter(|(_, pos)| {
+                            (pos.x - player_pos.x).abs() <= 1 && (pos.y - player_pos.y).abs() <= 1
+                        })
+                        .map(|(entity, _)| {
+                            let name = ecs
+                                .entry_ref(*entity)
+                                .ok()
+                                .and_then(|e| e.get_component::<Name>().ok().cloned())
+                                .map(|n| n.0)
+                                .unwrap_or_else(|| "the enemy".to_string());
+                            (*entity, name)
+                        })
+                        .take(MAX_BATTLE_ENEMIES)
+                        .collect()
+                };
+
+                if !roster.is_empty() {
+                    // Stealth doesn't block this like Invisible does - it
+                    // starts the battle anyway, as an ambush (forced
+                    // first turn + 3x damage on the opening action),
+                    // exactly like walking into an enemy while Stealthed
+                    // already does - see Battle::sneak_attack.
+                    let player_is_stealthed = <(Entity, &Stealthed)>::query()
+                        .iter(ecs)
+                        .any(|(e, _)| *e == player_entity);
+
+                    let new_battle = Battle::new(player_entity, roster);
+                    *battle = Some(if player_is_stealthed {
+                        commands.remove_component::<Stealthed>(player_entity);
+                        new_battle.as_sneak_attack()
+                    } else {
+                        new_battle
+                    });
+                    *turn_state = TurnState::InBattle;
+                    return;
+                }
+            }
+
+            // Nothing close enough to fight (or nothing found at all,
+            // which shouldn't happen) - just pass the turn.
+            *turn_state = TurnState::PlayerTurn;
+            return;
+        }
+
         // Only a genuinely turn-consuming action - movement (a real step
         // OR a wall/enemy bump, both of which cost a turn same as
         // before), using a Potion/Map/out-of-combat ability item, or a

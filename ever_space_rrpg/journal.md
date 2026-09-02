@@ -2907,3 +2907,16 @@ I picked free glyph codepoints for each (`≥`, `≤`, `÷`, `√`, `■` — al
 Verified two ways: `cargo check` (clean, zero warnings) and an actual runtime load of `template.ron` confirming it parses and all five techniques show up correctly in their class's roster — since RON syntax errors only surface at runtime, not compile time, I didn't want to hand this over unverified. Real `Cargo.lock` unchanged throughout.
 
 ## Enemy Placement and "Wait" Hotkey
+Let's tackle the placement fix first since that's priority 1. Let me look at how portraits actually get drawn to figure out the real fix (not just row math).Let's do the enemy placement fix first (priority 1), then the new "wait and gather" hotkey.Now let's compile-check this piece before moving to the hotkey:Clean. Now let's add the "wait and gather" hotkey. Let me check for any existing use of `W` first:`W` (and every other letter) is rebindable to a movement action, so hardcoding a letter risks colliding with whatever the player remaps. I'll use `Space` instead — outside the rebindable set entirely, and it's the conventional "wait" key in most roguelikes anyway.Now let's add the "wait and gather" handler right after the `Escape`/shop-message-clear block:Now let's compile-check and verify braces:All clean — zero warnings, braces balanced, real `Cargo.lock` untouched. Let's package the final files.Both done. **Modified:** `src/screens/battle.rs`, `src/systems/player_input.rs`.
+
+**1. Enemy placement (priority 1):**
+- Multi-enemy layout no longer uses portrait row 0 at all — your Ogre screenshot showed the top enemy's text clipped right at the top edge, so I moved everything down one row's worth (rows 1-4 instead of 0-3) rather than guess at why row 0 specifically was bad.
+- For exactly 2 enemies (probably your most common case while testing), they now sit at rows 1 and 3 — a full blank row of breathing room between them instead of touching.
+- 3-4 enemies still sit on adjacent rows (1,2,3 / 1,2,3,4) — there isn't enough room in the 5-row grid to space those out too without also shrinking portraits, which I didn't want to risk without being able to see it render.
+- Text position is now derived directly from wherever the portrait actually is, so it can never drift out of sync with a future row change.
+
+Honest caveat, same as before: I'm reasoning from the same pixel math the original single-enemy layout used, not from a live render. This should be meaningfully better, but it may want one more small adjustment once you can see it.
+
+**2. "Wait and gather" hotkey:** `Space` (deliberately not a letter — every letter can be rebound to a movement action, and I didn't want this silently colliding with whatever a player remaps). Gathers every enemy within 1 tile including diagonals — whether they're already stacked or just several separate enemies nearby — into one battle, capped at 4. If nothing's close enough, it just passes the turn, so it doubles as a genuine "wait in place" like most roguelikes bind that key for anyway. Invisible still blocks it from starting a fight (same rule as bumping), and Stealth still turns it into an ambush.
+
+Both verified with `cargo check` (clean, zero warnings), brace-balance checked, real `Cargo.lock` untouched. Good stopping point for tonight.
