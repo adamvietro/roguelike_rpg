@@ -137,6 +137,19 @@ Templates(
             description: Some("Wounds the enemy for 2 damage per turn over the next 3 turns.")
         ),
         Template(
+            // Barbarian's AOE - see components::TechniqueEffect::AoeMultiHit.
+            // Codepoint reservation only for now (glyph '≤', code 243 -
+            // confirmed unused in the sprite map) - no art drawn yet, same
+            // "reserve now, art later" pattern the Battle Arena session's
+            // ability icons went through.
+            entity_type: Item,
+            name : "Whirlwind", glyph: '≤', levels: [ ],
+            technique: Some(AoeMultiHit(hits: 3, bonus_damage: 2)),
+            frequency: 0,
+            class: Some("Barbarian"),
+            description: Some("Spin and strike every enemy 3 times, each hit dealing your normal attack damage plus 2.")
+        ),
+        Template(
             // Mage battle loot - same levels:[]/frequency:0 pattern as the
             // Barbarian techniques above (battle-loot only).
             entity_type: Item,
@@ -185,6 +198,21 @@ Templates(
             description: Some("Wear it to become unseen for 20 moves - enemies can't touch you, but you can't push past them either.")
         ),
         Template(
+            // Mage's AOE - see components::TechniqueEffect::AoeMultiHit.
+            // "Basic damage" (no bonus_damage, unlike Whirlwind) but more
+            // hits than any other class's AOE - a Mage's own attack
+            // damage is typically low (staff-scaled, Defense -1), so the
+            // hit count carries this one rather than a per-hit bonus.
+            // Codepoint reservation only for now (glyph '÷', code 246 -
+            // confirmed unused in the sprite map) - no art drawn yet.
+            entity_type: Item,
+            name : "Blizzard", glyph: '÷', levels: [ ],
+            technique: Some(AoeMultiHit(hits: 6, bonus_damage: 0)),
+            frequency: 0,
+            class: Some("Mage"),
+            description: Some("Summon a storm of ice, striking every enemy 6 times for your normal attack damage.")
+        ),
+        Template(
             // Rogue battle loot - same levels:[]/frequency:0 pattern as
             // the Barbarian/Mage techniques above (battle-loot only).
             // Same DamageOverTime shape as Rend/Burn, just Rogue's own
@@ -221,6 +249,20 @@ Templates(
             frequency: 0,
             class: Some("Rogue"),
             description: Some("Move unseen for 20 moves. Walk into an enemy while active and you'll strike first for 3x damage.")
+        ),
+        Template(
+            // Rogue's AOE - see components::TechniqueEffect::AoeMultiHit.
+            // Same shape as a single-target MultiHit, just applied to
+            // every enemy in the fight - "Multi-hit attack" as a group
+            // effect. Codepoint reservation only for now (glyph '≥',
+            // code 242 - confirmed unused in the sprite map) - no art
+            // drawn yet.
+            entity_type: Item,
+            name : "Flurry", glyph: '≥', levels: [ ],
+            technique: Some(AoeMultiHit(hits: 3, bonus_damage: 0)),
+            frequency: 0,
+            class: Some("Rogue"),
+            description: Some("A blur of strikes - hit every enemy 3 times for your normal attack damage.")
         ),
         Template(
             // Debug class only - never a floor spawn (levels:[]) or
@@ -325,6 +367,22 @@ Templates(
             frequency: 0,
             class: Some("Amazon"),
             description: Some("A venomous jab: 1 immediate damage, then 2 more damage per turn for the next 3 turns.")
+        ),
+        Template(
+            // Amazon's AOE - see components::TechniqueEffect::AoeMultiHit.
+            // "Current weapon damage" per hit is the same normal-attack-
+            // damage formula every other class's AOE uses (base Damage +
+            // carried weapon Damage) - the description just calls out
+            // that a better spear tier scales this up, same as any other
+            // Amazon attack. Codepoint reservation only for now (glyph
+            // '√', code 251 - confirmed unused in the sprite map) - no
+            // art drawn yet.
+            entity_type: Item,
+            name : "Javelin Volley", glyph: '√', levels: [ ],
+            technique: Some(AoeMultiHit(hits: 9, bonus_damage: 0)),
+            frequency: 0,
+            class: Some("Amazon"),
+            description: Some("Hurl a volley of javelins, striking every enemy 9 times for your current weapon damage.")
         ),
         Template(
             // Amazon out-of-combat item - see
@@ -432,6 +490,20 @@ Templates(
             frequency: 0,
             class: Some("Hunter"),
             description: Some("Play dead to guarantee the enemy's next attack misses entirely.")
+        ),
+        Template(
+            // Hunter's AOE - see components::TechniqueEffect::AoeMultiHit.
+            // Same shape as Amazon's Javelin Volley, just Hunter's own
+            // name/flavor (arrows instead of javelins) - "current weapon
+            // damage" per hit. Codepoint reservation only for now (glyph
+            // '■', code 254 - confirmed unused in the sprite map) - no
+            // art drawn yet.
+            entity_type: Item,
+            name : "Arrow Volley", glyph: '■', levels: [ ],
+            technique: Some(AoeMultiHit(hits: 9, bonus_damage: 0)),
+            frequency: 0,
+            class: Some("Hunter"),
+            description: Some("Loose a volley of arrows, striking every enemy 9 times for your current weapon damage.")
         ),
         Template(
             entity_type: Enemy,

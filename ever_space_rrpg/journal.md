@@ -2888,3 +2888,22 @@ One honest caveat: I built this layout by working through the same pixel-to-cons
 Verified with `cargo check` (clean, zero warnings), every file's braces balance, and your real `Cargo.lock` is untouched.
 
 ## AOE Attacks To Test
+Good plan — let's get these wired in so you can start testing. Let me check the template schema first to add these correctly.Now let's add the new `AoeMultiHit` variant:Good, `Copy` is already derived — my new variant (two `i32` fields) is trivially `Copy`-compatible. Now let's add the `aoe_multi_hit` function to `battle/damage.rs`:Now wire it into `apply_player_technique`:Now let's insert all 5 new AOE technique entries at their respective class blocks.Now Amazon's Javelin Volley and Hunter's Arrow Volley:Excellent — this is fully data-driven already, filtered by `t.class`/`t.technique`, so my new `template.ron` entries are automatically picked up by both the battle menu roster and the Battle Arena shop roll with zero code changes needed. Let's compile-check everything now.Compiles clean — but `template.ron` is only parsed at runtime, not compile time, so let's actually load it to make sure the RON syntax is valid.The RON parses correctly and all 5 AOE techniques show up in each class's roster. Now let's remove the throwaway test (per the project's own convention) and do a final clean verification.Good — the throwaway test only ever existed in the scratch `/home/claude/verify` copy, never in the real project. Let's do one final full re-sync and check.Clean, zero warnings, real `Cargo.lock` untouched. Let's package everything.All five AOE techniques are wired in. **Modified:** `src/components.rs`, `src/battle/mod.rs`, `src/battle/damage.rs`, `resources/template.ron` — no other code changes needed, since the technique-roster/shop-roll systems were already fully data-driven.
+
+**What each one does:**
+
+| Class     | Name           | Hits | Bonus/hit | Effect                                       |
+| --------- | -------------- | ---- | --------- | -------------------------------------------- |
+| Rogue     | Flurry         | 3    | +0        | normal attack damage, 3x, to every enemy     |
+| Barbarian | Whirlwind      | 3    | +2        | normal attack damage + 2, 3x, to every enemy |
+| Mage      | Blizzard       | 6    | +0        | normal attack damage, 6x, to every enemy     |
+| Amazon    | Javelin Volley | 9    | +0        | normal attack damage, 9x, to every enemy     |
+| Hunter    | Arrow Volley   | 9    | +0        | normal attack damage, 9x, to every enemy     |
+
+One new `TechniqueEffect::AoeMultiHit { hits, bonus_damage }` variant covers all five — same per-hit formula (`player_attack_damage + bonus_damage`) as the existing single-target `MultiHit`, just applied to every enemy currently in `battle.enemies` instead of one auto-selected target. In a solo fight it behaves identically to a plain `MultiHit(hits)` against that one enemy, so nothing changes for existing 1v1 balance — you'll only see the difference once multiple enemies are actually in a fight. Exactly as you said, the hit counts and bonus damage are just `template.ron` numbers — tune any of them there with no code changes.
+
+I picked free glyph codepoints for each (`≥`, `≤`, `÷`, `√`, `■` — all confirmed unused in the sprite map) as pure codepoint reservations, no art yet, same convention as the earlier ability-icon batches. Worth adding these five to your own glyph-map doc whenever you next touch the sprite sheet.
+
+Verified two ways: `cargo check` (clean, zero warnings) and an actual runtime load of `template.ron` confirming it parses and all five techniques show up correctly in their class's roster — since RON syntax errors only surface at runtime, not compile time, I didn't want to hand this over unverified. Real `Cargo.lock` unchanged throughout.
+
+## Enemy Placement and "Wait" Hotkey

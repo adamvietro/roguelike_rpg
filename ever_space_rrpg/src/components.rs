@@ -232,6 +232,17 @@ pub enum TechniqueEffect {
     /// of attacking that round, to sit out the enemy's next hit for
     /// free rather than gambling on Defend.
     Feint,
+    /// Strikes EVERY enemy currently in the battle, `hits` times each,
+    /// for (normal attack damage + `bonus_damage`) per hit - the first
+    /// class of technique that hits more than one target, now that a
+    /// battle can hold more than one enemy (see battle::MAX_BATTLE_ENEMIES).
+    /// In a solo fight this behaves exactly like MultiHit(hits) against
+    /// the one enemy present (bonus_damage lets Whirlwind's own "+2 per
+    /// hit" flavor exist without a separate variant). Each class's own
+    /// AOE (Flurry/Whirlwind/Blizzard/Javelin Volley/Arrow Volley) is
+    /// this same variant with different hits/bonus_damage - see
+    /// resources/template.ron.
+    AoeMultiHit { hits: i32, bonus_damage: i32 },
 }
 
 /// Marks an Item entity as a one-time battle technique and carries its

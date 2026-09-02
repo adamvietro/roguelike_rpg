@@ -92,3 +92,39 @@ pub fn multi_hit(ecs: &mut World, battle: &mut Battle, target: Entity, hits: i32
     }
     strike_message(dmg)
 }
+
+/// TechniqueEffect::AoeMultiHit - strikes EVERY enemy currently in the
+/// battle, `hits` times each, for (normal attack damage + `bonus_damage`)
+/// per hit. The first technique that isn't single-target, now that a
+/// battle can hold more than one enemy (see battle::MAX_BATTLE_ENEMIES) -
+/// every other technique in the game still only ever touches whichever
+/// one enemy Battle::primary_target picks.
+///
+/// Deliberately doesn't skip an enemy that a previous hit in this same
+/// call already dropped to 0 or below - death isn't checked/handled
+/// until the result screen dismisses (see screens/battle.rs's
+/// dismiss_action_result), same as every other technique in this game;
+/// an AOE landing "extra" hits on an already-doomed enemy is harmless
+/// and avoids needing an early-exit death check here that nothing else
+/// in the codebase does either. Only the LAST hit against each enemy
+/// keeps its damage popup, same "one popup slot" limitation
+/// EnemyCombatant::damage_popup already has for a single-target MultiHit.
+pub fn aoe_multi_hit(ecs: &mut World, battle: &mut Battle, hits: i32, bonus_damage: i32) -> String {
+    let per_hit = player_attack_damage(ecs, battle.player) + bonus_damage;
+    let targets: Vec<Entity> = battle.enemies.iter().map(|e| e.entity).collect();
+    let enemy_count = targets.len();
+
+    for _ in 0..hits {
+        for &target in &targets {
+            strike_enemy(ecs, battle, target, per_hit);
+        }
+    }
+
+    if enemy_count == 1 {
+        // Reads exactly like a plain MultiHit message in the common
+        // (still-solo) case - no need to call out "1 enemy" awkwardly.
+        format!("Hit {} times.", hits)
+    } else {
+        format!("Hit all {} enemies {} times.", enemy_count, hits)
+    }
+}

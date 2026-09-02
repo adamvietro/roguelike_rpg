@@ -955,6 +955,9 @@ pub fn apply_player_technique(
             turns,
         } => stun::roll(battle, target, chance_percent, turns),
         TechniqueEffect::Feint => stun::feint(battle, target),
+        TechniqueEffect::AoeMultiHit { hits, bonus_damage } => {
+            damage::aoe_multi_hit(ecs, battle, hits, bonus_damage)
+        }
     }
 }
 
