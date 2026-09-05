@@ -193,9 +193,14 @@ impl State {
             BLACK,
             "Don't worry, you can always try again with a new hero.",
         );
-        ctx.print_color_centered(48, GREEN, BLACK, "Press 1 to return to the title screen.");
+        ctx.print_color_centered(
+            48,
+            GREEN,
+            BLACK,
+            "Press Enter to return to the title screen.",
+        );
 
-        if let Some(VirtualKeyCode::Key1) = ctx.key {
+        if ctx.key == Some(VirtualKeyCode::Return) {
             self.return_to_title();
         }
     }
@@ -260,9 +265,14 @@ impl State {
         }
         // Below this point: the hero (+ Amulet, dungeon-crawl only)
         // icons, centered on-screen.
-        ctx.print_color_centered(60, GREEN, BLACK, "Press 1 to return to the title screen.");
+        ctx.print_color_centered(
+            60,
+            GREEN,
+            BLACK,
+            "Press Enter to return to the title screen.",
+        );
 
-        if let Some(VirtualKeyCode::Key1) = ctx.key {
+        if ctx.key == Some(VirtualKeyCode::Return) {
             self.return_to_title();
         }
     }

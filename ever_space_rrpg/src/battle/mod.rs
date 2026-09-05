@@ -22,6 +22,7 @@ pub mod status;
 pub mod stun;
 
 pub use buff::{BuffKind, Magnitude};
+pub use damage::HitQueue;
 pub use status::{ActiveStatus, StatusKind, StatusSet};
 
 // --- Battle action capability components -----------------------------------
@@ -390,6 +391,11 @@ pub struct Battle {
     /// empty), there's nothing left in `enemies` itself to read names
     /// from. See screens/battle.rs's record_enemy_kill/finish_battle.
     pub defeated_names: Vec<String>,
+    /// A multi-hit technique's still-pending hits, landing one at a time
+    /// - see battle::damage::HitQueue/tick_hit_queue. None whenever no
+    /// multi-hit sequence is currently playing out (which is most of the
+    /// time - only MultiHit/AoeMultiHit ever populate this).
+    pub hit_queue: Option<HitQueue>,
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -458,6 +464,7 @@ impl Battle {
             gold_earned: 0,
             loot_found: Vec::new(),
             defeated_names: Vec::new(),
+            hit_queue: None,
         }
     }
 

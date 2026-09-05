@@ -2955,3 +2955,38 @@ Let me fix both properly.Let's add the new overlay console right after this:Now 
 **Bars misplaced:** This one was a real coordinate-system mistake on my part. The enemy text block actually renders while **console 2** is active — not `HUD_CONSOLE` — but I calculated its position using `HUD_CONSOLE`'s ratios. I confirmed this by working backward from the original, already-proven-correct single-enemy numbers (col 96, row 41): they only make sense as console 2 coordinates (32 columns / 20 rows per portrait-grid unit), not `HUD_CONSOLE`'s (21.4/13.4). Once corrected, the formula reproduces the original baseline exactly, and every enemy's text now lands correctly under its own portrait with real room to spare — so I also widened the bar back up slightly since the actual gap between columns is bigger than I'd assumed.
 
 Both verified with `cargo check` (clean, zero warnings), console count double-checked (12 registrations, 0-11), braces balanced, and `Cargo.lock` unchanged. This should actually hold together now — let me know how it looks once you can run it.
+
+# Battle_2.1
+
+## Multi-Hit Combos Hits Separate
+Clean full build. Now restoring your real `Cargo.lock` (only the rayon downgrade was sandbox-only cruft):Confirmed byte-identical — your real `Cargo.lock` was never actually touched. Now let's package the three changed files.## Multi-hit damage popup sequencing — done, verified with `cargo build` and real tests
+
+**3 files, all modified:**
+
+| Downloaded as       | Save to                 |
+| ------------------- | ----------------------- |
+| `battle_damage.rs`  | `src/battle/damage.rs`  |
+| `battle_mod.rs`     | `src/battle/mod.rs`     |
+| `screens_battle.rs` | `src/screens/battle.rs` |
+
+**What changed:** `MultiHit`/`AoeMultiHit` now use a `HitQueue` on `Battle` — the first hit lands immediately, then one more lands every 150ms (`tick_hit_queue`, called every frame right alongside the existing flash/popup timers) instead of all hits landing in the same synchronous instant. Each hit now gets its own visible popup and flash. The `ActionResult(Player)` screen holds its auto-advance timer until the queue fully drains, then shows the real summary line ("Hit 3 times for 9 total damage.") with a full, undiminished look — same pacing every other action already gets.
+
+I verified this with a real full `cargo build` (clean, zero warnings) and three throwaway tests (stepped the queue frame-by-frame, confirmed timing/totals/AOE spread, then removed before delivery) — not just a type-check.
+
+## Battle system bug hunt — traced the flagged risk areas, found nothing broken
+
+I specifically chased down the two edge cases your own instructions called out as untested:
+
+- **"A fight ending mid-multi-hit-sequence"** — already safe, and actually *by construction* now: `dismiss_action_result` only runs once the hit queue is fully drained, and it already sweeps *every* enemy for death (not just one), so an AOE that kills multiple enemies in the same sequence resolves correctly the instant the last hit lands.
+- **True ATB + multi-enemy interaction with the new queue** — traced the full path: a technique chosen via `queued_player_action` (True ATB, while an enemy's result was still showing) still funnels through the same `resolve_player_action` → `enter_result` → the same `ActionResult(Player)` gating I added. `ActionResult(Player)` already unconditionally freezes both the player's and every enemy's gauge regardless of AtbMode, so extending its duration while a multi-hit drains doesn't create any new race — it just means enemies wait a bit longer before their next chance to act, which is the existing intended behavior, just now correctly accounting for a longer action.
+
+No actual bug found in either area — the existing architecture's invariants (death-sweep over the whole roster, unconditional freeze during the player's own result) already covered these cases cleanly once the queue was gated correctly. I didn't want to manufacture a fix for something that wasn't broken, so I'm reporting this as "checked and clean" rather than padding it with a cosmetic change.
+
+## Enter to Reset
+That makes sense — right now both screens dismiss on `1`, and you want `Enter` specifically instead. Let me check the exact key name and make the change.Both spots are simple, isolated key checks — easy swap. Let's confirm `VirtualKeyCode::Return` is proven elsewhere in the codebase before relying on it.Good — already proven in this codebase (Battle Arena's shop purchase, and Battle Victory's dismiss). Applying the swap:Clean, zero warnings. Restoring the real `Cargo.lock`:Yep, makes sense — `1` is an odd key to require here, and Enter reads more naturally as "confirm and continue."
+
+**1 file — modified: `src/screens/end.rs`**
+
+Both `game_over` and `victory` now dismiss on `Enter` instead of `1`, with the prompt text updated to match ("Press Enter to return to the title screen."). Used `VirtualKeyCode::Return`, which is already proven working elsewhere in this exact codebase (Battle Arena shop purchases, Battle Victory's own dismiss) — no new API risk.
+
+Verified with `cargo check` — clean, zero warnings.

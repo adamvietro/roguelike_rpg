@@ -1,370 +1,257 @@
-# Working 
-# Future Class Ability Ideas
+# Ever Space RRPG — Ideas & Backlog
 
-Brainstorm list only - nothing here is scoped, designed in detail, or
-scheduled. Pull individual items into a real session when ready to build
-them. Mixes the user's own list with additional ideas brainstormed
-alongside it; no distinction is made below between the two once merged.
+Working list of what's still ahead, and a running record of what's already
+shipped. Pull individual "Working" items into a real session when ready to
+build them — nothing there is scoped or scheduled just by being listed.
 
 ---
 
-## Rogue
+# Working
 
-- **Vanish** - Flee and Stealth at the same time.
-- **Flurry** - Multi-hit attack.
-- **Riposte** - Counter attack for 2x damage.
-- **Backstab** - Bonus damage specifically when the attack comes from
-  Stealth (ties into the existing Stealthed component).
-- **Smoke Bomb** - A flee that also blinds/slows whatever you're fleeing
+## Near-term priorities (carried over from the project instructions doc)
+
+Roughly in the order we've been tackling them:
+
+1. **Multi-hit damage popup sequencing** — every hit in a multi-hit
+   technique (AOE or single-target) currently resolves in one synchronous
+   loop, so only the *last* hit's number ever shows as a floating popup.
+   Real fix needs hits spread out over real time (a queued "wave" every
+   ~150ms or so, similar in shape to how ATB gauges already tick), not
+   just more popup slots.
+2. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
+   ranged classes) — not started.
+3. **Standing "fix issues with the battle system" bucket** — not a fixed
+   list, just wherever ATB/multi-enemy turns up real bugs as they get
+   more play (e.g. a fight ending mid-multi-hit-sequence, True ATB
+   combined with 3–4 enemies at once).
+4. **Rebindable hotkeys, beyond movement** — Potions next, then Maps,
+   then most everything else eventually. Today Potion/Map use is still
+   fixed to slot keys 1/2 by position, not a real `Action` binding
+   (movement arrows are already rebindable via the Options screen).
+5. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
+   floor loot entirely, likely reusing a good chunk of the Battle Arena
+   shop's existing pricing/stock/purchase code.
+6. **Idle walk-in-place animation art** — the cycling infrastructure
+   (`IdleAnimation` component) is built and genuinely cycling; every
+   frame just points at the same placeholder glyph. Needs real distinct
+   per-frame art, and maybe a move to a sprite sheet per class instead of
+   cramming more cells into the one shared `dungeonfont.png`.
+7. **Music & sound effects** — no crate picked yet (`rodio` is the
+   leading candidate, since bracket-lib has no built-in audio support).
+8. **Cleanup:** `arena_advance_to_next_shop` duplicates a chunk of
+   `start_arena`'s shop-building code — not urgent, just flagged.
+9. **Minor/cosmetic:** `tooltips.rs` still reads the old integer camera
+   offset during a glide, instead of the smooth fractional one.
+
+## Content / world
+
+- **Dungeon Shop** — replace most dungeon floor items with a shop at the
+  end of each floor. Needs mobs to drop gold first (Battle Arena already
+  has a gold economy to borrow patterns from).
+- **Chests** — findable in the dungeon, holding items; a way to keep some
+  of the "find an item" feeling once floor-item drops move to the shop.
+  Chests should be defended by enemies, not free loot.
+
+## Future Class Ability Ideas (brainstorm only)
+
+Nothing below is scoped, designed in detail, or scheduled — pull
+individual items into a real session when ready to build them.
+
+### Rogue
+- **Vanish** — Flee and Stealth at the same time.
+- **Riposte** — Counter attack for 2x damage.
+- **Backstab** — Bonus damage specifically when the attack comes from
+  Stealth (ties into the existing `Stealthed` component).
+- **Smoke Bomb** — A flee that also blinds/slows whatever you're fleeing
   from.
-- **Shiv** - A cheap, low-commitment quick hit (contrast to Flurry's
-  bigger multi-hit).
-- **Pickpocket** - Out-of-combat: lift an item off a nearby enemy without
+- **Shiv** — A cheap, low-commitment quick hit (contrast to Flurry's
+  bigger multi-hit, which is now built).
+- **Pickpocket** — Out-of-combat: lift an item off a nearby enemy without
   a fight.
 
-## Barbarian
+### Barbarian
+- **Rampage** — Damage scales up as your own HP drops (desperation-style).
+- **Second Wind** — Self-heal technique.
+- **Reckless Swing** — A big hit that costs you some HP as recoil.
+- **Berserk (passive)** — Bonus damage below some HP threshold.
 
-- **Whirlwind** - For the next 3 turns, auto-attack with 2 extra attack
-  damage.
-- **Rampage** - Damage scales up as your own HP drops (desperation-style).
-- **Second Wind** - Self-heal technique.
-- **Reckless Swing** - A big hit that costs you some HP as recoil.
-- **Berserk (passive)** - Bonus damage below some HP threshold.
-
-## Mage
-
-- **Frost Bolt** - Chance to freeze the enemy briefly - an in-battle
+### Mage
+- **Frost Bolt** — Chance to freeze the enemy briefly — an in-battle
   cousin to Hunter's Freeze Trap.
-- **Chain Lightning** - A multi-hit spell.
-- **Mana Shield** - An absorb/block effect, parallel to Ice Armor but
+- **Chain Lightning** — A multi-hit spell (Blizzard now fills this
+  general niche, but a single-target chained version is still open).
+- **Mana Shield** — An absorb/block effect, parallel to Ice Armor but
   reactive.
-- **Arcane Missile** - Guaranteed hit, ignores evasion.
-- **Meteor** - Skip a turn to wind up, then one big guaranteed hit.
-- **Drain Life** - Damage plus self-heal in one action.
+- **Arcane Missile** — Guaranteed hit, ignores evasion.
+- **Meteor** — Skip a turn to wind up, then one big guaranteed hit.
+- **Drain Life** — Damage plus self-heal in one action.
 
-## Hunter
-
-- **Multi-shot** - Bow's own multi-hit.
-- **Trueshot** - Ignores some/all Defense - ranged cousin to Amazon's
+### Hunter
+- **Multi-shot** — Bow's own multi-hit (Arrow Volley now covers the AOE
+  version of this; a single-target multi-hit is still open).
+- **Trueshot** — Ignores some/all Defense — ranged cousin to Amazon's
   Pierce Thrust idea below.
-- **Snare Shot** - Immobilize/reduce accuracy instead of a flat stun, so
+- **Snare Shot** — Immobilize/reduce accuracy instead of a flat stun, so
   it reads differently from Stun mechanically.
-- **Camouflage** - A lighter, out-of-combat stealth without full
+- **Camouflage** — A lighter, out-of-combat stealth without full
   Invisibility.
 
-## Amazon
-
-Animation:
-
-- Animation for the Throw Spear.
-
-In-battle techniques:
-
-- **Javelin Volley** - Throw multiple spears in one turn (like a ranged
-  version of Quick Attack's multi-hit).
-- **Pierce Thrust** - A spear jab that ignores some or all of the enemy's
+### Amazon
+- Animation for Throw Spear.
+- **Pierce Thrust** — A spear jab that ignores some or all of the enemy's
   Defense, rewarding you for facing armored enemies.
-- **Retreating Shot** - Deal damage and immediately guarantee your next
-  Defend/Flee succeeds better, playing into "hit and create distance"
-  instead of trading blows.
-- **Called Shot** - A slower wind-up attack (skip this turn) that
-  guarantees a big hit next turn - a ranged cousin to Counter Attack.
-- **Weakpoint Strike** - A variant on Pierce Thrust that trades accuracy
+- **Retreating Shot** — Deal damage and immediately guarantee your next
+  Defend/Flee succeeds better — "hit and create distance" instead of
+  trading blows.
+- **Called Shot** — A slower wind-up attack (skip this turn) that
+  guarantees a big hit next turn — a ranged cousin to Counter Attack.
+- **Weakpoint Strike** — A variant on Pierce Thrust that trades accuracy
   for a Defense-ignoring hit.
-
-Out-of-combat tools:
-
-- **Net Trap** - A second trap variant: instead of damage, it roots/slows
+- **Net Trap** — A second trap variant: instead of damage, it roots/slows
   the first enemy that steps on it for a few turns (crowd control rather
   than damage).
-- **Scout (Eagle Eye)** - Temporarily increases your FOV radius, letting
+- **Scout (Eagle Eye)** — Temporarily increases your FOV radius, letting
   you spot enemies (and Throw Spear targets) from farther away.
-- **Reposition/Vault** - A short instant dash a few tiles, useful for
+- **Reposition/Vault** — A short instant dash a few tiles, useful for
   breaking line of sight or repositioning before a fight.
-
-Passive/identity:
-
-- **Momentum** - A passive that gives a small damage or evasion bonus
-  while at full HP, encouraging hit-and-run play.
-- **Keen Eyes** - A small passive bonus specifically to Throw Spear's
-  targeting range or bonus damage, making the ranged kit scale with level
-  progression later.
-
-- **Spear Wall** - Temporary Defense boost, same shape as Ice Armor but
+- **Momentum (passive)** — Small damage or evasion bonus while at full
+  HP, encouraging hit-and-run play.
+- **Keen Eyes (passive)** — Small bonus specifically to Throw Spear's
+  targeting range or bonus damage.
+- **Spear Wall** — Temporary Defense boost, same shape as Ice Armor but
   Amazon-flavored.
 
----
+### Cross-class note
 
-## Cross-class note
-
-Several of the ideas above (Whirlwind, Rampage, Berserk, Momentum, Keen
-Eyes) are "always-on while a condition holds" passives - a genuinely new
-mechanical category. Right now every effect in the game is either a
-one-time consumable (Technique, used once in battle) or a one-time
-out-of-combat use (Effect, used once from the item list). A true passive
-- always active, no consumption, gated on an ongoing condition like
-"at full HP" - doesn't fit either shape yet and would need its own
-system whenever the first one of these actually gets built.
-
-
-
-
-
-# Dungeon Shop
-Replace most of the dungeon items with a shop at the end of floors that you can buy items from.
-Mobs will need to drop gold. 
-
-
-# Chests
-You can find chests in the dungeon that will hold items so there is a chance you will be able to find items, this will help after we make the change to remove items from the dungeon and replace them with the shop. These chest will need to be defended by enemies.
-
-
-Sounds and Music
-
-<br />
+Several ideas above (Rampage, Berserk, Momentum, Keen Eyes) are
+"always-on while a condition holds" passives — a genuinely new mechanical
+category. Right now every effect in the game is either a one-time
+consumable (Technique, used once in battle) or a one-time out-of-combat
+use (Effect, used once from the item list). A true passive — always
+active, no consumption, gated on an ongoing condition like "at full HP" —
+doesn't fit either shape yet and would need its own system whenever the
+first one of these actually gets built.
 
 ---
-<br />
 
 # Done
 
----
+## Classes — all 5 real classes fully built
+Barbarian, Rogue, Amazon, Hunter, Mage are all fully implemented (stats,
+weapon tiers, starting kits, and in-battle techniques + out-of-combat
+abilities). Only the hidden Debug class remains an intentional
+placeholder/test tool.
 
-## HUD
-Better UI for attacks
-HUD Battle Item Tool Tip.
-Add a 0 command for the item use
-Hotkeys for abilities 
-Different colors for active states of the player
-Better Winning Screen.
-Better Death Screen.
+- Each class has default Attack/Defend/Flee always available.
+- Class-specific weapon tiers (swords, staffs, daggers, spears, bows),
+  each tagged so the right tier drops for the right class.
+- Class-specific starting kits so a run is never barefisted from turn one.
+- Battle items/techniques won from battle loot are class-specific "cards."
+- Debug class: hidden (`D` key from class select), 100 HP / 50 evasion /
+  5 damage / 10 speed, with Victory/Defeat/Next Level instant-win/lose/
+  skip items for testing.
 
----
+## Combat system
+- **ATB (Active Time Battle)** — replaced the old fixed-round system.
+  Random gauge starts, Battle Speed setting (Slow/Normal/Fast), True ATB
+  vs. Wait mode, queued player actions under Active mode, yellow border
+  when the player can act.
+- **Multi-enemy battles** — up to 4 enemies per fight, per-enemy gauges/
+  statuses, highest-Speed auto-targeting with a `>` marker, per-enemy-
+  count formation layouts, a "Wait" hotkey (Space) to gather nearby
+  enemies into one fight.
+- **AOE techniques** — one per class (Flurry, Whirlwind, Blizzard,
+  Javelin Volley, Arrow Volley) exercising the multi-enemy system.
+- Defense stat, Speed-based initiative (faster combatant acts first),
+  Evasion/dodge, persistent Ice Armor, Counter Attack, damage-over-time
+  (Rend/Burn/Poison/Garrote), stun/feint, buffs generalized into one
+  `Buff`/`BuffKind` system (Evasion bonus, damage reduction).
+- Real damage numbers in combat log (fixed a bug where messages showed
+  pre-Defense-reduction numbers).
+- 30% Defend success chance (was previously guaranteed).
+- Boss per level, guaranteed boss loot, boss placed directly on the
+  level's exit/amulet tile so the fight is unavoidable.
+- Battle system refactored from one flat file into `battle/` category
+  modules (damage, dot, stun, buff, counter, heal, status) for easier
+  extension.
 
-## Battle Screen
-Have a Battle Victory Screen to show the items that you won.
-Battle Screen
-Background for the battle system based off the theme of the map.
-Better looking battle options.
-    I want a box around the abilities and I want them in the lower right
+## Battle screen / UI
+- Bordered actions box, positioned beside the player portrait; full
+  class roster shown with unowned techniques greyed out (not hidden).
+- Battle Victory screen (shows loot instead of silently returning to the
+  dungeon).
+- Floating damage numbers, a persistent battle log (last 4 lines, not a
+  single vanishing message), active-effect status lines (Defending, Ice
+  Armor, Rend/Burn, Battle Cry, Countering) shown under each combatant's
+  HP bar.
+- Battle Item HUD: separate "Battle Attacks"/"Weapons" panels from the
+  regular carried-items list, with hover tooltips.
+- Theme-aware battle arena backgrounds (dungeon vs. forest palettes and
+  scenery).
+- Portrait hit feedback: color flash (Attacking/Hit), then a genuine
+  attack wiggle once a transparent-background fancy console made motion
+  possible without revealing a box edge.
+- Fixed: bracket-lib's near-black-pixel culling bug worked around by
+  flooring source art at RGB(16,16,16) — confirmed via the new sprite art
+  batches.
 
-Floating attack values after an attack
-battle messages in a list
-Move the action box up
-battle messages damage centered right and message centered left
-30% change to absorb 50% of the damage when you defend.
-Wiggle when attacking
+## Battle Arena mode — feature-complete for a full playable loop
+Adventure Select → starting shop → 3 levels of (5/5/3 waves + boss) each →
+shop between levels → Victory. Real gold economy, separated stats
+tracking, its own shop map/UI (walk up to an item, press Enter to buy),
+a Shopkeeper NPC.
 
-### ATB Battle System
-Implemented with starting ATB value. 
-Different speed modes
-Different modes (full atb and standard)
-Yellow outline when its your turn
+## Title / meta screens
+- Title screen with a real decorative background (live map + wandering
+  monsters, paced independently of real gameplay).
+- Class Select (with per-class descriptions), Adventure Select
+  (Dungeon Crawl vs. Battle Arena).
+- Pause screen (Esc), Options screen (hotkey rebinding for movement,
+  reachable from Pause or the title screen), History/Stats screen
+  (win rate, per-class stats, ability-use breakdown).
+- Bigger, better Victory and Game Over screens: tinted/dimmed real dungeon
+  background, a fallen/rotated red portrait on defeat, hero + amulet icons
+  on victory.
 
+## Player / dungeon
+- Auto-pickup (walking onto an item tile picks it up — no separate key).
+- Fixed hotkeys: Potion is always slot 1, Map is always slot 2 (rather
+  than compacting when one isn't carried).
+- Red tint at low HP, grey tint while Invisible/Stealthed.
+- Smooth camera scrolling: the world glides in lockstep with the player's
+  own movement animation, instead of snapping the camera and animating
+  the player separately.
+- Idle walk-cycle animation infrastructure (see Working list above for
+  the remaining art pass).
+- Fixed: unreachable map regions from the Cellular Automata builder
+  (now culled via the same reachability check Drunkard's Walk already
+  used), verified across 200 generated seeds.
+- Fixed: Amulet of Yala silently un-winnable after auto-pickup started
+  grabbing it before the victory check could run.
 
-### Bosses
-Implemented a boss for each level.
-Guarantee boss loot
+## Sprite art
+- Full character portraits for Amazon, Mage, Rogue, Hunter, and the
+  Battle Arena Shopkeeper (transparent backgrounds, matching convention).
+- All 18 ability icons across all 5 classes, plus the Shopkeeper — see
+  `Dungeon_Font_Glyph_to_Cell_Map.md` for the authoritative glyph map.
+- Spear glyph mapping corrected (uppercase X/Y/Z is now official).
 
-### Abilities
-Attack
-Defend
-Flee
-Enemies will initiate a turn based RPG battle. Loot at the end will be class specific "cards" or abilities that a player can use.
+## Engineering / refactors
+- `main.rs` split from ~1,700 lines into a `screens/` module (title,
+  pause, battle, end) plus `render_helpers.rs` — `main.rs` now only holds
+  app bootstrap, `State` lifecycle, and the tick dispatcher.
+- Battle logic split into `battle/` category modules (see Combat system
+  above).
+- Persistent settings/data: `keymap.ron`, `battle_speed.ron`,
+  `atb_mode.ron`, `stats.ron`, all under the git-ignored `saves/`.
+- `.cargo/config.toml` properly forcing X11 on WSL (was previously a
+  dead, silently-ignored `[env]` block in `Cargo.toml`).
+- Fortress-guaranteed weapon placement fixed (guard markers no longer
+  feed into the general random spawn lottery).
 
-### Stats
-Add in speed for each type of enemy, and the player so that we can have the ones with low HP get an attack in, for the bigger enemies we want to have their speed slower.
-
-Defense Stat 1 defense is a lot right now so might need to make a negative attack stat, maybe even a half defense stat.
-
-
-## Player Animations
-Flash on hit
-More fluid motion
-Animations that can have up-to 4 different idle animations icons,
-
----
-
-## Classes
-Each class will have default abilities that will need to be always available.
-Add in items that can be won from battle that can be a single use.
-
-### Barbarian
-deathblow x2 dmg
-quick attack x2 attacks
-Rend 2 dmg for the next 3 turns
-counter attack - chance (65%) for x3 damage
-weapons is swords 3 types
-hp 15
-defense (0)
-speed (6)
-
-### Mage
-Fireball (2 dmg) 
-Invisible Cloak - For 20 moves you cannot be attacked but can pick up items (used out of combat)
-Burn - Similar to Garrote, but a small damage to begin with
-Defense is -1
-Health is 10
-Weapons is staffs 3 types
-Ice Armor Increases Armor by 1 for 20 attacks
-speed - 6
-
-### Rogue
-Stealth (used out of combat) 20 moves to pick up items, if you run into an enemy you will go first and get 3 times dmg.
-garrote - wound for 2 dmg for next 3 turns
-Dodge - for next 3 turns in battle 70% chance to dodge attacks.
-Back-stab - 2x damage
-Speed - 10
-health- 10
-defense - 0
-attack - 1
-Evasion- 10%
-
-### Debug
-hp - 100hp
-evasion - 50
-damage - 5
-speed - 10
-
-abilities
-Victory - Instantly finishes the game
-Defeat - Instantly Loses the game
-Next Level - Instantly move to the next level
-
-Starting Items
-Victory - x1
-Defeat - X1
-Next Level - x2
-
-### Amazon
-Glyph - A
-Weapons Icons - w, x, y
-
-Attack - 1 
-Defense - 0
-Speed - 6
-Evasion - 5%
-Health - 12
-
-Abilities
-Spear - Outside battle attack that will target the nearest enemy and do attack + weapon dmg + 2 dmg
-Battle Cry - For the next 3 turns enemies will do 1-2 less damage
-Trap - Used outside combat will place a trap and if an enemy runs over it will instantly take 5 damage. Icon will be T
-Poison Spear - Will do 1 dmg then 2 dmg for the next 3 turns
-
-Starting Items
-Trap x1, potion x1, Battle Cry x1
-
-### Hunter
-Glyph - B
-Weapons Icons - 6,7,8
-
-Speed - 8
-health- 12
-defense - 0
-attack - 1
-Evasion- 0%
-
-Actions
-Shoot - Out of combat attack that will do the weapon damage + base damage + 1
-Freeze Trap - Out of Combat ability Will set a trap that will go onto the ground and will freeze the enemy for 40 Turns. It should also turn the enemy blue.
-Feint - In Battle attack that will make it so the enemy can not attack the player until the player makes an action. 
-Poison Shot - Does damage of 2 points for the next 3 turns.
-Stun - 60% to stun the enemy for the next 3 turns. 
-
-Starting Kit
-Freeze Trap - x2
-Potion - x1
-Shoot - x1
-
----
-
-## Dungeon
-Auto pick-up items
-
----
-
-## Options
-Title Screen
-Start Screen for the game where you can pick a class.
-Pause screen when pressing esc
-esc on the title screen to quit the game
-Battle Speed
-ATB Mode
-
----
-
-## Map
-Remove random sword drops, make them only appear in presigned forts or final enemies in a dungeon.
-More Prefabs
-
----
-
-## Balance
-Starting Items
-Bosses will guarantee Loot.
-
----
-
-## Battle Arena Mode
-Starting gold and then no drops from the enemies.
-Each ability will need a cost
-Potions will need a cost
-Weapons will need a cost
-
-### Idea
-This will be a wave based dungeon style it will just be a circular dungeon where you need to kill all the enemies in order to advance. There will be a Store where you can buy abilities and potions. 
-
-There will be increasingly difficult enemies and numbers. You can finish the last wave before the store by killing the Boss of the arena. Killing the boss will then move you to an Item shop that will have abilities and Potions for sale.
-
-Starting Kits for this will need to be set very carefully. As you will not have much of a chance for potions within the arena. 
-
-I want to be sure that the entire area is within LOS so that the player can see all the enemies. They will need to be spawned at the edge of the arena. 
-
-We will need to add in the ability to choose the adventure type. We will need to add an other screen/map for the shop. The shop could just be a screen but I like the idea of moving around the shop then heading to the stairs to move to the next set of waves.
-
-5 level 1 enemies, 5 level 1 enemies, 3 level 1 enemies then the level 1 boss. 
-
-Item shop. 
-Has level level 2 sword, 5 potions, and 5 random abilities. To start the player will be able to buy everything we can work on ways to buy stuff later. 
-
-Then we repeat the process for the second level but with level 2 enemies and the level 2 boss
-
-Item Shop with level 3 sword 5 potions, 5 random abilities
-
-Then repeat for level 3 enemies, when you kill the final boss of the level 3 you win.
-
-### Shop
-Smaller map outside or a forest theme.
-Replace enemy drops with gold to buy items from the Shop
-
-
-
----
-
-## Refactors
-Main into distinct Modules
-Battle into different modules based on ins-battle and out.
-
----
-
-## Stats
-What we will keep track of in the history screen
-
-### Battle Arena
-Keep track of the highest level reach for each class
-keep track of the x of y runs completed
-
-### Dungeon
-Keep track of the number of runs completed
-Keep track of the furthest reached by class
-
-### Abilities
-Any time you use an ability be sure to keep track of it by class.
-
-
----
-
-## Multi-Enemy Battles
-If you stack the enemies on top of each other and initiate and attack you will be attacked by all the enemies that are on the single space.
-Space will trigger a "wait" action
+## Stats tracking
+- Games played/won (overall and per class), enemies killed, deepest
+  level reached per class, and per-ability usage counts — all persisted
+  and viewable from the History screen.
+- Battle Arena tracks its own separated stats (highest level reached per
+  class, runs completed).

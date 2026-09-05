@@ -552,6 +552,16 @@ impl State {
             }
         }
 
+        // A multi-hit technique (MultiHit/AoeMultiHit) still has hits
+        // waiting to land one at a time - see battle::damage::HitQueue.
+        // Ticked unconditionally, same as the flash/popup timers just
+        // above, so it keeps landing hits regardless of which
+        // BattleTurn is currently showing. See the ActionResult(Player)
+        // arm further below - it holds off its own auto-advance timer
+        // while this is still Some, so the summary line has actually
+        // been pushed before the result screen can dismiss.
+        damage::tick_hit_queue(&mut self.ecs, &mut battle, ctx.frame_time_ms);
+
         // --- ATB gauges: fill continuously from Speed (see
         // BattleTurn::Filling's doc comment and atb_fill_rate) - the
         // FFVII-style replacement for the old fixed "whoever's faster
@@ -1094,10 +1104,24 @@ impl State {
                 // tick_player/tick_enemies match), so player_gauge can't
                 // possibly be back at max yet for there to be anything
                 // to queue.
-                battle.result_timer_ms -= ctx.frame_time_ms;
-                if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
-                    if let ResultOutcome::EndBattleTick = self.dismiss_action_result(&mut battle) {
-                        return;
+                //
+                // While a multi-hit technique still has hits left to land
+                // (battle.hit_queue - ticked unconditionally above, near
+                // the flash/popup timers), hold off entirely: don't count
+                // down the auto-advance timer, and ignore a keypress
+                // dismiss too. Otherwise the result screen could dismiss
+                // itself (or a keypress could dismiss it) before the
+                // player ever saw every hit land - tick_hit_queue resets
+                // result_timer_ms once the queue actually finishes, so
+                // normal dismissal resumes automatically right after.
+                if battle.hit_queue.is_none() {
+                    battle.result_timer_ms -= ctx.frame_time_ms;
+                    if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
+                        if let ResultOutcome::EndBattleTick =
+                            self.dismiss_action_result(&mut battle)
+                        {
+                            return;
+                        }
                     }
                 }
             }
