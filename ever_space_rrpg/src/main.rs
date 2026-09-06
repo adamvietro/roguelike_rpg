@@ -231,6 +231,25 @@ struct State {
     /// class_select (which can be reached without ever visiting
     /// AdventureSelect, if that ever changes) keeps its old behavior.
     adventure_mode: AdventureMode,
+    /// Cursor row for Adventure Select's arrow-key navigation (0 or 1) -
+    /// see screens/title.rs::adventure_select. Reset to 0 in
+    /// return_to_title and whenever title_screen re-enters this screen.
+    adventure_select_cursor: usize,
+    /// Cursor row for Class Select's arrow-key navigation (0..CLASS_ROSTER.len())
+    /// - see screens/title.rs::class_select. Reset the same way as
+    /// adventure_select_cursor above.
+    class_select_cursor: usize,
+    /// Cursor row for the Options screen's browsing list (the 4 rebindable
+    /// Actions plus Battle Speed/ATB Mode, 6 rows total) - see
+    /// screens/options.rs. Reset to 0 every time Options is freshly
+    /// entered (from the title screen or from Pause).
+    options_cursor: usize,
+    /// Cursor row for History's Overview class list - see
+    /// screens/stats_view.rs. Reset to 0 whenever the History screen is
+    /// freshly entered from the title screen (not when returning to
+    /// Overview from a drill-down sub-view, so the cursor stays where it
+    /// was on the class you just looked at).
+    stats_view_cursor: usize,
 }
 
 impl State {
@@ -280,6 +299,8 @@ impl State {
         resources.insert(Keymap::load());
         resources.insert(BattleSpeed::load());
         resources.insert(AtbMode::load());
+        resources.insert(MenuMemory::load());
+        resources.insert(LastBattleAction::load());
         resources.insert(Stats::load());
         let mut state = Self {
             ecs: World::default(),
@@ -295,6 +316,10 @@ impl State {
             options_return_to: TurnState::TitleScreen,
             stats_view_mode: StatsViewMode::Overview,
             adventure_mode: AdventureMode::DungeonCrawl,
+            adventure_select_cursor: 0,
+            class_select_cursor: 0,
+            options_cursor: 0,
+            stats_view_cursor: 0,
         };
         state.spawn_title_background();
         state
@@ -333,6 +358,8 @@ impl State {
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
         self.resources.insert(AtbMode::load());
+        self.resources.insert(MenuMemory::load());
+        self.resources.insert(LastBattleAction::load());
         // Always present (see systems/end_turn.rs's Exit-tile branch) -
         // None here means "this is an ordinary dungeon crawl", not
         // "unknown". start_arena is the only place this is ever Some.
@@ -451,6 +478,8 @@ impl State {
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
         self.resources.insert(AtbMode::load());
+        self.resources.insert(MenuMemory::load());
+        self.resources.insert(LastBattleAction::load());
         self.resources.insert(Some(arena_run));
         self.resources.insert(Some(ShoppingActive));
         self.resources.insert(None::<ShopMessage>);
@@ -794,7 +823,11 @@ impl State {
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
         self.resources.insert(AtbMode::load());
+        self.resources.insert(MenuMemory::load());
+        self.resources.insert(LastBattleAction::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
+        self.adventure_select_cursor = 0;
+        self.class_select_cursor = 0;
 
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {

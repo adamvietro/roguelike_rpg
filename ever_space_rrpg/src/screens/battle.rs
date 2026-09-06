@@ -413,6 +413,15 @@ impl State {
     /// player originally pressed the key.
     fn resolve_player_action(&mut self, battle: &mut Battle, chosen: BattleAction) {
         let target = battle.primary_target(&self.ecs);
+        // Captured before the match below - BattleAction::Technique's own
+        // branch removes the item entity from the ECS as part of
+        // consuming it (via apply_player_technique), so its Name has to
+        // be read before that happens, not after. Used only for
+        // cross-battle cursor memory (MenuMemory) once resolution
+        // finishes below - a separate, earlier read of the same
+        // information Stats::record_ability_used's own inline capture
+        // needs for the same reason.
+        let action_name_for_memory = action_name(&self.ecs, chosen);
         // Every technique's mechanical effect is resolved in one place
         // (battle::apply_player_technique) rather than a match arm per
         // item here - adding a new class's technique needs no change here.
@@ -467,6 +476,25 @@ impl State {
         // was actually chosen, so it can never linger and apply again
         // later in the same fight.
         battle.sneak_attack = false;
+
+        // Cross-battle cursor memory (MenuMemory) - remember whatever was
+        // just chosen, per class, so a FUTURE battle's cursor can start
+        // there (see MenuCursor's seeding in battle_tick above). Recorded
+        // here rather than at each individual call site (PlayerMenu's
+        // direct resolution AND Filling's queued-action resolution both
+        // funnel through this one function) so neither path can forget
+        // it. Uses action_name_for_memory, captured above BEFORE the
+        // match ran (see that binding's own comment for why).
+        if *self.resources.get::<MenuMemory>().unwrap() == MenuMemory::On {
+            if let Some(class) = entity_class(&self.ecs, battle.player) {
+                let mut memory = self.resources.get_mut::<LastBattleAction>().unwrap();
+                memory.record(&class, &action_name_for_memory);
+                let saved = memory.clone();
+                drop(memory);
+                saved.save();
+            }
+        }
+
         battle.enter_result(Combatant::Player);
     }
 
@@ -949,15 +977,76 @@ impl State {
         // the suffix was some of the longest text in the whole menu,
         // which was its own part of the "everything blends together"
         // problem.
-        fn menu_row_label(i: usize, entry: &BattleMenuEntry) -> (String, RGB) {
+        fn menu_row_label(i: usize, entry: &BattleMenuEntry) -> (String, (u8, u8, u8)) {
             if entry.action.is_some() {
                 let label = match entry.count {
                     Some(n) => format!("{}) {} x{}", i + 1, entry.label, n),
                     None => format!("{}) {}", i + 1, entry.label),
                 };
-                (label, GREEN.into())
+                (label, GREEN)
             } else {
-                (format!("{}) {}", i + 1, entry.label), DARK_GRAY.into())
+                (format!("{}) {}", i + 1, entry.label), DARK_GRAY)
+            }
+        }
+
+        // One-time cross-battle cursor memory seed - see MenuCursor's own
+        // doc comment. Runs at most once per battle (menu_cursor_seeded
+        // guards it), checked every frame regardless of battle.turn since
+        // a battle can sit in Filling for a moment before the player's
+        // first PlayerMenu ever shows - seeding early means the pointer
+        // is already in the right place the very first time the box
+        // becomes interactive, not one frame late.
+        if !battle.menu_cursor_seeded {
+            battle.menu_cursor_seeded = true;
+            let memory_on = *self.resources.get::<MenuMemory>().unwrap() == MenuMemory::On;
+            if memory_on {
+                if let Some(class) = entity_class(&self.ecs, battle.player) {
+                    let remembered = self
+                        .resources
+                        .get::<LastBattleAction>()
+                        .unwrap()
+                        .get(&class)
+                        .map(str::to_string);
+                    if let Some(remembered) = remembered {
+                        if let Some(row) = main_actions
+                            .iter()
+                            .position(|(_, entry)| entry.label == remembered)
+                        {
+                            battle.menu_cursor.col = 0;
+                            battle.menu_cursor.row = row;
+                        } else if let Some(row) = other_actions
+                            .iter()
+                            .position(|(_, entry)| entry.label == remembered)
+                        {
+                            battle.menu_cursor.col = 1;
+                            battle.menu_cursor.row = row;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Arrow-key cursor navigation - only while the menu is actually
+        // open for input (PlayerMenu), matching when number-key selection
+        // is allowed further below. Processed here, before the row labels
+        // are drawn, so a moved cursor's highlight/pointer show up the
+        // SAME frame the key was pressed rather than one frame late.
+        if battle.turn == BattleTurn::PlayerMenu {
+            let current_col_len = if battle.menu_cursor.col == 0 {
+                main_actions.len()
+            } else {
+                other_actions.len()
+            };
+            match ctx.key {
+                Some(VirtualKeyCode::Up) => battle.menu_cursor.move_vertical(-1, current_col_len),
+                Some(VirtualKeyCode::Down) => battle.menu_cursor.move_vertical(1, current_col_len),
+                Some(VirtualKeyCode::Left) => {
+                    battle.menu_cursor.move_horizontal(0, main_actions.len())
+                }
+                Some(VirtualKeyCode::Right) => {
+                    battle.menu_cursor.move_horizontal(1, other_actions.len())
+                }
+                _ => {}
             }
         }
 
@@ -1001,16 +1090,26 @@ impl State {
         ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
         for (row, (i, entry)) in main_actions.iter().enumerate() {
             let (label, color) = menu_row_label(*i, entry);
-            ctx.print_color(BOX_X + 1, box_y + 3 + row as i32, color, BLACK, &label);
+            let selected = battle.menu_cursor.col == 0 && battle.menu_cursor.row == row;
+            print_menu_row_left(
+                ctx,
+                BOX_X + 1,
+                box_y + 3 + row as i32,
+                color,
+                &label,
+                selected,
+            );
         }
         for (row, (i, entry)) in other_actions.iter().enumerate() {
             let (label, color) = menu_row_label(*i, entry);
-            ctx.print_color(
+            let selected = battle.menu_cursor.col == 1 && battle.menu_cursor.row == row;
+            print_menu_row_left(
+                ctx,
                 BOX_X + 1 + BOX_COL_WIDTH + 1,
                 box_y + 3 + row as i32,
                 color,
-                BLACK,
                 &label,
+                selected,
             );
         }
         ctx.set_active_console(2);
@@ -1022,13 +1121,22 @@ impl State {
                 // dismiss while everyone is still racing to full.
             }
             BattleTurn::PlayerMenu => {
-                if let Some(key) = ctx.key {
-                    let chosen = number_key_index(key)
-                        .and_then(|i| actions.get(i))
-                        .and_then(|entry| entry.action);
-                    if let Some(chosen) = chosen {
-                        self.resolve_player_action(&mut battle, chosen);
+                let cursor_entry = if battle.menu_cursor.col == 0 {
+                    main_actions.get(battle.menu_cursor.row)
+                } else {
+                    other_actions.get(battle.menu_cursor.row)
+                };
+                let chosen = match ctx.key {
+                    Some(VirtualKeyCode::Return) => {
+                        cursor_entry.and_then(|(_, entry)| entry.action)
                     }
+                    Some(key) => number_key_index(key)
+                        .and_then(|i| actions.get(i))
+                        .and_then(|entry| entry.action),
+                    None => None,
+                };
+                if let Some(chosen) = chosen {
+                    self.resolve_player_action(&mut battle, chosen);
                 }
 
                 // True ATB interrupt: if the player DIDN'T just act above

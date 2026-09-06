@@ -74,6 +74,24 @@ pub struct BattleMenuEntry {
     pub count: Option<i32>,
 }
 
+/// The display name a chosen BattleAction should be remembered as - see
+/// settings::LastBattleAction. Attack/Defend/Flee use fixed names
+/// matching their own BattleMenuEntry::label exactly, so the same string
+/// can be searched for again in a future battle's grid (see
+/// screens/battle.rs's cursor-memory seed) regardless of which action
+/// type it actually is. Must be called BEFORE the technique item is
+/// removed from the ECS (see apply_player_technique) - same ordering
+/// requirement Stats::record_ability_used's own call site already
+/// follows, for the same reason.
+pub fn action_name(ecs: &World, action: BattleAction) -> String {
+    match action {
+        BattleAction::Attack => "Attack".to_string(),
+        BattleAction::Defend => "Defend".to_string(),
+        BattleAction::Flee => "Flee".to_string(),
+        BattleAction::Technique(item) => entity_name(ecs, item),
+    }
+}
+
 fn has_can_attack(ecs: &World, entity: Entity) -> bool {
     <(Entity, &CanAttack)>::query()
         .iter(ecs)
@@ -396,6 +414,78 @@ pub struct Battle {
     /// multi-hit sequence is currently playing out (which is most of the
     /// time - only MultiHit/AoeMultiHit ever populate this).
     pub hit_queue: Option<HitQueue>,
+    /// The battle menu's arrow-key cursor position - see MenuCursor.
+    pub menu_cursor: MenuCursor,
+    /// Whether cross-battle cursor memory (MenuMemory) has already been
+    /// applied to menu_cursor for THIS battle - set true the first time
+    /// screens/battle.rs's battle_tick sees this false, so memory only
+    /// ever moves the cursor once per fight (right at its very start),
+    /// never overriding a choice the player actually made mid-battle.
+    pub menu_cursor_seeded: bool,
+}
+
+/// The battle menu's cursor position - which of the two columns (0 = the
+/// fixed Attack/Defend/Flee capability column, 1 = the class's technique
+/// roster column) and which row within it. Lives on Battle so it
+/// persists for the whole fight; a fresh Battle always starts a fresh
+/// cursor at (0, 0) - see Battle::new/menu_cursor_seeded for how
+/// cross-battle memory (MenuMemory) can then move it once, before the
+/// first PlayerMenu is ever shown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MenuCursor {
+    pub col: usize,
+    pub row: usize,
+    /// The row remembered for each column the last time the cursor left
+    /// it (index 0/1 matches `col` above) - so switching Left/Right and
+    /// back returns you to where you were, rather than always landing on
+    /// row 0 of whichever column you switch into. Seeded to match
+    /// wherever cross-battle memory places the initial cursor too (see
+    /// screens/battle.rs), so switching columns right after a memory-
+    /// seeded start still has something sensible to fall back to for the
+    /// OTHER column.
+    remembered_row: [usize; 2],
+}
+
+impl MenuCursor {
+    pub fn new() -> Self {
+        Self {
+            col: 0,
+            row: 0,
+            remembered_row: [0, 0],
+        }
+    }
+
+    /// Moves the cursor up/down within its CURRENT column, wrapping at
+    /// either end - same convention render_helpers::menu_nav already
+    /// uses for every top-menu screen, so arrow-key behavior feels
+    /// consistent across the whole game. `col_len` is however many rows
+    /// the current column actually has right now (0 is a safe no-op -
+    /// nothing to move within an empty column).
+    pub fn move_vertical(&mut self, delta: i32, col_len: usize) {
+        if col_len == 0 {
+            return;
+        }
+        let len = col_len as i32;
+        self.row = (((self.row as i32 + delta) % len + len) % len) as usize;
+        self.remembered_row[self.col] = self.row;
+    }
+
+    /// Switches to `new_col`, restoring whichever row was last visited
+    /// there (see `remembered_row`), clamped to `new_col_len` in case
+    /// that column has fewer rows now than it did the last time the
+    /// cursor was in it (e.g. a shorter technique list than remembered -
+    /// not possible today since a class's roster size never changes
+    /// mid-battle, but harmless to guard against regardless). A no-op if
+    /// the destination column has zero rows (nothing to land on there) or
+    /// is already the current column.
+    pub fn move_horizontal(&mut self, new_col: usize, new_col_len: usize) {
+        if new_col_len == 0 || new_col == self.col {
+            return;
+        }
+        self.remembered_row[self.col] = self.row;
+        self.col = new_col;
+        self.row = self.remembered_row[new_col].min(new_col_len - 1);
+    }
 }
 
 /// Which color a portrait's brief post-action flash should use - see
@@ -465,6 +555,8 @@ impl Battle {
             loot_found: Vec::new(),
             defeated_names: Vec::new(),
             hit_queue: None,
+            menu_cursor: MenuCursor::new(),
+            menu_cursor_seeded: false,
         }
     }
 

@@ -2990,3 +2990,67 @@ That makes sense — right now both screens dismiss on `1`, and you want `Enter`
 Both `game_over` and `victory` now dismiss on `Enter` instead of `1`, with the prompt text updated to match ("Press Enter to return to the title screen."). Used `VirtualKeyCode::Return`, which is already proven working elsewhere in this exact codebase (Battle Arena shop purchases, Battle Victory's own dismiss) — no new API risk.
 
 Verified with `cargo check` — clean, zero warnings.
+
+## Cursor Select for Menus
+We will be working on a new system that will hold the cursor for any menu. It will populate the list of all actions that need to be held for any screen. Each screen will then need to have a selected action variable that will hold what is being highlighted so it can have a change to its render. 
+
+With both of these it will be easy to make the render and the back-end work together. 
+
+One last thing is we are going to add in a memory for battle screens that will allow the user to choose if the battle screen will automatically go back to the last selected action when we go back into a battle.
+
+### Implementation
+Clean full build, zero warnings. Restoring your real `Cargo.lock`:Confirmed byte-identical. Let's do one final sanity sweep across every touched file before packaging:Clean — no leftover test scaffolding, no TODOs, everything balanced. Packaging the full set for delivery:## Battle menu cursor + memory — done, verified with `cargo build` and real tests
+
+**5 files, all modified:**
+
+| Downloaded as        | Save to                  |
+| -------------------- | ------------------------ |
+| `battle_mod.rs`      | `src/battle/mod.rs`      |
+| `screens_battle.rs`  | `src/screens/battle.rs`  |
+| `screens_options.rs` | `src/screens/options.rs` |
+| `settings.rs`        | `src/settings.rs`        |
+| `main.rs`            | `src/main.rs`            |
+
+**What changed:**
+
+- **`MenuCursor`** (`battle/mod.rs`) — tracks `(col, row)` for the battle menu's two columns. Up/Down wraps within the current column; Left/Right switches columns and restores whichever row you were last on there (your "goes back to Defend" ask), clamped defensively if a column ever has fewer rows than remembered. Disabled cells (unowned techniques) are landable but not selectable — Enter just does nothing there.
+- **Cross-battle memory** — `MenuMemory` (on/off toggle) and `LastBattleAction` (per-class "last thing chosen," by name) in `settings.rs`, persisted to `saves/menu_memory.ron` / `saves/last_battle_action.ron`, same pattern as `BattleSpeed`/`AtbMode`. A fresh battle's menu seeds its cursor from this exactly once — searching the *current* fight's grid by action name, since a raw position wouldn't mean anything in a different fight or class.
+- **Options screen** got a third toggle row for this ("Remember Last Battle Action: On/Off"), same arrow+Enter/number-key pattern as the other two.
+- The battle box itself now renders the same yellow-highlight-plus-`►`-pointer convention the top menus already use (reused `print_menu_row_left` directly), and both arrow-key and number-key selection work side by side, same as everywhere else.
+
+Verified with a full `cargo build` (clean, zero warnings) plus two rounds of real tests, both removed before delivery: 4 tests on `MenuCursor` (wraparound, per-column memory, the shrink-clamp edge case, empty-column no-op) and 2 tests that actually wrote/reloaded/overwrote the new settings through real RON files on disk rather than just type-checking the derive. I also caught and fixed my own mistake mid-cleanup — an overly broad text removal briefly deleted the real `get()` method along with the test scaffolding — verified it before calling this done, not after.
+
+Four of these (battle_mod.rs, screens_battle.rs, screens_options.rs, main.rs) went through more than one round of edits this session — the copies above already include all of those changes stacked together, not just the last round's diff. So you can grab all 11 files as one batch and be fully caught up — nothing earlier is still needed separately, and nothing here has been superseded by anything after it.
+
+### Changes
+Changing the time in which you can select actions, as well as changing the way in which you can advance from a battle once you are in one.
+
+#### Feedback
+Good catch on both — let's work through them.
+
+**1. Cursor movement gated by turn state**
+
+Right now I only process arrow keys when `battle.turn == BattleTurn::PlayerMenu`. During Filling (gauges racing) or while an enemy's `ActionResult` is showing, the cursor is frozen because that code path never runs at all.
+
+My take: **moving the cursor should always work, unconditionally, in every `BattleTurn` state.** Moving it has zero gameplay effect by itself — it's purely visual until Enter or a number key actually confirms something, and confirming is separately gated on whether it's actually your turn (`player_can_act`). So there's no reason to freeze the cursor itself; only *confirming* needs to respect "is it actually safe for you to act right now." This also means you can pre-aim your next move while gauges are still filling, which sounds like exactly the "no matter what" behavior you're after.
+
+One related thing worth deciding while I'm in there: under True ATB, there's already a "queuing window" — if your gauge fills while an *enemy's* result is showing, you can pick your next action early via number keys (it fires the instant it's safe). Right now that window only accepts number keys, not Enter, since I only wired Enter into the `PlayerMenu` branch. Want me to also make Enter work there for consistency, so cursor+Enter behaves identically everywhere number keys already work? Seems like a natural yes, but flagging it since you didn't explicitly ask for it.
+
+**2. Enter double-firing into the next screen**
+
+This is a real bug, and it's actually the same root problem in two places, not one. Here's the mechanism: this project already reports a key as "pressed" on *every frame it's physically held down*, not just the instant you press it (that's why the project notes mention "holding a hotkey keeps firing every frame" as a known pattern). So the moment Enter selects an action and the screen flips to the result screen, that same still-held Enter is seen again on the very next frame — dismissing the result early, or worse, re-firing the same action once you're back at the menu.
+
+Two ways to fix it, like you said:
+- **Pick a different key for "advance past a result screen."** Simple, but only patches the one spot — doesn't stop Enter from double-firing anywhere else Enter now means "confirm."
+- **Real "just pressed" edge detection for Enter specifically** — track whether Enter was already down last frame, and only treat it as a fresh press if it wasn't. This fixes the problem everywhere Enter is used to confirm, not just this one screen.
+
+I'd lean toward the second one, because **there's a second place this exact bug already exists that I built a few turns ago**: Adventure Select and Class Select are chained one after another, and I made Enter confirm on both. Hold Enter through picking "Dungeon Crawl," and that same held key would also immediately confirm whatever class the cursor happens to be sitting on (Barbarian, by default) — you'd never even see the class screen. Edge-detection fixes both of these with one mechanism; picking a different key for battle's result screens wouldn't touch that second spot at all.
+
+The tradeoff: edge detection needs a tiny bit of extra state (remembering "was Enter down last frame") tracked at the `State` level, since it has to survive across screen transitions, not reset per-battle. It's a small, contained addition, but it's a bit more machinery than "just don't advance on Enter."
+
+Want me to go with the general edge-detection fix (covers both the battle result screens and the Adventure Select → Class Select case), or would you rather keep it simple and just pick a non-Enter key for dismissing results and deal with the class-select case separately if it ever actually bites you?
+
+### Changes
+We will now have the cursor move freely when in Full ATB but during normal you will have to wait to select the action once have a full ATB
+
+#### Implementation

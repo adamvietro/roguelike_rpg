@@ -84,6 +84,9 @@ impl State {
                 if classes.is_empty() {
                     ctx.print_color_centered(15, GRAY, BLACK, "No games played yet.");
                 } else {
+                    self.stats_view_cursor =
+                        menu_nav(ctx.key, self.stats_view_cursor, classes.len());
+
                     // Fixed-width columns, printed via print_color_centered -
                     // every row (header included) formats to the exact same
                     // total length, so centering each line independently
@@ -125,13 +128,20 @@ impl State {
                             cs.deepest_level + 1,
                             arena_col,
                         );
-                        ctx.print_color_centered(15 + i as i32, WHITE, BLACK, &row);
+                        print_menu_row_centered(
+                            ctx,
+                            HUD_COLS,
+                            15 + i as i32,
+                            WHITE,
+                            &row,
+                            self.stats_view_cursor == i,
+                        );
                     }
                     ctx.print_color_centered(
                         15 + classes.len() as i32 + 2,
                         GRAY,
                         BLACK,
-                        "Press a number to see that class's ability usage",
+                        "Arrows to navigate, Enter to see that class's ability usage",
                     );
                 }
                 ctx.print_color_centered(
@@ -151,6 +161,9 @@ impl State {
                     Some(VirtualKeyCode::Key7) => Some(6),
                     Some(VirtualKeyCode::Key8) => Some(7),
                     Some(VirtualKeyCode::Key9) => Some(8),
+                    Some(VirtualKeyCode::Return) if !classes.is_empty() => {
+                        Some(self.stats_view_cursor)
+                    }
                     _ => None,
                 };
                 if let Some(class) = chosen.and_then(|i| classes.get(i)) {

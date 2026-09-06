@@ -117,6 +117,99 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+// --- Arrow-key menu navigation -----------------------------------------
+//
+// Shared by every top-level "look at a list, pick one" screen (Adventure
+// Select, Class Select, Options' rebind list, History's Overview) - a
+// small, consistent cursor/pointer/highlight convention instead of each
+// screen inventing its own. Number-key shortcuts stay working everywhere
+// these are used (this is purely additive, not a replacement) - a
+// returning player can still mash "2" without ever touching an arrow key.
+
+/// The cursor/pointer glyph shown to the left of a selected menu row - a
+/// plain CP437 right-pointing triangle (code 16), which was sitting
+/// entirely unused in the project's own glyph map before this. No custom
+/// art needed - it's part of the base CP437 set on every font already in
+/// use (dungeonfont.png and terminal8x8.png both include it).
+pub const MENU_POINTER_GLYPH: char = '►';
+
+/// How many columns the pointer glyph sits to the left of a selected
+/// row's own text.
+const MENU_POINTER_GAP: i32 = 2;
+
+/// Up/Down arrow -> a wrap-around cursor step (-1/+1); any other key ->
+/// None. `len` is the number of selectable rows on screen right now (a
+/// history/options list can vary in size) - wrapping is computed here so
+/// every caller gets identical "top wraps to bottom and back" behavior
+/// for free instead of reimplementing the modulo arithmetic per screen.
+/// Returns `cursor` unchanged if `len` is 0 (nothing to navigate).
+pub fn menu_nav(key: Option<VirtualKeyCode>, cursor: usize, len: usize) -> usize {
+    if len == 0 {
+        return cursor;
+    }
+    match key {
+        Some(VirtualKeyCode::Up) => (cursor + len - 1) % len,
+        Some(VirtualKeyCode::Down) => (cursor + 1) % len,
+        _ => cursor.min(len - 1),
+    }
+}
+
+/// Prints one row of a CENTERED arrow-key-navigable menu - `text` centered
+/// on the currently active console, exactly like a plain
+/// `ctx.print_color_centered` call, except that when `selected` is true
+/// the whole row renders in YELLOW instead of `color` and a pointer glyph
+/// (see MENU_POINTER_GLYPH) appears just to its left. `console_width` is
+/// the active console's own column count (bracket-lib's
+/// print_color_centered doesn't expose where it actually starts, so this
+/// works that out independently) - pass whichever of BIG_TEXT_CONSOLE's
+/// (DISPLAY_WIDTH) or HUD_CONSOLE's (HUD_COLS) width applies to the
+/// console currently active.
+pub fn print_menu_row_centered(
+    ctx: &mut BTerm,
+    console_width: i32,
+    row: i32,
+    color: (u8, u8, u8),
+    text: &str,
+    selected: bool,
+) {
+    let display_color = if selected { YELLOW } else { color };
+    ctx.print_color_centered(row, display_color, BLACK, text);
+    if selected {
+        let start_col = (console_width - text.chars().count() as i32) / 2;
+        ctx.print_color(
+            (start_col - MENU_POINTER_GAP).max(0),
+            row,
+            YELLOW,
+            BLACK,
+            &MENU_POINTER_GLYPH.to_string(),
+        );
+    }
+}
+
+/// Same as print_menu_row_centered, but for a row printed at a fixed LEFT
+/// column instead of centered - Options' rebind list and Class Select's
+/// headline both print this way already, rather than centered.
+pub fn print_menu_row_left(
+    ctx: &mut BTerm,
+    col: i32,
+    row: i32,
+    color: (u8, u8, u8),
+    text: &str,
+    selected: bool,
+) {
+    let display_color = if selected { YELLOW } else { color };
+    ctx.print_color(col, row, display_color, BLACK, text);
+    if selected {
+        ctx.print_color(
+            (col - MENU_POINTER_GAP).max(0),
+            row,
+            YELLOW,
+            BLACK,
+            &MENU_POINTER_GLYPH.to_string(),
+        );
+    }
+}
+
 /// Draws a hollow rectangular border - plain '-'/'|'/'+' characters, built
 /// from the same DrawBatch::set + to_cp437 primitives already proven
 /// throughout this file (map/portrait/arena rendering), rather than

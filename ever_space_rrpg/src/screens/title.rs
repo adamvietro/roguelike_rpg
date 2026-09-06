@@ -212,11 +212,14 @@ impl State {
                 ctx.quitting = true;
             } else if key == VirtualKeyCode::O {
                 self.options_return_to = TurnState::TitleScreen;
+                self.options_cursor = 0;
                 self.resources.insert(TurnState::Options);
             } else if key == VirtualKeyCode::H {
                 self.stats_view_mode = StatsViewMode::Overview;
+                self.stats_view_cursor = 0;
                 self.resources.insert(TurnState::StatsView);
             } else {
+                self.adventure_select_cursor = 0;
                 self.resources.insert(TurnState::AdventureSelect);
             }
         }
@@ -234,36 +237,58 @@ impl State {
         ctx.print_color_centered(6, YELLOW, BLACK, "Choose Your Adventure");
 
         ctx.set_active_console(HUD_CONSOLE);
-        ctx.print_color_centered(36, GREEN, BLACK, "1) Dungeon Crawl");
+        self.adventure_select_cursor = menu_nav(ctx.key, self.adventure_select_cursor, 2);
+        print_menu_row_centered(
+            ctx,
+            HUD_COLS,
+            36,
+            GREEN,
+            "1) Dungeon Crawl",
+            self.adventure_select_cursor == 0,
+        );
         ctx.print_color_centered(
             39,
             WHITE,
             BLACK,
             "Explore a randomized dungeon, find the Amulet of Yala.",
         );
-        ctx.print_color_centered(48, GREEN, BLACK, "2) Battle Arena");
+        print_menu_row_centered(
+            ctx,
+            HUD_COLS,
+            48,
+            GREEN,
+            "2) Battle Arena",
+            self.adventure_select_cursor == 1,
+        );
         ctx.print_color_centered(
             51,
             WHITE,
             BLACK,
             "Clear waves of enemies and bosses across 3 levels, shopping between each.",
         );
-        ctx.print_color_centered(62, DARK_GRAY, BLACK, "(Esc to go back)");
+        ctx.print_color_centered(62, DARK_GRAY, BLACK, "(Enter to select, Esc to go back)");
 
-        if let Some(key) = ctx.key {
-            match key {
-                VirtualKeyCode::Key1 => {
-                    self.adventure_mode = AdventureMode::DungeonCrawl;
-                    self.resources.insert(TurnState::ClassSelect);
-                }
-                VirtualKeyCode::Key2 => {
-                    self.adventure_mode = AdventureMode::BattleArena;
-                    self.resources.insert(TurnState::ClassSelect);
-                }
-                VirtualKeyCode::Escape => {
+        let chosen = match ctx.key {
+            Some(VirtualKeyCode::Key1) => Some(0),
+            Some(VirtualKeyCode::Key2) => Some(1),
+            Some(VirtualKeyCode::Return) => Some(self.adventure_select_cursor),
+            _ => None,
+        };
+        match chosen {
+            Some(0) => {
+                self.adventure_mode = AdventureMode::DungeonCrawl;
+                self.class_select_cursor = 0;
+                self.resources.insert(TurnState::ClassSelect);
+            }
+            Some(1) => {
+                self.adventure_mode = AdventureMode::BattleArena;
+                self.class_select_cursor = 0;
+                self.resources.insert(TurnState::ClassSelect);
+            }
+            _ => {
+                if ctx.key == Some(VirtualKeyCode::Escape) {
                     self.resources.insert(TurnState::TitleScreen);
                 }
-                _ => {}
             }
         }
     }
@@ -279,6 +304,8 @@ impl State {
 
         ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(0, YELLOW, BLACK, "Choose Your Class");
+
+        self.class_select_cursor = menu_nav(ctx.key, self.class_select_cursor, CLASS_ROSTER.len());
 
         let mut icons = DrawBatch::new();
         icons.target(3);
@@ -298,12 +325,13 @@ impl State {
             // class's description ran off the bottom of the screen
             // entirely with nowhere left to go.
             let headline_row = i * 5 + 1;
-            ctx.print_color(
+            print_menu_row_left(
+                ctx,
                 9,
                 headline_row,
                 GREEN,
-                BLACK,
                 &format!("{}) {}", entry.key_label, entry.name.to_uppercase()),
+                self.class_select_cursor == i as usize,
             );
 
             // Descriptions render on HUD_CONSOLE (~12px
@@ -346,25 +374,28 @@ impl State {
         }
         icons.submit(0).expect("Batch error");
 
-        if let Some(key) = ctx.key {
-            if let Some(entry) = CLASS_ROSTER.iter().find(|c| c.key == key) {
-                match self.adventure_mode {
-                    AdventureMode::DungeonCrawl => self.start_game(entry.name),
-                    AdventureMode::BattleArena => self.start_arena(entry.name),
-                }
-            } else if key == VirtualKeyCode::D {
-                // Hidden dev shortcut - deliberately NOT a CLASS_ROSTER
-                // entry, so it never appears in the visible list or
-                // description text. See spawner::class_base_stats("Debug")
-                // and resources/starting_kits.ron for what this class
-                // actually gets. A letter key, not the originally-tried
-                // Backslash - punctuation keys are exactly the kind of
-                // thing that can misbehave through this project's
-                // WSLg/X11 stack (same family of issue as the documented
-                // WINIT_UNIX_BACKEND quirk), while letter keys (G, Q) are
-                // already proven working elsewhere in this codebase.
-                self.start_game("Debug");
+        let chosen_entry = match ctx.key {
+            Some(VirtualKeyCode::Return) => CLASS_ROSTER.get(self.class_select_cursor),
+            Some(key) => CLASS_ROSTER.iter().find(|c| c.key == key),
+            None => None,
+        };
+        if let Some(entry) = chosen_entry {
+            match self.adventure_mode {
+                AdventureMode::DungeonCrawl => self.start_game(entry.name),
+                AdventureMode::BattleArena => self.start_arena(entry.name),
             }
+        } else if ctx.key == Some(VirtualKeyCode::D) {
+            // Hidden dev shortcut - deliberately NOT a CLASS_ROSTER
+            // entry, so it never appears in the visible list or
+            // description text. See spawner::class_base_stats("Debug")
+            // and resources/starting_kits.ron for what this class
+            // actually gets. A letter key, not the originally-tried
+            // Backslash - punctuation keys are exactly the kind of
+            // thing that can misbehave through this project's
+            // WSLg/X11 stack (same family of issue as the documented
+            // WINIT_UNIX_BACKEND quirk), while letter keys (G, Q) are
+            // already proven working elsewhere in this codebase.
+            self.start_game("Debug");
         }
     }
 }

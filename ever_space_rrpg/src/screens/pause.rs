@@ -24,6 +24,7 @@ impl State {
             }
             Some(VirtualKeyCode::O) => {
                 self.options_return_to = TurnState::Paused;
+                self.options_cursor = 0;
                 self.resources.insert(TurnState::Options);
             }
             Some(VirtualKeyCode::Q) => {

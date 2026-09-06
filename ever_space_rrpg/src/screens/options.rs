@@ -45,6 +45,9 @@ impl State {
 
         match self.options_awaiting {
             None => {
+                let total_rows = Action::ALL.len() + 3;
+                self.options_cursor = menu_nav(ctx.key, self.options_cursor, total_rows);
+
                 {
                     let keymap = self
                         .resources
@@ -53,12 +56,13 @@ impl State {
                     for (i, action) in Action::ALL.iter().enumerate() {
                         let row = 10 + i as i32;
                         let key_label = format!("{:?}", keymap.key_for(*action));
-                        ctx.print_color(
+                        print_menu_row_left(
+                            ctx,
                             30,
                             row,
                             WHITE,
-                            BLACK,
                             &format!("{}) {}: {}", i + 1, action.label(), key_label),
+                            self.options_cursor == i,
                         );
                     }
                 } // keymap's borrow of self.resources ends here, before
@@ -68,23 +72,26 @@ impl State {
                 // below the rebind list, numbered as two more menu
                 // entries (5, 6) rather than a separate section, so
                 // "press a number to act on that row" stays a single
-                // consistent rule across this whole screen.
+                // consistent rule across this whole screen. Same rows
+                // are also reachable via the arrow-key cursor (indices
+                // Action::ALL.len() and Action::ALL.len()+1).
                 let battle_speed_row = 10 + Action::ALL.len() as i32;
                 {
                     let battle_speed = self
                         .resources
                         .get::<BattleSpeed>()
                         .expect("BattleSpeed resource missing");
-                    ctx.print_color(
+                    print_menu_row_left(
+                        ctx,
                         30,
                         battle_speed_row,
                         WHITE,
-                        BLACK,
                         &format!(
                             "{}) Battle Speed: {} (press to cycle)",
                             Action::ALL.len() + 1,
                             battle_speed.label()
                         ),
+                        self.options_cursor == Action::ALL.len(),
                     );
                 }
                 let atb_mode_row = battle_speed_row + 1;
@@ -93,38 +100,74 @@ impl State {
                         .resources
                         .get::<AtbMode>()
                         .expect("AtbMode resource missing");
-                    ctx.print_color(
+                    print_menu_row_left(
+                        ctx,
                         30,
                         atb_mode_row,
                         WHITE,
-                        BLACK,
                         &format!(
                             "{}) ATB Mode: {} (press to toggle)",
                             Action::ALL.len() + 2,
                             atb_mode.label()
                         ),
+                        self.options_cursor == Action::ALL.len() + 1,
+                    );
+                }
+                // Battle menu cursor memory - whether the battle menu's
+                // arrow-cursor should remember the last action chosen
+                // per class and start there next time (see
+                // settings::MenuMemory/LastBattleAction and
+                // screens/battle.rs's one-time cursor seed). A third row
+                // in this same numbered/arrow-navigable list, same
+                // "press to toggle" shape as ATB Mode just above.
+                let menu_memory_row = atb_mode_row + 1;
+                {
+                    let menu_memory = self
+                        .resources
+                        .get::<MenuMemory>()
+                        .expect("MenuMemory resource missing");
+                    print_menu_row_left(
+                        ctx,
+                        30,
+                        menu_memory_row,
+                        WHITE,
+                        &format!(
+                            "{}) Remember Last Battle Action: {} (press to toggle)",
+                            Action::ALL.len() + 3,
+                            menu_memory.label()
+                        ),
+                        self.options_cursor == Action::ALL.len() + 2,
                     );
                 }
 
-                let total_rows = Action::ALL.len() as i32 + 2;
                 ctx.print_color_centered(
-                    10 + total_rows + 2,
+                    10 + total_rows as i32 + 2,
                     GRAY,
                     BLACK,
                     "Press R to reset all keys to defaults",
                 );
-                ctx.print_color_centered(10 + total_rows + 3, GRAY, BLACK, "Press ESC to go back");
+                ctx.print_color_centered(
+                    10 + total_rows as i32 + 3,
+                    GRAY,
+                    BLACK,
+                    "Arrows to navigate, Enter to select, ESC to go back",
+                );
 
-                let chosen = match ctx.key {
-                    Some(VirtualKeyCode::Key1) => Action::ALL.get(0),
-                    Some(VirtualKeyCode::Key2) => Action::ALL.get(1),
-                    Some(VirtualKeyCode::Key3) => Action::ALL.get(2),
-                    Some(VirtualKeyCode::Key4) => Action::ALL.get(3),
+                let chosen_row = match ctx.key {
+                    Some(VirtualKeyCode::Key1) => Some(0),
+                    Some(VirtualKeyCode::Key2) => Some(1),
+                    Some(VirtualKeyCode::Key3) => Some(2),
+                    Some(VirtualKeyCode::Key4) => Some(3),
+                    Some(VirtualKeyCode::Key5) => Some(4),
+                    Some(VirtualKeyCode::Key6) => Some(5),
+                    Some(VirtualKeyCode::Key7) => Some(6),
+                    Some(VirtualKeyCode::Return) => Some(self.options_cursor),
                     _ => None,
                 };
-                if let Some(action) = chosen {
+
+                if let Some(action) = chosen_row.and_then(|i| Action::ALL.get(i)) {
                     self.options_awaiting = Some(*action);
-                } else if ctx.key == Some(VirtualKeyCode::Key5) {
+                } else if chosen_row == Some(Action::ALL.len()) {
                     let mut speed = self
                         .resources
                         .get_mut::<BattleSpeed>()
@@ -133,7 +176,7 @@ impl State {
                     let saved = *speed;
                     drop(speed);
                     saved.save();
-                } else if ctx.key == Some(VirtualKeyCode::Key6) {
+                } else if chosen_row == Some(Action::ALL.len() + 1) {
                     let mut mode = self
                         .resources
                         .get_mut::<AtbMode>()
@@ -141,6 +184,15 @@ impl State {
                     *mode = mode.next();
                     let saved = *mode;
                     drop(mode);
+                    saved.save();
+                } else if chosen_row == Some(Action::ALL.len() + 2) {
+                    let mut memory = self
+                        .resources
+                        .get_mut::<MenuMemory>()
+                        .expect("MenuMemory resource missing");
+                    *memory = memory.next();
+                    let saved = *memory;
+                    drop(memory);
                     saved.save();
                 } else if ctx.key == Some(VirtualKeyCode::R) {
                     let mut keymap = self

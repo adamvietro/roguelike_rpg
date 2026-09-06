@@ -12,35 +12,29 @@ build them — nothing there is scoped or scheduled just by being listed.
 
 Roughly in the order we've been tackling them:
 
-1. **Multi-hit damage popup sequencing** — every hit in a multi-hit
-   technique (AOE or single-target) currently resolves in one synchronous
-   loop, so only the *last* hit's number ever shows as a floating popup.
-   Real fix needs hits spread out over real time (a queued "wave" every
-   ~150ms or so, similar in shape to how ATB gauges already tick), not
-   just more popup slots.
-2. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
+1. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
-3. **Standing "fix issues with the battle system" bucket** — not a fixed
+2. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy turns up real bugs as they get
    more play (e.g. a fight ending mid-multi-hit-sequence, True ATB
    combined with 3–4 enemies at once).
-4. **Rebindable hotkeys, beyond movement** — Potions next, then Maps,
+3. **Rebindable hotkeys, beyond movement** — Potions next, then Maps,
    then most everything else eventually. Today Potion/Map use is still
    fixed to slot keys 1/2 by position, not a real `Action` binding
    (movement arrows are already rebindable via the Options screen).
-5. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
+4. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
    floor loot entirely, likely reusing a good chunk of the Battle Arena
    shop's existing pricing/stock/purchase code.
-6. **Idle walk-in-place animation art** — the cycling infrastructure
+5. **Idle walk-in-place animation art** — the cycling infrastructure
    (`IdleAnimation` component) is built and genuinely cycling; every
    frame just points at the same placeholder glyph. Needs real distinct
    per-frame art, and maybe a move to a sprite sheet per class instead of
    cramming more cells into the one shared `dungeonfont.png`.
-7. **Music & sound effects** — no crate picked yet (`rodio` is the
+6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
-8. **Cleanup:** `arena_advance_to_next_shop` duplicates a chunk of
+7. **Cleanup:** `arena_advance_to_next_shop` duplicates a chunk of
    `start_arena`'s shop-building code — not urgent, just flagged.
-9. **Minor/cosmetic:** `tooltips.rs` still reads the old integer camera
+8. **Minor/cosmetic:** `tooltips.rs` still reads the old integer camera
    offset during a glide, instead of the smooth fractional one.
 
 ## Content / world
@@ -51,6 +45,9 @@ Roughly in the order we've been tackling them:
 - **Chests** — findable in the dungeon, holding items; a way to keep some
   of the "find an item" feeling once floor-item drops move to the shop.
   Chests should be defended by enemies, not free loot.
+
+## Item Menu
+Work on an item menu that will allow a player to use items for now but later equip items.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -174,6 +171,12 @@ placeholder/test tool.
 - Battle system refactored from one flat file into `battle/` category
   modules (damage, dot, stun, buff, counter, heal, status) for easier
   extension.
+- **Multi-hit damage popup sequencing** — every hit in a multi-hit
+   technique (AOE or single-target) currently resolves in one synchronous
+   loop, so only the *last* hit's number ever shows as a floating popup.
+   Real fix needs hits spread out over real time (a queued "wave" every
+   ~150ms or so, similar in shape to how ATB gauges already tick), not
+   just more popup slots.
 
 ## Battle screen / UI
 - Bordered actions box, positioned beside the player portrait; full
@@ -248,6 +251,7 @@ a Shopkeeper NPC.
   dead, silently-ignored `[env]` block in `Cargo.toml`).
 - Fortress-guaranteed weapon placement fixed (guard markers no longer
   feed into the general random spawn lottery).
+- Cursor select for menus and battle systems.
 
 ## Stats tracking
 - Games played/won (overall and per class), enemies killed, deepest
