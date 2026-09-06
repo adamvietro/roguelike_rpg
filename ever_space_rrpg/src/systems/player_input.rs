@@ -32,13 +32,17 @@ pub fn player_input(
     let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
 
-    // A left-click on the Item Bar (systems/hud.rs) - checked independently
-    // of the `if let Some(key)` block below, since a mouse click doesn't
-    // set the `key` resource at all. Early-returns on a successful use,
-    // same as Escape/M below, so a click doesn't also fall through to
-    // whatever keyboard branch happened to be pending this frame.
+    // A left-click on the Item Bar or Ability Bar (systems/hud.rs) -
+    // checked independently of the `if let Some(key)` block below, since a
+    // mouse click doesn't set the `key` resource at all. Short-circuiting
+    // `||` is safe here (not just convenient) because the two bars occupy
+    // disjoint column ranges on the same row - a single click can only
+    // ever land in one of them. Early-returns on a successful use, same
+    // as Escape/M below, so a click doesn't also fall through to whatever
+    // keyboard branch happened to be pending this frame.
     if mouse_left_just_pressed.0
-        && use_item_bar_click(ecs, commands, ability_bar_mouse_pos.0)
+        && (use_item_bar_click(ecs, commands, ability_bar_mouse_pos.0)
+            || use_ability_bar_click(ecs, commands, ability_bar_mouse_pos.0))
     {
         *turn_state = TurnState::PlayerTurn;
         return;
@@ -552,4 +556,45 @@ fn use_item_bar_click(ecs: &mut SubWorld, commands: &mut CommandBuffer, mouse: P
         }
         None => false,
     }
+}
+
+/// Handles a left-click on the Ability Bar (systems/hud.rs's red-boxed
+/// bar) - the click-driven counterpart to the number-key handling above,
+/// hit-tested against `mouse` (AbilityBarMousePos, already in
+/// ABILITY_BAR_CONSOLE's own cell coordinates). Recomputes the Ability
+/// Bar's own column range independently rather than being handed hud.rs's
+/// already-rendered position - same reasoning use_item_bar_click already
+/// gives for doing this itself. Once the clicked slot's roster index is
+/// known, this is just use_ability by another name - clicking slot `n`
+/// and pressing the key for slot `n` both end up queuing the exact same
+/// ActivateItem, so there's nothing left to duplicate.
+fn use_ability_bar_click(ecs: &mut SubWorld, commands: &mut CommandBuffer, mouse: Point) -> bool {
+    if mouse.y != ability_bar_row() {
+        return false;
+    }
+
+    let player_entity = <(Entity, &Player)>::query()
+        .iter(ecs)
+        .find_map(|(entity, _player)| Some(*entity))
+        .unwrap();
+
+    let class = match entity_class(ecs, player_entity) {
+        Some(class) => class,
+        None => return false,
+    };
+
+    let roster = class_effect_names(&class);
+    let ability_n = (ability_bar_slots(ecs, player_entity, &class, &roster).len() as i32)
+        .min(ABILITY_BAR_MAX_SLOTS as i32);
+    if ability_n == 0 {
+        return false;
+    }
+    let ability_start_col = ability_bar_start_col(ability_n);
+
+    let index = mouse.x - ability_start_col;
+    if index < 0 || index >= ability_n {
+        return false;
+    }
+
+    use_ability(index as usize, ecs, commands)
 }

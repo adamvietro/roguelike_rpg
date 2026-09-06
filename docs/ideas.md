@@ -57,53 +57,68 @@ Roughly in the order they've come up:
    HUD moved here as a rotating "Hints" box (lower third of the screen,
    3 lines, cycling every 4s) instead - see `PAUSE_HINTS` for the list,
    add/remove freely.
-6. **Mouse-click-to-use on the Ability Bar/Battle Bar** — the Item Bar
-   above got click support first since it had no competing keyboard
-   scheme; the Ability Bar's existing number-key hotkeys would need to
-   coexist with a click path rather than being replaced by one, and the
-   Battle Bar is reference-only outside a fight by design, so click
-   support there would need its own discussion about what it should even
-   do. Hovering already shows a description on both.
-7. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
+6. ~~Mouse-click-to-use on the Ability Bar~~ — **done** (`player_input.rs`'s
+   `use_ability_bar_click`). Turned out to need no new design at all -
+   click hit-tests the bar's own column range, then calls the exact same
+   `use_ability` the number keys already use, so clicking slot `n` and
+   pressing the key for slot `n` queue the identical `ActivateItem`.
+   Coexists with the hotkeys rather than replacing them, same as the Item
+   Bar's click sits alongside the Item Menu. **Battle Bar still open** -
+   it's reference-only outside a fight by design, so click support there
+   still needs its own discussion about what it should even do; hovering
+   already shows a description on it.
+   - This closed a real bug, not just a feature gap: one of the Pause
+     screen's rotating hints already claimed "Dungeon Abilities can be
+     clicked, or used with their hotkey" - true now, but it wasn't when
+     that hint was first added (copied verbatim from a hint list written
+     assuming this already worked). Worth double-checking any hint text
+     against actual behavior before trusting it as documentation.
+7. **Player buffs shown on the portrait** — the top-left class-portrait
+   icon (see item 4 above) should reflect an active buff while exploring
+   the dungeon, so the player has an at-a-glance signal without opening a
+   menu. Not scoped - needs a look at how `Buff`/`BuffKind` (currently a
+   battle-only concept) would map onto something visible outside combat,
+   and what happens with more than one active buff at once.
+8. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
-8. **Standing "fix issues with the battle system" bucket** — not a fixed
+9. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
-9. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
-   floor loot entirely, likely reusing a good chunk of the Battle Arena
-   shop's pricing/stock/purchase code. More natural now that a real
-   "universal item" pool already exists behind the Item Menu.
-10. **Idle walk-in-place animation art** — the cycling infrastructure
+10. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
+    floor loot entirely, likely reusing a good chunk of the Battle Arena
+    shop's pricing/stock/purchase code. More natural now that a real
+    "universal item" pool already exists behind the Item Menu.
+11. **Idle walk-in-place animation art** — the cycling infrastructure
     (`IdleAnimation` component) is built and genuinely cycling; every
     frame just points at the same placeholder glyph. Needs real distinct
     per-frame art, and maybe a move to a sprite sheet per class instead of
     cramming more cells into the one shared `dungeonfont.png`.
-11. **Music & sound effects** — no crate picked yet (`rodio` is the
+12. **Music & sound effects** — no crate picked yet (`rodio` is the
     leading candidate, since bracket-lib has no built-in audio support).
-12. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
+13. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
     small "x2" for two Freeze Traps, simplified away to actually finish
     the bars in one session. Hovering already reveals ownership, just not
     the exact count at a glance.
-13. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
+14. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
     overlap bug is fixed and tested, but the exact label/tooltip
     positioning was computed via pixel-ratio math without a full round of
     "here's a screenshot, nudge this" the way most of this project's
     visual work gets. Worth a dedicated look with a few different ability
     counts.
-14. **README.md needs a manual pass** — controls changed materially over
+15. **README.md needs a manual pass** — controls changed materially over
     the last couple sessions (M for the Item Menu, number keys now mean
-    abilities not potions/maps, Item Bar clicking, Pause screen now a
-    cursor menu) and the README wasn't touched.
-15. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
+    abilities not potions/maps, Item Bar/Ability Bar clicking, Pause
+    screen now a cursor menu) and the README wasn't touched.
+16. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
     `start_arena`'s shop-building code — not urgent, just flagged.
-16. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
+17. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
     offset during a glide, instead of the smooth fractional one.
 
 ## Content / world
 
 - **Dungeon Shop** — replace most dungeon floor items with a shop at the
   end of each floor. Needs mobs to drop gold first (Battle Arena already
-  has a gold economy to borrow patterns from). See item 9 above — the
+  has a gold economy to borrow patterns from). See item 10 above — the
   Item Menu's universal-item pool makes this a more natural fit now.
 - **Chests** — findable in the dungeon, holding items; a way to keep some
   of the "find an item" feeling once floor-item drops move to the shop.
