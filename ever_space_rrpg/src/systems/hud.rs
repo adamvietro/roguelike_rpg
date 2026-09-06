@@ -29,21 +29,23 @@ const HEALTH_FRAME_ICON_ROW: i32 = 1;
 
 /// Leaves room, in HUD_CONSOLE columns, for the icon's real right edge at
 /// (HEALTH_FRAME_ICON_COL + 1) * 40px - HUD_CONSOLE's own cells are
-/// roughly 12px each (1280 / HUD_COLS), so 80px needs about 7 of them;
-/// rounded up rather than down so the bar's own left edge clears the
-/// icon's real right edge instead of just barely reaching it.
-const HEALTH_BAR_START_COL: i32 = 7;
+/// roughly 12px each (1280 / HUD_COLS), so 80px needs about 7 of them.
+/// +2 beyond that bare minimum (same gap the Item/Ability/Battle bars use
+/// between each other - see BAR_GROUP_GAP_COLS) rather than the exact
+/// rounded-up edge: some class portraits' art (e.g. Mage's staff) reaches
+/// close to its own cell's edge, and column 7 alone left only ~4px of
+/// real clearance - visibly crowding the bar.
+const HEALTH_BAR_START_COL: i32 = 9;
 /// Lines the bar's top edge up with the icon's own top edge - both now
 /// start one icon-size down from the physical top of the screen (see
 /// HEALTH_FRAME_ICON_ROW), just in each console's own row units
 /// (HEALTH_FRAME_ICON_ROW * 40px, converted to HUD_CONSOLE's ~12px rows).
 const HEALTH_BAR_START_ROW: i32 = 3;
-/// How many HUD_CONSOLE columns wide the health bar is - shorter than
-/// the original top-left version specifically because HEALTH_BAR_START_COL
-/// moved right (see that constant's own doc comment): keeping the SAME
-/// width here would push the bar's right edge into the "Explore the
-/// Dungeon..." hint text centered on this same row range, something the
-/// original version's width was already sized to clear.
+/// How many HUD_CONSOLE columns wide the health bar is. Confirmed via
+/// screenshot at this width with the frame's current position - the
+/// general how-to-play hint that used to also occupy this row moved to
+/// the Paused screen (see screens/pause.rs), so there's nothing left to
+/// collide with even if this grows later.
 const HEALTH_BAR_WIDTH: i32 = 16;
 /// How many HUD_CONSOLE rows tall the health bar reads as (see hud()'s
 /// bar-drawing loop). A single row rather than 2+ deliberately - text can
@@ -177,12 +179,15 @@ pub fn hud(
 
     let mut draw_batch = DrawBatch::new();
     draw_batch.target(HUD_CONSOLE);
+    // The general how-to-play hint that used to sit here permanently
+    // moved to the Paused screen's rotating tips (see screens/pause.rs's
+    // PAUSE_HINTS) - this row is now reserved for genuinely situational
+    // messages (a failed/prompted shop purchase) rather than always
+    // showing something.
     if let Some(ShopMessage(text)) = shop_message {
         draw_batch.print_color_centered(1, text, ColorPair::new(RED, BLACK));
     } else if shopping.is_some() {
         draw_batch.print_centered(1, "Stand next to an item, press ENTER to buy it.");
-    } else {
-        draw_batch.print_centered(1, "Explore the Dungeon. Cursor keys to move. M for Items.");
     }
     // Compact player-status frame, offset one icon-size down and right
     // from the corner: a class-portrait icon (drawn further down on

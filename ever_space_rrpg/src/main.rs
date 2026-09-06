@@ -302,6 +302,12 @@ struct State {
     /// small, harmless convenience - if the list has since shrunk,
     /// menu_nav's own clamping keeps this in bounds regardless).
     item_menu_cursor: usize,
+    /// Cursor row for the Paused screen's menu (Resume/Options/Quit) -
+    /// see screens/pause.rs. Same "reset only in return_to_title, not on
+    /// every fresh open" reasoning as item_menu_cursor - Escape reaches
+    /// this screen from inside player_input's ECS system, which has no
+    /// access to plain State fields to reset one on the way in.
+    pause_cursor: usize,
     /// Real elapsed ms Enter has been continuously NOT the held key,
     /// while pending_enter_release is armed - see that field's own doc
     /// comment and ENTER_RELEASE_DEBOUNCE_MS. Reset to 0 the instant
@@ -335,6 +341,20 @@ struct State {
     /// held key blows through fast" behavior, which stays exactly as it
     /// was.
     pending_enter_release: bool,
+    /// Which entry of screens::pause::PAUSE_HINTS is currently showing on
+    /// the Paused screen - see paused_tick. Advances on its own timer
+    /// (pause_hint_timer_ms) rather than resetting whenever Paused is
+    /// freshly entered, the same "just keeps ticking" reasoning
+    /// background_move_timer_ms already uses for the title screen's
+    /// decorative background - a loading-screen-style tip rotation isn't
+    /// expected to restart from the top every time you check it.
+    pause_hint_index: usize,
+    /// Real elapsed ms the current pause_hint_index has been showing -
+    /// see PAUSE_HINT_INTERVAL_MS. Only accumulates while paused_tick is
+    /// actually running (i.e. only while TurnState::Paused), same as
+    /// background_move_timer_ms only accumulating during the title
+    /// screen's own background schedule.
+    pause_hint_timer_ms: f32,
     /// Whether the left mouse button was down as of the PREVIOUS frame -
     /// compared against the current frame's real held/not-held state
     /// (`INPUT.lock().is_mouse_button_pressed(0)`) each tick() to derive
@@ -449,8 +469,11 @@ impl State {
             options_cursor: 0,
             stats_view_cursor: 0,
             item_menu_cursor: 0,
+            pause_cursor: 0,
             enter_not_held_ms: 0.0,
             pending_enter_release: false,
+            pause_hint_index: 0,
+            pause_hint_timer_ms: 0.0,
             mouse_left_was_down: false,
         };
         state.spawn_title_background();
@@ -963,6 +986,9 @@ impl State {
         self.pending_enter_release = false;
         self.enter_not_held_ms = 0.0;
         self.item_menu_cursor = 0;
+        self.pause_cursor = 0;
+        self.pause_hint_index = 0;
+        self.pause_hint_timer_ms = 0.0;
 
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {
