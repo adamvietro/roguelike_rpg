@@ -1,5 +1,92 @@
 use crate::prelude::*;
 
+/// The hotkey label for Ability Bar slot `i` - matches
+/// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
+/// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
+/// - not a key that exists.
+fn ability_bar_key_label(i: usize) -> &'static str {
+    const LABELS: [&str; ABILITY_BAR_MAX_SLOTS] =
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+    LABELS.get(i).copied().unwrap_or("")
+}
+
+/// Which ABILITY_BAR_CONSOLE row the icons sit on - one full icon-height
+/// above the console's very bottom row, so the bar isn't flush against
+/// the physical screen edge.
+fn ability_bar_row() -> i32 {
+    ABILITY_BAR_ROWS - 2
+}
+
+/// The leftmost column `n` icons should start at to appear centered as a
+/// group on ABILITY_BAR_CONSOLE - e.g. a 2-ability class's icons sit
+/// centered in the middle of the screen, not pinned to the left edge the
+/// way a longer roster's would naturally reach toward anyway. Integer
+/// division rounds a genuinely-odd remainder toward the left rather than
+/// perfectly splitting a half-column, which isn't expressible on a
+/// whole-cell grid regardless.
+fn ability_bar_start_col(n: i32) -> i32 {
+    (ABILITY_BAR_COLS - n) / 2
+}
+
+/// Converts Ability Bar column `col`'s icon position into a (col, row) on
+/// HUD_CONSOLE for its number label - both consoles share the same
+/// physical 1280x800 window, so this is a ratio of cell counts, same
+/// technique class_select's headline/description split already uses
+/// between BIG_TEXT_CONSOLE and HUD_CONSOLE. The label sits one
+/// HUD_CONSOLE row above the bar's own top pixel edge (just above each
+/// icon, not overlapping it) and aligned to that icon's own LEFT pixel
+/// edge (not centered - a single digit is narrow enough that left-
+/// aligned still reads as "belonging to" the icon immediately to its
+/// right, and it avoids needing to also know the label's own rendered
+/// width to center it).
+fn ability_bar_label_position(col: i32) -> (i32, i32) {
+    let bar_top_px = ability_bar_row() * (800 / ABILITY_BAR_ROWS);
+    let label_row = (bar_top_px * HUD_ROWS / 800) - 1;
+
+    let icon_left_px = col * (1280 / ABILITY_BAR_COLS);
+    let label_col = icon_left_px * HUD_COLS / 1280;
+
+    (label_col, label_row)
+}
+
+/// The (x, y, width, height) box - in HUD_CONSOLE cell terms, for
+/// render_helpers::draw_ascii_box, the same ASCII box style the battle
+/// menu already uses - that should enclose the whole Ability Bar as one
+/// group (icons AND their number labels), for the single surrounding
+/// border. `n` is however many slots are actually showing right now.
+/// A 1-cell pad on every side keeps the border from touching the icons/
+/// labels themselves.
+fn ability_bar_box_bounds(n: i32) -> (i32, i32, i32, i32) {
+    let start_col = ability_bar_start_col(n);
+    let bar_row = ability_bar_row();
+
+    let icons_left_px = start_col * (1280 / ABILITY_BAR_COLS);
+    let icons_right_px = (start_col + n) * (1280 / ABILITY_BAR_COLS);
+    let icons_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
+
+    let (_, label_row) = ability_bar_label_position(start_col);
+
+    let left = (icons_left_px * HUD_COLS / 1280) - 1;
+    let right = (icons_right_px * HUD_COLS / 1280) + 1;
+    let bottom = (icons_bottom_px * HUD_ROWS / 800) + 1;
+    let top = label_row - 1;
+
+    (left, top, right - left, bottom - top)
+}
+
+/// The HUD_CONSOLE row a wrapped tooltip's FIRST line should start on,
+/// given how many lines it wrapped to and the Ability Bar's own box top
+/// row (`box_y` - see ability_bar_box_bounds). Anchors the tooltip's
+/// LAST line just above the box (row `box_y - 1`) and grows upward from
+/// there, so a longer description never collides with the box/icons
+/// below it regardless of how many lines it wraps to - a fixed row
+/// (what this used to be) works fine for a short description but runs
+/// the risk of a long one overlapping the bar itself.
+fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
+    let bottom_row = box_y - 1;
+    bottom_row - (line_count - 1)
+}
+
 #[system]
 #[read_component(Health)]
 #[read_component(Player)]
@@ -218,12 +305,21 @@ pub fn hud(
             bar_batch.target(ABILITY_BAR_CONSOLE);
 
             let slots = ability_bar_slots(ecs, player, class, &roster);
-            let bar_row = ABILITY_BAR_ROWS - 1;
+            let n = (slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
+            let start_col = ability_bar_start_col(n);
+            let bar_row = ability_bar_row();
             let bar_mouse = ability_bar_mouse_pos.0;
             let mut hovered_ability: Option<&str> = None;
 
-            for (i, slot) in slots.iter().enumerate().take(ABILITY_BAR_COLS as usize) {
-                let col = i as i32;
+            // Label positions/text - see ability_bar_key_label and
+            // ability_bar_label_position for the actual math and
+            // reasoning (pulled out to module level so they're testable
+            // without a real ECS/DrawBatch).
+            let mut label_batch = DrawBatch::new();
+            label_batch.target(HUD_CONSOLE);
+
+            for (i, slot) in slots.iter().enumerate().take(n as usize) {
+                let col = start_col + i as i32;
                 let owned = slot.owned.is_some();
                 let glyph = glyph_for_item_name(&slot.name).unwrap_or('?');
                 draw_portrait(
@@ -238,29 +334,61 @@ pub fn hud(
                 if bar_mouse.y == bar_row && bar_mouse.x == col {
                     hovered_ability = Some(&slot.name);
                 }
+
+                let (label_col, label_row) = ability_bar_label_position(col);
+                label_batch.print_color(
+                    Point::new(label_col, label_row),
+                    ability_bar_key_label(i),
+                    ColorPair::new(if owned { YELLOW } else { GRAY }, BLACK),
+                );
             }
+            // A single box around the whole bar (icons + labels
+            // together), not one per icon - drawn on HUD_CONSOLE, same
+            // ASCII box style (render_helpers::draw_ascii_box) the
+            // battle menu's own action box already uses, just in RED
+            // here to stand out as a distinct HUD element.
+            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(n);
+            draw_ascii_box(
+                &mut label_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                ColorPair::new(RED, BLACK),
+            );
             bar_batch.submit(10001).expect("Batch error");
+            label_batch.submit(10002).expect("Batch error");
 
             // The hovered slot's tooltip - drawn on HUD_CONSOLE (fine
             // text) rather than the bar's own coarse console, which has
             // no room for readable prose. Centered rather than aligned
-            // under the specific hovered icon - the two consoles don't
-            // share a simple per-cell conversion (unlike HUD_CONSOLE vs.
-            // console 0, which are both anchored at the dungeon view's
-            // top-left), so a precise per-slot horizontal position isn't
-            // worth the risk of guessing wrong without being able to
-            // render and check it directly.
+            // under the specific hovered icon, for the same reasoning
+            // the label positions above needed real pixel-ratio math to
+            // get right - a full sentence of prose is far more sensitive
+            // to being a few columns off than a single digit is.
             if let Some(name) = hovered_ability {
                 let mut tooltip_batch = DrawBatch::new();
                 tooltip_batch.target(HUD_CONSOLE);
                 let description = description_for_item_name(name)
                     .unwrap_or_else(|| "No description.".to_string());
-                tooltip_batch.print_color_centered(
-                    HUD_ROWS - 4,
-                    format!("{}: {}", name, description),
-                    ColorPair::new(WHITE, BLACK),
-                );
-                tooltip_batch.submit(10002).expect("Batch error");
+                // Wrapped across multiple lines rather than one long
+                // print_color_centered call - some real descriptions
+                // (Freeze Trap's, for one) are long enough to run off
+                // both edges of the screen on a single line. Anchored to
+                // grow UPWARD from just above the bar's own red box
+                // (box_y, computed above) rather than a fixed row, so a
+                // longer description never collides with the box/icons
+                // below it regardless of how many lines it wraps to.
+                let lines = wrap_text(&format!("{}: {}", name, description), 70);
+                let start_row = ability_bar_tooltip_start_row(box_y, lines.len() as i32);
+                for (i, line) in lines.iter().enumerate() {
+                    tooltip_batch.print_color_centered(
+                        start_row + i as i32,
+                        line,
+                        ColorPair::new(WHITE, BLACK),
+                    );
+                }
+                tooltip_batch.submit(10003).expect("Batch error");
             }
         }
     }

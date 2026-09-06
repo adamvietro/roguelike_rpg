@@ -169,21 +169,30 @@ mod prelude {
     /// happens to use.
     pub const DAMAGE_POPUP_CONSOLE: usize = 11;
     /// Columns in the Ability Bar's coarse icon grid - see
-    /// ABILITY_BAR_CONSOLE. Fixed at 9 (matching the 1-9 number-key
-    /// range every slot is already triggered by - see
-    /// systems/player_input.rs::use_ability), regardless of how many
-    /// abilities the current class actually has; unused trailing columns
-    /// on the right simply aren't drawn into.
-    pub const ABILITY_BAR_COLS: i32 = 9;
-    /// Rows in the Ability Bar's coarse grid - chosen so a cell's own
-    /// aspect ratio comes out close to square (1280/9 ≈ 142px wide vs.
-    /// 800/6 ≈ 133px tall) even though only the BOTTOM row is ever drawn
-    /// into - the rest exist purely to make that bottom row thin instead
-    /// of spanning the console's full physical height. Same "extra rows
+    /// ABILITY_BAR_CONSOLE. 32 gives an exact 1280/32 = 40px cell width
+    /// (paired with ABILITY_BAR_ROWS' 40px cell height) - a genuinely
+    /// small hotbar-sized icon, not a near-quarter-screen one. Far more
+    /// columns than the 9 slots ever actually used (see
+    /// systems/player_input.rs::use_ability's 1-9 range) - the extra
+    /// columns just stay empty/transparent; only cell SIZE was the
+    /// problem, not needing more slots than 9.
+    pub const ABILITY_BAR_COLS: i32 = 32;
+    /// Rows in the Ability Bar's coarse grid - 20 gives an exact
+    /// 800/20 = 40px cell height, matching ABILITY_BAR_COLS' 40px width
+    /// for genuinely square icons. Only the BOTTOM row is ever drawn
+    /// into - the rest exist purely to make that row thin instead of
+    /// spanning the console's full physical height, same "extra rows
     /// just to control one cell's shape" trick BATTLE_PORTRAIT_COLS/ROWS
     /// already uses, just inverted (there it's one wide row per
-    /// portrait; here it's one thin row of many).
-    pub const ABILITY_BAR_ROWS: i32 = 6;
+    /// portrait; here it's one thin row of many, much smaller cells).
+    pub const ABILITY_BAR_ROWS: i32 = 20;
+    /// How many Ability Bar slots are ever actually reachable by a
+    /// hotkey - matches systems/player_input.rs::use_ability's full
+    /// range (keys 1-9, then 0 for the 10th) - independent of
+    /// ABILITY_BAR_COLS, which is sized purely for icon pixel size, not
+    /// slot count. Caps both which roster entries render at all and
+    /// which get a number label - see systems/hud.rs.
+    pub const ABILITY_BAR_MAX_SLOTS: usize = 10;
     /// Console 12: the Ability Bar's icon strip along the bottom of the
     /// dungeon screen (systems/hud.rs) - a plain (non-fancy) console,
     /// same dungeonfont as the class-select/battle-portrait icon
@@ -193,6 +202,18 @@ mod prelude {
     /// ABILITY_BAR_COLS cells is ever drawn into - the rest of this
     /// console's grid stays empty on purpose (see ABILITY_BAR_ROWS).
     pub const ABILITY_BAR_CONSOLE: usize = 12;
+    /// Console 2: the general-purpose "fine 8px text" overlay console
+    /// shared by several full-screen menus (battle, Pause, Options,
+    /// History, the Item Menu) - registered as SCREEN_WIDTH*2 x
+    /// SCREEN_HEIGHT*2 (160x100) 8px cells. Was previously only ever
+    /// referred to by the bare literal `2` at each call site; named here
+    /// so a helper like render_helpers::print_menu_row_centered (which
+    /// needs to know the ACTIVE console's real width to place its
+    /// pointer glyph correctly) has a correct value to pass instead of
+    /// accidentally reusing HUD_CONSOLE's different width (107) - see
+    /// screens/item_menu.rs, which did exactly that.
+    pub const FINE_TEXT_CONSOLE: usize = 2;
+    pub const FINE_TEXT_COLS: i32 = SCREEN_WIDTH * 2;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;

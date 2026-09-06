@@ -4,13 +4,15 @@ Templates(
             entity_type: Item,
             name : "Healing Potion", glyph : '!', levels : [ 0, 1, 2 ],
             effect: Some(Healing(6)),
-            frequency: 2
+            frequency: 2,
+            description: Some("Restores 6 HP when used.")
         ),
         Template(
             entity_type: Item,
             name : "Dungeon Map", glyph : '{', levels : [ 0, 1, 2 ],
             effect: Some(MagicMap),
-            frequency: 1
+            frequency: 1,
+            description: Some("Reveals the full layout of the current dungeon level.")
         ),
         Template(
             // prefab treasure only - prefab_only:true means this never

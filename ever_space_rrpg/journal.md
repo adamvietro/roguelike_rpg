@@ -3144,3 +3144,43 @@ Now let's add `AbilityBarMousePos` right next to `HudMousePos`:Now let's add the
 **Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus a real test that checked *every* class's actual ability roster resolves a valid glyph and description against the live `template.ron` file (not a mock) — catches exactly the kind of "roster lists something the data doesn't back up" bug that would otherwise show up silently as a `?` icon in-game. Removed before delivery, like everything else this session.
 
 ### Icon is too Big
+Good, that's clear now. Let's implement all of it.Let's rewrite the layout functions to support centering, raising, and the box bounds:Now let's add the box-bounds function right after:Now let's update the actual rendering loop to use centered columns, the raised row, and add the box:Now let's write real tests for the new centering/box-bounds math:All 6 pass, including the box-encloses-everything check across every possible slot count. Now let's move to the Item Menu changes:Clean. Let's update the doc comment to reflect the changes, then do a full build:Now let's run the full test suite, remove the ability-bar test module, and do a final full build:All still pass. Removing the test module before delivery:Clean full build, balanced braces, no leftover test scaffolding. Restoring your real `Cargo.lock`:Confirmed untouched. Packaging the 2 changed files:## Done — Ability Bar polish + Item Menu improvements
+
+**2 files, both modified:**
+
+| File                   | Save to                    |
+| ---------------------- | -------------------------- |
+| `systems_hud.rs`       | `src/systems/hud.rs`       |
+| `screens_item_menu.rs` | `src/screens/item_menu.rs` |
+
+**Ability Bar:**
+- Icons now **center as a group** based on how many abilities the class actually has — a 2-ability class sits centered in the middle, not pinned to the left edge.
+- **Raised up by one full icon height** from the very bottom of the screen.
+- **One red box around the whole bar** (icons + their number labels together), reusing the same ASCII box style the battle menu's own action box already uses, just in red.
+
+**Item Menu:**
+- List moved **lower on the screen** (was hovering around the middle, now sits well into the lower half).
+- **Live description of the currently-selected item**, shown below the list — updates as you move the cursor, no hovering needed since this menu is keyboard-driven.
+
+**Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched. Wrote 6 real tests for the new centering/raising/box-bounds math — the most important one actually checks that every icon and its label genuinely falls *inside* the red box for every possible ability count (1 through 10), not just that the numbers looked plausible. All passed, removed before delivery.
+
+Same caveat as last time on the exact pixel placement of the box and centering: I've done the ratio math carefully and it should be correct, but I can't render it myself — let me know how it looks and I'll nudge anything that's off.
+
+### Fix and Item Menu w/Descriptions
+Good catch — let's check why. This is a data gap, not a logic bug: Healing Potion has no `Description` component in template.ron at all, so there's nothing to read.Confirmed — `MagicMap` reveals the entire level's tiles. Let's add real descriptions to both templates:Now let's also add a fallback in the code itself, so this gap can never silently show nothing again — matching the same "No description." fallback the Ability Bar already uses:Clean. Now let's add a real test verifying this against the actual template.ron file, plus catch any other universal item that might be missing a description:Now let's add a real test covering every universal Item Menu item, not just the two I already fixed:Both pass against the real `template.ron` — confirming there are no other gaps in the current data, and this will catch any future universal item that ships without a description. Let's run the full suite once more, then remove the test module:Clean full build. Restoring your real `Cargo.lock`:Confirmed untouched. Packaging the 3 changed files (2 code + 1 data file):## Found it — not a rendering bug, a data gap
+
+**3 files:**
+
+| File                   | Save to                    |
+| ---------------------- | -------------------------- |
+| `screens_item_menu.rs` | `src/screens/item_menu.rs` |
+| `spawner_mod.rs`       | `src/spawner/mod.rs`       |
+| `template.ron`         | `resources/template.ron`   |
+
+**The actual cause:** Healing Potion and Dungeon Map never had a `description:` field in `template.ron` at all — no Description component ever gets attached to those entities, so my code was correctly reading "nothing's there" and correctly showing nothing. The location was right, the logic was right, the data was just missing.
+
+**Fixed two ways:**
+1. **Added real descriptions** to both in `template.ron` — Healing Potion ("Restores 6 HP when used.") and Dungeon Map ("Reveals the full layout of the current dungeon level.").
+2. **Added a fallback** in `item_menu.rs` so this can't go silently blank again — if a future item ever ships without a description, the selected-item line now shows "No description." instead of nothing, matching the same fallback the Ability Bar's tooltip already uses.
+
+**Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus 2 real tests against the actual `template.ron` file — one specifically confirming Healing Potion and Dungeon Map now have descriptions, and a broader sweep checking *every* universal usable item (not just these two) has one, so this exact class of gap gets caught automatically if it ever happens again with a future item. Both passed, removed before delivery.
