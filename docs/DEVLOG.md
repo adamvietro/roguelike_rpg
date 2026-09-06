@@ -9,64 +9,59 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-That session was almost entirely about **out-of-combat UI**: how the
-player selects an action or item outside of battle, and how that's
-actually displayed on screen.
+That session (9/6/26) was almost entirely dungeon-exploration UI: a new
+Item Bar, a real player-status frame, a reworked Pause screen, and a
+full redesign of the Item Menu into a 5-box character dashboard - plus
+a couple of real bugs found and fixed along the way.
 
-**Arrow-key cursor + pointer navigation, now used everywhere.**
-`render_helpers::menu_nav` (wrap-around cursor stepping) and
-`print_menu_row_centered`/`print_menu_row_left` (yellow highlight + a `►`
-pointer glyph) are the shared building blocks, used on Adventure Select,
-Class Select, Options, History, and the Item Menu. Number keys still work
-everywhere too — purely additive. The battle menu got a real 2D cursor
-(`battle::MenuCursor`): Up/Down within a column, Left/Right switches
-columns and remembers the row you were on in each. Locked/unowned
-techniques can be pointed at but not selected. Cross-battle cursor memory
-is opt-in (Options: "Remember Last Battle Action") via
-`settings::MenuMemory` + `settings::LastBattleAction`, seeded by matching
-the remembered action's *name* in the current grid, not a raw position.
+**Item Bar.** A third icon bar (blue box) sitting immediately left of
+the Ability Bar (Item | gap | Ability | gap | Battle, one row) for
+universal consumables (`spawner::universal_item_names`). Sits alongside
+the Item Menu rather than replacing it. Click (left mouse button) to use
+directly - the first click-to-activate interaction in the game
+(`components::MouseLeftJustPressed`, a real physical-click edge detector
+built because bracket-lib's own `left_click` fires twice per click).
+Ability Bar got the same click support shortly after, reusing the exact
+same `use_ability` the number keys already call.
 
-**True ATB cursor freedom + a narrow double-fire guard.** Cursor movement
-in the battle menu is free in every state under Active (True ATB) mode;
-gated to PlayerMenu under Wait mode (costs nothing there, time is frozen).
-Holding Enter to fire the instant a gauge fills needed no new mechanism —
-this engine's key input is level-triggered every frame already, and the
-Filling→PlayerMenu transition happens before input handling runs each
-frame. `State::pending_enter_release` guards the narrow case of the exact
-held Enter that fired a killing blow (or fatal hit, or confirmed Adventure
-Select) also immediately dismissing/confirming the very next screen — armed
-only at those 3 hand-off points, with a 150ms debounce (see the X11
-key-repeat quirk below for why a single-frame check wasn't enough).
-Victory/Game Over now dismiss on Enter specifically, not any key.
+**Player-status frame.** Replaced the old full-width health bar with a
+top-left class-portrait icon (the player's existing `Render`, no new
+art) plus a compact health bar - one row tall specifically because
+HUD_CONSOLE has no sub-cell text positioning, so a multi-row bar could
+never actually center its "current / max" overlay. Later gained small
+buff badges (`BUFF_BADGE_CONSOLE`, a new 32px-cell dungeonfont console)
+for Invisible/Stealthed/IceArmored - real ability icon art, not
+placeholders, on a console dedicated to being smaller than the 40px
+portrait/Ability Bar icons.
 
-**Item Menu (press M) + the Ability Bar / Battle Bar split.** Replaced the
-old fixed "1=potion, 2=map" hotkeys with a real split between universal
-items and class-restricted abilities, driven entirely by the `class:`
-field templates already had:
+**Pause screen.** Bigger text (moved off the old 8px console onto the
+same BIG_TEXT_CONSOLE/HUD_CONSOLE split every other menu uses), a real
+arrow-key + Enter menu (Resume/Options/Quit) reusing `battle::MenuCursor`
+as-is, and the dungeon HUD's old permanent "how to play" hint moved here
+as a rotating "Hints" box in the lower third of the screen.
 
-- **Item Menu** (`TurnState::ItemMenu`, `screens/item_menu.rs`, key `M`,
-  removed from `keymap::REBINDABLE_KEYS`) — a paused, arrow-navigable list
-  of universal consumables (`components::usable_menu_items`). Free to
-  open/browse; using an item costs a turn (jumps to `PlayerTurn`). Shows
-  the selected item's description live (wrapped, "No description."
-  fallback), plus a read-only right-side panel: Battle Attacks, class
-  Abilities (full roster, greyed if unowned), and Weapons.
-- **Number keys 1-9, then 0** now trigger Abilities directly
-  (`player_input.rs::use_ability`), by fixed roster position.
-- **Ability Bar** — icon row along the bottom of the dungeon view, one
-  per out-of-combat ability (`components::ability_bar_slots`), centered
-  as a group, raised one icon-height off the bottom edge, red box border,
-  number labels (1-9, 0) above each icon, greyed if unowned, hover for
-  description. 40×40px icons on `ABILITY_BAR_CONSOLE` (32×20 grid).
-- **Battle Bar** — same icon size, immediately right of the Ability Bar
-  with a gap, green box, no number labels (not usable outside battle),
-  full technique roster with unowned greyed out, same hover behavior.
-- The dungeon-exploration HUD is now deliberately minimal: health bar,
-  hint text, dungeon level/gold, shop stock while shopping, and the two
-  bars. The old "Battle Attacks"/"Weapons" text panels are gone from
-  here, consolidated into the Item Menu's reference panel.
-  `HudMousePos` (only used by those old panels' hover) was removed;
-  `AbilityBarMousePos` is the one mouse-position resource left.
+**Item Menu redesign.** Replaced the old single potion-list-plus-
+reference-panel screen with 5 boxes (Items, Equipped Items, Stats,
+Battle Actions, Dungeon Actions) plus a shared description panel -
+`screens/item_menu.rs`. Cursor again reuses `battle::MenuCursor`
+unmodified (Left/Right switches side, Up/Down flows through both
+stacked boxes on a side as one list). Only Items and Dungeon Actions are
+usable via Enter; Equipped Items and Battle Actions stay browse-only.
+Stats box is mode-aware (Arena Level/Wave during a Battle Arena run,
+Dungeon Level otherwise).
+
+**Two real bugs found via screenshots, not code review:**
+- `ability_bar_box_bounds`'s right edge used a plain truncating division
+  + flat `+1` pad - the exact pattern its OWN doc comment already flagged
+  as insufficient for the bottom edge. A full-bleed icon visibly crowded
+  the border until the right edge got the same ceiling-division fix the
+  bottom edge already had.
+- The Battle Arena shop's fixed top-left item list collided with the new
+  player-status frame once that frame moved into the same corner -
+  replaced with a single tooltip for whichever item is adjacent to the
+  player (`components::shop_item_near`), anchored to the player's own
+  screen position so it travels with them instead of needing to dodge
+  anything.
 
 ---
 
@@ -235,59 +230,18 @@ something already understood.)
 
 ## Backlog
 
-**Near-term priorities, roughly in order:**
+The live, actively-maintained backlog is `docs/ideas.md` — this section
+used to duplicate it and had already drifted out of sync by the time it
+was noticed, so it's now just a pointer instead of a second copy that
+can silently disagree with the real one.
 
-1. **An Item Bar, mirroring the Ability Bar/Battle Bar model** — the
-   user's idea. A third icon bar (or extension of the existing pair) for
-   held items (Healing Potion, Dungeon Map, future universal items),
-   same visual language as the Ability/Battle Bar, instead of (or
-   alongside) the current M-menu. Not scoped — worth a design
-   conversation first: does it REPLACE the Item Menu, or sit ALONGSIDE
-   it? Where does a third bar physically fit? Own color-coded box,
-   following red/green's precedent?
-2. **Mouse-click-to-use on the Ability Bar/Battle Bar** — hover works,
-   clicking to trigger doesn't yet; number keys only.
-3. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
-   ranged classes) — not started.
-4. **Standing "fix issues with the battle system" bucket** — not a fixed
-   list, whatever ATB/multi-enemy/cursor turns up with more play.
-5. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
-   floor loot, reuse Battle Arena shop's pricing/stock/purchase code.
-   More natural now with a real universal-item pool behind the Item Menu.
-6. **Idle walk-in-place animation art** — infrastructure built and
-   cycling, every frame points at the same placeholder glyph. Needs real
-   per-frame art, maybe a per-class sprite sheet instead of more cells in
-   the shared `dungeonfont.png`.
-7. **Music & sound effects** — no crate picked (`rodio` leading
-   candidate; bracket-lib has no built-in audio).
-8. **Stack-count badge on Ability/Battle Bar icons** (e.g. "x2" for two
-   Freeze Traps) — simplified away to finish the bars in one session.
-9. **Visual confirmation pass on the Ability/Battle Bar** — box-overlap
-   bug is fixed and tested, but exact label/tooltip positioning was
-   pixel-ratio math without a screenshot-correction round. Worth
-   checking with a few different ability counts.
-10. **README.md needs a manual pass** — controls changed materially (M
-    for Item Menu, number keys mean abilities not potions/maps).
-11. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
-    `start_arena`'s shop-building code.
-12. Minor: `tooltips.rs` still reads the old integer camera offset
-    during a glide, instead of the smooth fractional one.
-
-**Content/world:** Dungeon Shop (replace floor items, needs mob gold
-drops first); Chests (enemy-guarded, findable loot containers).
-
-**Future class ability brainstorm** (nothing scoped): see the project's
-separate Ideas.md for the full per-class list (Rogue: Vanish/Riposte/
-Backstab/Smoke Bomb/Shiv/Pickpocket; Barbarian: Rampage/Second Wind/
-Reckless Swing/Berserk; Mage: Frost Bolt/Chain Lightning/Mana Shield/
-Arcane Missile/Meteor/Drain Life; Hunter: Multi-shot/Trueshot/Snare Shot/
-Camouflage; Amazon: Pierce Thrust/Retreating Shot/Called Shot/Weakpoint
-Strike/Net Trap/Scout/Reposition/Momentum/Keen Eyes/Spear Wall). Several
-of these (Rampage, Berserk, Momentum, Keen Eyes) are "always-on while a
-condition holds" passives — a genuinely new mechanical category; every
+One note worth keeping here since it's a technical observation rather
+than a todo item: several brainstormed class abilities (Barbarian's
+Rampage/Berserk, Amazon's Momentum/Keen Eyes) are "always-on while a
+condition holds" passives — a genuinely new mechanical category. Every
 effect today is a one-time consumable (Technique) or one-time
 out-of-combat use (Effect), so the first true passive needs its own
-system.
+system, not just a new template entry.
 
 ---
 

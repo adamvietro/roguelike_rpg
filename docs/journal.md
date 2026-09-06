@@ -3224,3 +3224,208 @@ Good, this is a clean addition to the pattern I've already got. Let me check the
 **Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus 6 real tests — including one confirming the two bars never overlap or touch across every possible combination of ability/technique counts (0 through 10 each). All passed, removed before delivery.
 
 ### Greyed Out When Count is Zero
+
+---
+
+
+# 9/6/26 
+<br />
+
+---
+
+<br />
+
+## Item Bar
+I want to now add in an item bar for items that can be used on the dungeon map. It will use a lot of the code that we use for the other bars. It will hold an icon for each item.
+<br />
+
+We want to be able to use the mouse to click on these items, so there will need to be some access to where the mouse is. I'll go over the general idea for all the bars below.
+<br />
+
+### Dungeon Ability Bar
+This will hold all the abilities that a class can use within the dungeon map. It will have a *red* border around it and will have numbers above the icons so the player will know which button to press to activate the ability. 
+<br />
+
+For feedback, the icon greys out if there is no ability available to use.
+<br />
+
+### Battle Ability Bar
+This bar will hold all the abilities that the player can use within **Battle**. It's just there so a player can quickly see the abilities they'll have for the next battle. It will have a *green* border around the icons so it looks different from the other bars. There will be no button to press to use these abilities, since they're only meant to be activated in **battle.**
+<br />
+
+Same as the other bar, the icon greys out if there are no charges for that ability.
+<br />
+
+### Item Ability Bar
+This is for any item that can be used on the map. This will have a *blue* border around the icons. There's no button associated with these items - they'll need to be used within the (M) menu or with the mouse.
+<br />
+
+Same as the other bars, the icons grey out if you don't have any items of that type to use.
+<br />
+
+#### Implementation
+For this we'll need to leverage the existing code we have for the other bars. We'll need to get all the components for each bar, filtering for *entities* that have a ```class: None```. That grabs all the items that need to be in the bar, then checks their quantities.
+<br />
+
+For the mouse-press, there'll need to be a left-click check and a mouse-position resource, to know where the mouse is and whether it's over an item you want to use.
+<br />
+
+Once you click or use any of the items, checks will happen for turn advancement and icon coloring.
+
+---
+
+## Better Health/Class Portrait Status
+Right now there's a single red bar across the top of the screen that holds the player's health information. 
+<br />
+
+A better version of this would be to have a class portrait and a smaller health bar with values in the top left of the screen. I want to work on a few more icons for each class, but that will have to wait. 
+<br />
+
+In order to do this we'll need another render for the player portrait, and another bar like the one at the top. There's already a function within _bracket-lib_ for drawing a horizontal bar.
+<br />
+
+The portrait will just use the same console as the ability bars, so it'll be rendered at the right scale, same as the rest of the ability icons.
+<br />
+
+Now the last bit that needs to be dealt with is the text at the top of the screen and the gold count. The gold count will need to be added to the menu screen. The text at the top of the screen will stay where it is for now, but would be better moved to the pause screen, since it just takes up space here.
+<br />
+
+### Implementation
+Since we already have access to the console for the abilities, it simply requires a new icon rendered wherever we choose for the portrait. For the bar, it requires using that same console to render a horizontal bar with only a few rows.
+
+---
+
+## Better Pause Screen
+The first thing that needs to be done is the size of the text - that's a simple fix, and it involves making the console responsible for that text have fewer blocks for height and width.
+<br />
+
+The other thing that needs to be done is to move the hints to the pause screen. That's another quick fix if you only want a single hint, but I want many hints that cycle through while you're on the pause screen.
+<br />
+
+Here are a few that I have so far:
+Use the arrow keys to move.
+'M' to access the menu.
+Potions and Maps can be clicked on the Item Bar.
+Dungeon Abilities can be clicked, or you can press the hotkey.
+If you need to heal in a battle, flee and then use a potion.
+Press 'Space' to wait a turn - if there is any enemy around, you will enter battle with them.
+<br />
+
+#### Implementation
+For this I'll need to add another set of variables and a helper function to store all the hints. When the 'Esc' key is pressed and the render for the pause menu is triggered, the helper will need to start a counter that swaps the hint every 4 seconds.
+<br />
+
+### Better Feedback
+Okay, so the implementation is fine, but it could be better.
+<br />
+
+I want to move the hints to the lower third of the screen. It will follow the format of 
+```
+Hint (centered)
+(empty row)
+the hint (centred)
+```
+<br />
+
+I also want to make the pause screen's own menu a cursor - arrow-key selection, then Enter to select.
+<br />
+
+#### Implementation
+Moving the hints is a pretty simple fix - just changing the render location to a new row on the screen.
+<br />
+
+The pause cursor is a bit more involved, but it'll follow the same logic as all the other screens: create a new variable to hold the cursor's position, then add the logic for arrow-key and Enter key presses.
+<br />
+
+There will also need to be a new option for Resume.
+<br />
+
+Once the basic framework is set, there need to be turn_state changes based on the button pressed and the cursor's current position.
+<br />
+---
+
+## Clickable Dungeon Abilities
+This one slipped my mind, so let's make sure it happens now. This is the same idea as the _Item Bar_. There is already a check on the *dungeon map* that looks for the mouse position and ability/item position on the map. 
+<br />
+
+### Implementation
+Extend the mouse-click system to also check for the abilities that can be used within the dungeon.
+<br />
+
+--- 
+
+## Store Feedback
+The implementation of the feedback for the items is a little off where I wanted it to be. Right now there is just a list of the items and their cost on the left side of the screen. 
+<br />
+
+It would be far better if the item that you are in front of would show its price and name in a box when you are close.
+<br />
+
+### Implementation
+For this we need the console that renders the costs to have some tests for the current items in the shop, the player's position, and then all the names and cost for items. 
+<br />
+
+The render will leverage the players positions and then use a formula to figure out where each item is. Once the render has that information it will check if the player is in the position of an item - 1 cell in the y position. If so it will render the feedback for that item.
+<br />
+
+--- 
+
+## Item Menu
+This is a HUGE undertaking as I want to have a lot of new features.  I want to have a set of 5 boxes that will house all the needed information that a player would want to have. 
+<br />
+
+### Boxes
+**Items**
+```
+Item  -- Count
+...
+```
+**Description**
+```
+The item/ability description for when you are highlighting an ability or item
+```
+**Battle Ability**
+```
+Icon - Ability Name - Count
+...
+```
+**Dungeon Ability**
+```
+Icon - Ability Name - Count
+...
+```
+**Stats**
+```
+All the stats that we currently have for the game.
+It will also hold the current level of the game
+It will also hold the current gold for the game.
+```
+### Implementation
+So this will require the same thing as any other menu with a cursor and multiple columns. So that is not a real issue. 
+<br />
+
+There is also many consoles that can be used to place all the writing. A smaller (more rows and columns) will be used for this, and there will be a few different boxes that need to be drawn. This will all be a set of standard text, many of the text will be populated by a query to get all the components that the class has.
+<br />
+
+The "hardest" part will be the description as it will need to pull the description and also know the currently highlighted ability or item.
+<br />
+
+---
+
+## Player Buff Icons for Portrait
+I want to show a small icon on the player's portrait whenever they have an active buff - specifically things like Ice Armor, Stealth, and Invisibility. Anything that lasts for multiple turns or attacks, not something that resolves instantly.
+<br />
+
+I want the icon to be smaller than the portrait itself, closer to the size of the health bar.
+<br />
+
+### Implementation
+Ice Armor, Stealth, and Invisibility already exist as their own components on the player, so this doesn't need a new buff-tracking system - it's just checking whether the player currently has one of those three components and showing an icon if so.
+<br />
+
+For the icon I want to use the ability's own real icon art, not a placeholder. Getting real icon art smaller than the existing 40px portrait/ability icons means a new console with smaller cells - the only smaller dungeonfont console right now is the map view itself, and that gets redrawn every single frame, so it can't hold something persistent like a badge.
+<br />
+
+Multiple badges can show at once (queued left to right), in case more than one of these is ever active at the same time.
+
+

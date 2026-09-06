@@ -144,6 +144,23 @@ Roughly in the order they've come up:
     `start_arena`'s shop-building code — not urgent, just flagged.
 18. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
     offset during a glide, instead of the smooth fractional one.
+19. **More class abilities** — pull a few real ones out of the "Future
+    Class Ability Ideas" brainstorm list below and actually build them.
+    Each class only has a handful of real abilities/techniques right now
+    (see spawner::class_effect_names/class_technique_names); the
+    brainstorm list has several per class already sketched (Shiv/
+    Pickpocket for Rogue, Mana Shield/Arcane Missile for Mage, Trueshot/
+    Snare Shot for Hunter, and more) that just need someone to pick a
+    few, design the actual mechanics/numbers, and wire them into
+    `template.ron` the same way the existing ones already work. Good
+    candidate for a session that isn't UI/layout work for once.
+    - Worth knowing going in: a few of the brainstormed ones (Barbarian's
+      Rampage/Berserk, Amazon's Momentum/Keen Eyes) are "always-on while
+      a condition holds" passives - a genuinely new mechanical category.
+      Every effect today is a one-time consumable (Technique) or one-time
+      out-of-combat use (Effect); the first true passive needs its own
+      system, not just a new template entry. Pick a non-passive one first
+      if the goal is a quick, contained win.
 
 ## Content / world
 

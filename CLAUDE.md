@@ -97,6 +97,13 @@ You have direct file access and a real terminal here, so use them:
   schedulers (`systems/mod.rs`'s `build_title_background_*` functions)
   must be inserted in both `State::new()` and `State::return_to_title()`,
   or startup/return-to-title panics on an `Option::unwrap()`.
+- A newly registered console must be added to `tick()`'s per-frame
+  `ctx.cls()` sweep (one call per existing console) or content drawn
+  there on one frame lingers on every later frame where nothing
+  redraws that cell — invisible for a console that's always fully
+  redrawn every frame (like the dungeon map), but a real bug for
+  anything conditionally drawn (an icon that only appears sometimes,
+  like a buff badge) once the condition goes false again.
 - `CommandBuffer::add_component` calls computed from an entity's current
   state are unsafe to issue more than once per entity per tick — edits
   aren't visible until flush, so a second call reads the same stale value
