@@ -268,7 +268,13 @@ impl State {
     /// and returns true - the caller should stop touching `battle`
     /// immediately, same contract the old finish_battle_victory had.
     /// Returns false if the fight continues (other enemies remain).
-    fn record_enemy_kill(&mut self, battle: &mut Battle, target: Entity) -> bool {
+    /// `enter_held` is whether Enter is the key currently down this frame
+    /// (see battle_tick) - threaded all the way down here purely so
+    /// finish_battle can arm pending_enter_release on the exact frame a
+    /// kill actually transitions into BattleVictory, regardless of which
+    /// of several call paths (a plain Attack, a Technique, a DoT tick, a
+    /// Counter) led to this kill.
+    fn record_enemy_kill(&mut self, battle: &mut Battle, target: Entity, enter_held: bool) -> bool {
         let target_name = battle
             .enemy(target)
             .map(|e| e.name.clone())
@@ -327,7 +333,7 @@ impl State {
         battle.enemies.retain(|e| e.entity != target);
 
         if battle.enemies.is_empty() {
-            self.finish_battle(battle);
+            self.finish_battle(battle, enter_held);
             true
         } else {
             false
@@ -336,8 +342,12 @@ impl State {
 
     /// Ends the whole battle in victory, using whatever's accumulated on
     /// `battle` across every kill this fight (see record_enemy_kill) -
-    /// called the instant `battle.enemies` becomes empty.
-    fn finish_battle(&mut self, battle: &Battle) {
+    /// called the instant `battle.enemies` becomes empty. `enter_held` -
+    /// see this same parameter's doc comment on record_enemy_kill/
+    /// battle_tick - arms pending_enter_release when true, so the exact
+    /// same held Enter that landed this killing blow can't ALSO
+    /// immediately dismiss the Victory screen this transitions into.
+    fn finish_battle(&mut self, battle: &Battle, enter_held: bool) {
         // Checked fresh here (not just "was gold_earned > 0") so a
         // Battle Arena fight that somehow ended with 0 net gold (it
         // shouldn't - every kill grants at least a few) still correctly
@@ -362,6 +372,12 @@ impl State {
         }));
         self.resources.insert(None::<Battle>);
         self.resources.insert(TurnState::BattleVictory);
+        // See this fn's own doc comment - guards against the same held
+        // Enter that fired the killing action also immediately dismissing
+        // the screen it just transitioned into.
+        if enter_held {
+            self.pending_enter_release = true;
+        }
     }
 
     /// Fires `attacker`'s attack right now: ticks its own active Dot
@@ -379,7 +395,12 @@ impl State {
     /// been called in that case, possibly ending the whole battle; the
     /// caller should return from battle_tick immediately without
     /// touching `battle` again.
-    fn trigger_enemy_action(&mut self, battle: &mut Battle, attacker: Entity) -> bool {
+    fn trigger_enemy_action(
+        &mut self,
+        battle: &mut Battle,
+        attacker: Entity,
+        enter_held: bool,
+    ) -> bool {
         let dot_message = tick_dot(&mut self.ecs, battle, attacker);
         if let Some(dot_message) = dot_message {
             battle.push_log(dot_message);
@@ -387,7 +408,7 @@ impl State {
 
         let (hp_now, _) = entity_health(&self.ecs, attacker);
         if hp_now < 1 {
-            return self.record_enemy_kill(battle, attacker);
+            return self.record_enemy_kill(battle, attacker, enter_held);
         }
 
         resolve_enemy_attack(&mut self.ecs, battle, attacker);
@@ -498,8 +519,12 @@ impl State {
         battle.enter_result(Combatant::Player);
     }
 
-    /// Outcome of dismiss_action_result - see that function.
-    fn dismiss_action_result(&mut self, battle: &mut Battle) -> ResultOutcome {
+    /// Outcome of dismiss_action_result - see that function. `enter_held`
+    /// - see battle_tick's own doc note on this parameter - is threaded
+    /// through so BOTH exit paths that can lead somewhere Enter might
+    /// also dismiss (GameOver here directly; BattleVictory via
+    /// record_enemy_kill/finish_battle) can arm pending_enter_release.
+    fn dismiss_action_result(&mut self, battle: &mut Battle, enter_held: bool) -> ResultOutcome {
         if battle.fled {
             self.resources.insert(None::<Battle>);
             self.resources.insert(TurnState::AwaitingInput);
@@ -510,6 +535,12 @@ impl State {
         if player_hp_now < 1 {
             self.resources.insert(None::<Battle>);
             self.resources.insert(TurnState::GameOver);
+            // Same guard as finish_battle - the player's own held Enter
+            // (from an earlier action, or from an enemy's ActionResult
+            // dismiss) shouldn't also instantly dismiss Game Over.
+            if enter_held {
+                self.pending_enter_release = true;
+            }
             return ResultOutcome::EndBattleTick;
         }
 
@@ -528,7 +559,7 @@ impl State {
             .map(|e| e.entity)
             .collect();
         for target in dead {
-            if self.record_enemy_kill(battle, target) {
+            if self.record_enemy_kill(battle, target, enter_held) {
                 return ResultOutcome::EndBattleTick;
             }
         }
@@ -548,6 +579,16 @@ impl State {
                 return;
             }
         };
+
+        // Whether Enter is the key physically down THIS frame - computed
+        // once here and threaded into every call this frame that could
+        // transition into a screen Enter also dismisses (GameOver,
+        // BattleVictory), so that transition can arm
+        // pending_enter_release regardless of which of several call
+        // paths (a plain kill, a Counter kill, a DoT kill, the player's
+        // own death) actually triggered it. See pending_enter_release's
+        // own doc comment on State for the full mechanism.
+        let enter_held = ctx.key == Some(VirtualKeyCode::Return);
 
         // Tick down any active post-action portrait flash/damage popup -
         // the player's own (still flat fields on Battle) and every
@@ -667,7 +708,7 @@ impl State {
                 // those ready wins a same-frame tie, mirroring the
                 // player-favoring rule above - simple and deterministic,
                 // not meant to imply anything about "real" simultaneity.
-                if self.trigger_enemy_action(&mut battle, attacker) {
+                if self.trigger_enemy_action(&mut battle, attacker, enter_held) {
                     return;
                 }
             }
@@ -1026,12 +1067,21 @@ impl State {
             }
         }
 
-        // Arrow-key cursor navigation - only while the menu is actually
-        // open for input (PlayerMenu), matching when number-key selection
-        // is allowed further below. Processed here, before the row labels
-        // are drawn, so a moved cursor's highlight/pointer show up the
-        // SAME frame the key was pressed rather than one frame late.
-        if battle.turn == BattleTurn::PlayerMenu {
+        // Arrow-key cursor navigation. In Wait mode, only while the menu
+        // is actually open for input (PlayerMenu) - time is fully frozen
+        // there anyway (that's the whole premise of Wait mode), so
+        // there's no benefit to moving the cursor any earlier, and
+        // nothing to pre-aim toward before it's even your turn. In
+        // Active (True ATB) mode, movement is allowed in EVERY
+        // BattleTurn state - gauges keep racing/enemies keep acting
+        // around you there, so being able to pre-aim the cursor while
+        // waiting for your own gauge to fill (or while an enemy's result
+        // is still showing) is exactly the kind of thing that mode
+        // should support, per the "harder mode, more to juggle" framing.
+        // Processed here, before the row labels are drawn, so a moved
+        // cursor's highlight/pointer show up the SAME frame the key was
+        // pressed rather than one frame late.
+        if atb_mode == AtbMode::Active || battle.turn == BattleTurn::PlayerMenu {
             let current_col_len = if battle.menu_cursor.col == 0 {
                 main_actions.len()
             } else {
@@ -1049,6 +1099,17 @@ impl State {
                 _ => {}
             }
         }
+
+        // Whichever entry the cursor currently sits on, if any - shared
+        // by PlayerMenu's direct Enter-confirm below AND the True-ATB
+        // queuing window (ActionResult(Enemy(_))), so cursor+Enter
+        // behaves identically in both places, same as number keys
+        // already do.
+        let cursor_entry = if battle.menu_cursor.col == 0 {
+            main_actions.get(battle.menu_cursor.row)
+        } else {
+            other_actions.get(battle.menu_cursor.row)
+        };
 
         const BOX_X: i32 = 44;
         // Anchored to the player's own portrait top edge (see the doc
@@ -1121,11 +1182,6 @@ impl State {
                 // dismiss while everyone is still racing to full.
             }
             BattleTurn::PlayerMenu => {
-                let cursor_entry = if battle.menu_cursor.col == 0 {
-                    main_actions.get(battle.menu_cursor.row)
-                } else {
-                    other_actions.get(battle.menu_cursor.row)
-                };
                 let chosen = match ctx.key {
                     Some(VirtualKeyCode::Return) => {
                         cursor_entry.and_then(|(_, entry)| entry.action)
@@ -1163,7 +1219,7 @@ impl State {
                         None
                     };
                 if let Some(attacker) = interrupting {
-                    if self.trigger_enemy_action(&mut battle, attacker) {
+                    if self.trigger_enemy_action(&mut battle, attacker, enter_held) {
                         return;
                     }
                 }
@@ -1183,24 +1239,33 @@ impl State {
                 // finished, making it very hard to ever land a hit under
                 // True ATB. Wait mode never reaches this branch with
                 // player_gauge at max in the first place (tick_player is
-                // false for it here), so this is a no-op there.
+                // false for it here), so this is a no-op there. Accepts
+                // cursor+Enter here too, not just number keys - same
+                // chosen-resolution shape as PlayerMenu above, sharing
+                // the same cursor_entry computed earlier.
                 if atb_mode == AtbMode::Active
                     && battle.queued_player_action.is_none()
                     && battle.player_gauge >= ATB_GAUGE_MAX
                 {
-                    if let Some(key) = ctx.key {
-                        let chosen = number_key_index(key)
-                            .and_then(|i| actions.get(i))
-                            .and_then(|entry| entry.action);
-                        if let Some(chosen) = chosen {
-                            battle.queued_player_action = Some(chosen);
+                    let chosen = match ctx.key {
+                        Some(VirtualKeyCode::Return) => {
+                            cursor_entry.and_then(|(_, entry)| entry.action)
                         }
+                        Some(key) => number_key_index(key)
+                            .and_then(|i| actions.get(i))
+                            .and_then(|entry| entry.action),
+                        None => None,
+                    };
+                    if let Some(chosen) = chosen {
+                        battle.queued_player_action = Some(chosen);
                     }
                 }
 
                 battle.result_timer_ms -= ctx.frame_time_ms;
                 if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
-                    if let ResultOutcome::EndBattleTick = self.dismiss_action_result(&mut battle) {
+                    if let ResultOutcome::EndBattleTick =
+                        self.dismiss_action_result(&mut battle, enter_held)
+                    {
                         return;
                     }
                 }
@@ -1226,7 +1291,7 @@ impl State {
                     battle.result_timer_ms -= ctx.frame_time_ms;
                     if ctx.key.is_some() || battle.result_timer_ms <= 0.0 {
                         if let ResultOutcome::EndBattleTick =
-                            self.dismiss_action_result(&mut battle)
+                            self.dismiss_action_result(&mut battle, enter_held)
                         {
                             return;
                         }
@@ -1297,7 +1362,12 @@ impl State {
         // in-battle ActionResult screens deliberately keep dismissing on
         // any key, unlike this one - blowing through those as fast as
         // possible while held is exactly the desired behavior there.
-        if ctx.key == Some(VirtualKeyCode::Return) {
+        // pending_enter_release guards against the exact same held Enter
+        // that fired the killing blow (via cursor+Enter or the True-ATB
+        // queuing window) also instantly dismissing this screen - see
+        // that field's own doc comment on State and finish_battle, which
+        // arms it.
+        if ctx.key == Some(VirtualKeyCode::Return) && !self.pending_enter_release {
             self.resources.insert(None::<BattleVictory>);
             let arena_run = self.resources.get::<Option<ArenaRun>>().unwrap().clone();
             match arena_run {

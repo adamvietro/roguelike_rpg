@@ -274,15 +274,26 @@ impl State {
             Some(VirtualKeyCode::Return) => Some(self.adventure_select_cursor),
             _ => None,
         };
+        // See pending_enter_release's own doc comment on State - armed
+        // here (only when Enter, not a number key, is what actually
+        // confirmed) so the same held key can't also immediately confirm
+        // a class the instant Class Select appears.
+        let confirmed_via_enter = ctx.key == Some(VirtualKeyCode::Return);
         match chosen {
             Some(0) => {
                 self.adventure_mode = AdventureMode::DungeonCrawl;
                 self.class_select_cursor = 0;
+                if confirmed_via_enter {
+                    self.pending_enter_release = true;
+                }
                 self.resources.insert(TurnState::ClassSelect);
             }
             Some(1) => {
                 self.adventure_mode = AdventureMode::BattleArena;
                 self.class_select_cursor = 0;
+                if confirmed_via_enter {
+                    self.pending_enter_release = true;
+                }
                 self.resources.insert(TurnState::ClassSelect);
             }
             _ => {
@@ -374,8 +385,21 @@ impl State {
         }
         icons.submit(0).expect("Batch error");
 
+        // pending_enter_release guards specifically against the SAME held
+        // Enter that just confirmed a choice on Adventure Select also
+        // immediately confirming a class here, the frame this screen
+        // first appears - see that field's own doc comment on State.
+        // Only Enter's own arm needs the guard; a direct class-letter key
+        // (1-5) isn't affected by this particular hand-off, and falls
+        // through to CLASS_ROSTER's own key match unconditionally.
         let chosen_entry = match ctx.key {
-            Some(VirtualKeyCode::Return) => CLASS_ROSTER.get(self.class_select_cursor),
+            Some(VirtualKeyCode::Return) => {
+                if self.pending_enter_release {
+                    None
+                } else {
+                    CLASS_ROSTER.get(self.class_select_cursor)
+                }
+            }
             Some(key) => CLASS_ROSTER.iter().find(|c| c.key == key),
             None => None,
         };

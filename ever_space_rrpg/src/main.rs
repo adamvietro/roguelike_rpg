@@ -250,6 +250,71 @@ struct State {
     /// Overview from a drill-down sub-view, so the cursor stays where it
     /// was on the class you just looked at).
     stats_view_cursor: usize,
+    /// Real elapsed ms Enter has been continuously NOT the held key,
+    /// while pending_enter_release is armed - see that field's own doc
+    /// comment and ENTER_RELEASE_DEBOUNCE_MS. Reset to 0 the instant
+    /// Enter is seen held again; pending_enter_release only actually
+    /// clears once this crosses the debounce threshold.
+    enter_not_held_ms: f32,
+    /// True from the moment Enter drives a transition into a screen that
+    /// Enter can ALSO dismiss/confirm (Battle Victory or Game Over,
+    /// arrived at via a held Enter that fired the killing blow / took
+    /// the fatal hit - see screens/battle.rs's finish_battle/
+    /// dismiss_action_result; or Adventure Select -> Class Select, both
+    /// Enter-confirmable - see screens/title.rs's adventure_select),
+    /// until that same Enter press is actually released. While true,
+    /// the destination screen's own Enter check is suppressed, so the
+    /// exact key that caused the transition can't ALSO immediately fire
+    /// the next screen's action. Cleared centrally in tick() only after
+    /// Enter has been continuously absent for ENTER_RELEASE_DEBOUNCE_MS
+    /// (see enter_not_held_ms) - NOT the instant a single frame shows it
+    /// absent. That distinction matters: this project's own WSLg/X11
+    /// keyboard stack can deliver a genuinely-held key's OS auto-repeat
+    /// as alternating fake release+press events rather than one
+    /// sustained press (classic X11 behavior without "detectable
+    /// autorepeat" support) - a plain single-frame check was fooled by
+    /// that flicker, clearing the guard on the fake release and letting
+    /// the very next fake repeat re-arm dismissal immediately, defeating
+    /// the whole point. A short real-world debounce survives that quirk
+    /// while still feeling instant for an actual release-and-press.
+    /// Deliberately narrow otherwise: only these specific hand-off
+    /// points check it, and it never gates cursor movement, number-key
+    /// selection, or the in-battle ActionResult screens' existing "any
+    /// held key blows through fast" behavior, which stays exactly as it
+    /// was.
+    pending_enter_release: bool,
+}
+
+/// How long Enter must be continuously absent before pending_enter_release
+/// actually clears - see that field's own doc comment for why this isn't
+/// just "the first frame it's not held". Comfortably longer than any
+/// single- or few-frame event flicker, comfortably shorter than any real
+/// human release-then-press-again.
+const ENTER_RELEASE_DEBOUNCE_MS: f32 = 150.0;
+
+/// The actual debounce math behind pending_enter_release/
+/// enter_not_held_ms - pulled out as a pure function (no BTerm/State
+/// needed) so it's directly testable. Returns the updated (still_pending,
+/// elapsed_not_held_ms). If `pending` is already false, both reset to
+/// (false, 0.0) - nothing to debounce. Otherwise: seeing Enter held
+/// resets the "not held" clock to 0 (still pending); not seeing it
+/// accumulates real elapsed time, clearing only once that crosses
+/// ENTER_RELEASE_DEBOUNCE_MS.
+fn tick_enter_release_guard(
+    pending: bool,
+    enter_held: bool,
+    not_held_ms: f32,
+    frame_time_ms: f32,
+) -> (bool, f32) {
+    if !pending {
+        return (false, 0.0);
+    }
+    if enter_held {
+        (true, 0.0)
+    } else {
+        let elapsed = not_held_ms + frame_time_ms;
+        (elapsed < ENTER_RELEASE_DEBOUNCE_MS, elapsed)
+    }
 }
 
 impl State {
@@ -320,6 +385,8 @@ impl State {
             class_select_cursor: 0,
             options_cursor: 0,
             stats_view_cursor: 0,
+            enter_not_held_ms: 0.0,
+            pending_enter_release: false,
         };
         state.spawn_title_background();
         state
@@ -828,6 +895,8 @@ impl State {
         self.adventure_mode = AdventureMode::DungeonCrawl;
         self.adventure_select_cursor = 0;
         self.class_select_cursor = 0;
+        self.pending_enter_release = false;
+        self.enter_not_held_ms = 0.0;
 
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {
@@ -966,6 +1035,18 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(DAMAGE_POPUP_CONSOLE);
         ctx.cls();
+        // See pending_enter_release's own doc comment on State for why
+        // this is a debounced "continuously absent for
+        // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
+        // single frame" check - see tick_enter_release_guard.
+        let (still_pending, not_held_ms) = tick_enter_release_guard(
+            self.pending_enter_release,
+            ctx.key == Some(VirtualKeyCode::Return),
+            self.enter_not_held_ms,
+            ctx.frame_time_ms,
+        );
+        self.pending_enter_release = still_pending;
+        self.enter_not_held_ms = not_held_ms;
         self.resources.insert(ctx.key);
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);

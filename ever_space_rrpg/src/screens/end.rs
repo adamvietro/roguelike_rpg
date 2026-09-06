@@ -200,7 +200,13 @@ impl State {
             "Press Enter to return to the title screen.",
         );
 
-        if ctx.key == Some(VirtualKeyCode::Return) {
+        // pending_enter_release guards against the same held Enter that
+        // was down when the player took their fatal hit (e.g. holding
+        // Enter to keep queuing attacks under True ATB while an enemy's
+        // counter-attack finishes them off) also instantly dismissing
+        // this screen - see that field's own doc comment on State and
+        // screens/battle.rs's dismiss_action_result, which arms it.
+        if ctx.key == Some(VirtualKeyCode::Return) && !self.pending_enter_release {
             self.return_to_title();
         }
     }
