@@ -1107,9 +1107,6 @@ impl GameState for State {
         self.resources.insert(FrameTime(ctx.frame_time_ms));
         ctx.set_active_console(0);
         self.resources.insert(Point::from_tuple(ctx.mouse_pos()));
-        ctx.set_active_console(HUD_CONSOLE);
-        self.resources
-            .insert(HudMousePos(Point::from_tuple(ctx.mouse_pos())));
         ctx.set_active_console(ABILITY_BAR_CONSOLE);
         self.resources
             .insert(AbilityBarMousePos(Point::from_tuple(ctx.mouse_pos())));

@@ -14,12 +14,14 @@ impl State {
     /// Left side: the usable item list, with the currently-selected
     /// item's own Description shown below it, updating live as the
     /// cursor moves - the keyboard-driven counterpart to the Ability
-    /// Bar/Battle Attacks panel's mouse-hover tooltip. Right side: a
-    /// read-only reference panel of every class ability (owned or not,
-    /// greyed out the same way the Ability Bar does) and every carried
-    /// weapon - nothing here is selectable, it's just so a player
-    /// checking their potions doesn't ALSO have to close this menu and
-    /// reopen the dungeon HUD to remember what they're carrying.
+    /// Bar's mouse-hover tooltip. Right side: a read-only reference
+    /// panel of every carried Battle Attack, every class ability (owned
+    /// or not, greyed out the same way the Ability Bar does), and every
+    /// carried weapon - nothing here is selectable, it's just so a
+    /// player checking their potions doesn't ALSO have to remember what
+    /// else they're carrying. The dungeon-exploration screen itself
+    /// deliberately shows none of this anymore (see systems/hud.rs) -
+    /// this menu is now the one place to check it all.
     ///
     /// Redraws the dungeon map beneath the list via pause_systems (same
     /// frozen-map trick Options/Pause already use - nothing should move
@@ -45,13 +47,13 @@ impl State {
 
         // Lower on the screen (console 2/FINE_TEXT_CONSOLE has 100 rows
         // total) rather than hovering around the middle - leaves the
-        // middle - leaves the actual dungeon view above it more visible
-        // while the menu's open.
+        // actual dungeon view above it more visible while the menu's
+        // open.
         const TITLE_ROW: i32 = 55;
         const LIST_START_ROW: i32 = 59;
         // Right-side reference panel - anchored to the console's own
-        // right edge (print_color_right), same convention
-        // systems/hud.rs's Battle Attacks/Weapons panels already use on
+        // right edge (print_color_right), same convention the dungeon
+        // HUD's old Battle Attacks/Weapons panels used to use on
         // HUD_CONSOLE, just on this console's own wider 160-column grid
         // instead. A few columns of margin from the true right edge so
         // text doesn't print flush against it.
@@ -114,11 +116,41 @@ impl State {
             "Arrows to navigate, Enter to use, ESC to close",
         );
 
-        // Right-side reference panel: every class ability (greyed out if
-        // not currently owned, exactly like the Ability Bar) and every
-        // carried weapon - read-only, nothing here responds to the
-        // cursor or Enter.
+        // Right-side reference panel: every Battle Attack carried (used
+        // from the battle menu, not out here - see components::
+        // usable_carried_items' own BattleItem exclusion), every class
+        // ability (greyed out if not currently owned, exactly like the
+        // Ability Bar), and every carried weapon - read-only, nothing
+        // here responds to the cursor or Enter. Moved here from the
+        // dungeon-exploration HUD so that screen stays clean besides the
+        // Ability Bar - see systems/hud.rs.
         let mut right_row = RIGHT_COL_START_ROW;
+        let mut battle_item_counts: Vec<(String, i32)> = Vec::new();
+        <(&Carried, &BattleItem, &Name)>::query()
+            .iter(&self.ecs)
+            .filter(|(carried, _, _)| carried.0 == player)
+            .for_each(|(_, _, name)| {
+                match battle_item_counts.iter_mut().find(|(n, _)| *n == name.0) {
+                    Some(entry) => entry.1 += 1,
+                    None => battle_item_counts.push((name.0.clone(), 1)),
+                }
+            });
+        if !battle_item_counts.is_empty() {
+            ctx.print_color_right(RIGHT_COL_X, right_row, YELLOW, BLACK, "Battle Attacks");
+            right_row += 1;
+            for (name, count) in &battle_item_counts {
+                ctx.print_color_right(
+                    RIGHT_COL_X,
+                    right_row,
+                    GREEN,
+                    BLACK,
+                    format!("{} x{}", name, count),
+                );
+                right_row += 1;
+            }
+            right_row += 1; // blank row before Abilities
+        }
+
         if let Some(class) = entity_class(&self.ecs, player) {
             let roster = class_effect_names(&class);
             if !roster.is_empty() {

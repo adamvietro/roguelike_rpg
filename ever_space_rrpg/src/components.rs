@@ -363,24 +363,12 @@ pub struct Class(pub String);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BattleItem;
 
-/// The mouse position captured directly in the HUD console's own
-/// coordinate space (console 4 was active at capture time), rather than
-/// converted from console 0's much coarser 32px-cell grid. Needed because
-/// converting a value that's already quantized to ~40x25 possible
-/// positions up into a 107x67 grid doesn't recover precision - most rows
-/// in between become unreachable. Used for HUD row hover-detection; see
-/// mouse_to_hud for the (coarser, display-only) conversion used to
-/// position dungeon-tile tooltips instead.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HudMousePos(pub Point);
-
 /// The mouse position captured in the Ability Bar console's own
-/// coordinate space (see main.rs::ABILITY_BAR_CONSOLE), same reasoning
-/// as HudMousePos above - captured directly in that console's own
-/// (coarse, few-cells) grid rather than converted from a finer one,
-/// since converting DOWN loses no precision but converting UP can't
-/// recover it. Used by systems/hud.rs to detect hovering a bar slot for
-/// its tooltip.
+/// coordinate space (see main.rs::ABILITY_BAR_CONSOLE) - captured
+/// directly in that console's own (coarse, few-cells) grid rather than
+/// converted from a finer one, since converting DOWN loses no precision
+/// but converting UP can't recover it. Used by systems/hud.rs to detect
+/// hovering a bar slot for its tooltip.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AbilityBarMousePos(pub Point);
 
@@ -541,6 +529,42 @@ pub fn ability_bar_slots<T: EntityStore>(
     roster: &[String],
 ) -> Vec<AbilityBarSlot> {
     let owned_groups = group_items(ecs, usable_ability_items(ecs, wielder, wielder_class));
+    roster
+        .iter()
+        .map(|name| AbilityBarSlot {
+            name: name.clone(),
+            owned: owned_groups
+                .iter()
+                .find(|(n, _, _)| n == name)
+                .map(|(_, count, entity)| (*count, *entity)),
+        })
+        .collect()
+}
+
+/// Every BattleItem entity `wielder` currently carries - the Battle Bar's
+/// contents (systems/hud.rs's second icon bar, next to the out-of-combat
+/// Ability Bar), as opposed to usable_carried_items' EXCLUSION of
+/// BattleItem (those are used from the battle menu, not out here).
+pub fn battle_items_carried<T: EntityStore>(ecs: &T, wielder: Entity) -> Vec<Entity> {
+    <(Entity, &Item, &BattleItem, &Carried)>::query()
+        .iter(ecs)
+        .filter(|(_, _, _, carried)| carried.0 == wielder)
+        .map(|(e, _, _, _)| *e)
+        .collect()
+}
+
+/// The Battle Bar's full row of slots (systems/hud.rs) - same shape and
+/// "always show the full roster, grey out what's unowned" convention as
+/// ability_bar_slots, but for in-battle Techniques (battle_items_carried)
+/// rather than out-of-combat Effects. `roster` should be
+/// spawner::class_technique_names(class) - the same roster the battle
+/// menu itself already builds its technique list from.
+pub fn battle_bar_slots<T: EntityStore>(
+    ecs: &T,
+    wielder: Entity,
+    roster: &[String],
+) -> Vec<AbilityBarSlot> {
+    let owned_groups = group_items(ecs, battle_items_carried(ecs, wielder));
     roster
         .iter()
         .map(|name| AbilityBarSlot {

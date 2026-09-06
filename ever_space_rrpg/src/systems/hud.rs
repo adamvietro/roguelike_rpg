@@ -1,5 +1,22 @@
 use crate::prelude::*;
 
+/// Tint used for a greyed-out (unowned) Ability Bar / Battle Bar icon.
+/// Deliberately NOT the named DARK_GRAY (169,169,169) that works fine
+/// for plain text elsewhere in this HUD - bracket-lib's console shader
+/// combines a glyph's color as `texture_pixel * this_color` (a straight
+/// multiply, confirmed against bracket-terminal's own GLSL source), so
+/// for a monochrome white TEXT glyph that multiply gives a clean grey
+/// (white * grey = grey). These ability icons are full-color custom
+/// sprite art, though - multiplying a colored pixel by a light grey like
+/// DARK_GRAY only dims it to ~66% brightness while preserving its exact
+/// hue, which reads as "slightly darker," not "disabled." A much darker
+/// value crushes brightness hard enough to read as greyed-out regardless
+/// of the sprite's original color, at the cost of some hue still
+/// technically surviving the multiply (unavoidable without a real
+/// desaturated version of each sprite - a straight multiply can dim a
+/// color but can never truly desaturate it).
+const UNOWNED_ICON_TINT: (u8, u8, u8) = (40, 40, 40);
+
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
 /// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
@@ -51,25 +68,53 @@ fn ability_bar_label_position(col: i32) -> (i32, i32) {
 
 /// The (x, y, width, height) box - in HUD_CONSOLE cell terms, for
 /// render_helpers::draw_ascii_box, the same ASCII box style the battle
-/// menu already uses - that should enclose the whole Ability Bar as one
-/// group (icons AND their number labels), for the single surrounding
-/// border. `n` is however many slots are actually showing right now.
-/// A 1-cell pad on every side keeps the border from touching the icons/
+/// menu already uses - that should enclose one bar's icons (and, if
+/// `has_labels`, their number labels too) as one group, for a single
+/// surrounding border. `start_col`/`n` are the bar's own column range on
+/// ABILITY_BAR_CONSOLE - the out-of-combat Ability Bar centers itself
+/// (see ability_bar_start_col) while the Battle Bar sits explicitly to
+/// its right, so this takes the range directly rather than recomputing
+/// it. A pad on every side keeps the border from touching the icons/
 /// labels themselves.
-fn ability_bar_box_bounds(n: i32) -> (i32, i32, i32, i32) {
-    let start_col = ability_bar_start_col(n);
+///
+/// Both edges facing the icon row need more care than a flat "+-1" pad:
+/// ABILITY_BAR_CONSOLE (where the icons actually live) renders ABOVE
+/// HUD_CONSOLE (where this box is drawn) in z-order, so any HUD_CONSOLE
+/// row whose PIXELS overlap the icon's own pixel range gets visually
+/// painted over by the icon, border or not. A plain truncating division
+/// from a pixel position into HUD_CONSOLE row units can land a row whose
+/// pixels still reach into that overlap - a flat "+-1 row" of nominal
+/// padding then isn't actually one whole row of real clearance. The
+/// bottom edge rounds UP first (ceiling division) before adding
+/// clearance, so the chosen row's pixels start at or after the icon's
+/// true bottom edge; the top edge's plain truncating division already
+/// rounds down (safe on that side) so it only needs the extra "-1" for
+/// breathing room, not a ceiling.
+fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32, i32, i32) {
     let bar_row = ability_bar_row();
 
     let icons_left_px = start_col * (1280 / ABILITY_BAR_COLS);
     let icons_right_px = (start_col + n) * (1280 / ABILITY_BAR_COLS);
+    let icons_top_px = bar_row * (800 / ABILITY_BAR_ROWS);
     let icons_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
-
-    let (_, label_row) = ability_bar_label_position(start_col);
 
     let left = (icons_left_px * HUD_COLS / 1280) - 1;
     let right = (icons_right_px * HUD_COLS / 1280) + 1;
-    let bottom = (icons_bottom_px * HUD_ROWS / 800) + 1;
-    let top = label_row - 1;
+    // Ceiling division (the "+ 799" trick), THEN +1 for real clearance -
+    // see this function's own doc comment.
+    let icons_bottom_row = (icons_bottom_px * HUD_ROWS + 799) / 800;
+    let bottom = icons_bottom_row + 1;
+
+    let top = if has_labels {
+        let (_, label_row) = ability_bar_label_position(start_col);
+        label_row - 1
+    } else {
+        // No label row to clear above the icons here - just the icon's
+        // own top edge, with the same real-clearance reasoning as the
+        // bottom edge (see doc comment) plus one more row of breathing
+        // room so the border doesn't sit flush against the icons.
+        (icons_top_px * HUD_ROWS / 800) - 2
+    };
 
     (left, top, right - left, bottom - top)
 }
@@ -87,23 +132,28 @@ fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
     bottom_row - (line_count - 1)
 }
 
+/// The Battle Bar's own starting column - immediately to the right of
+/// the out-of-combat Ability Bar's icons, plus a small gap, so the two
+/// boxes read as clearly separate groups rather than touching.
+fn battle_bar_start_col(ability_bar_start_col: i32, ability_bar_n: i32) -> i32 {
+    const GAP_COLS: i32 = 2;
+    ability_bar_start_col + ability_bar_n + GAP_COLS
+}
+
 #[system]
 #[read_component(Health)]
 #[read_component(Player)]
 #[read_component(Item)]
 #[read_component(Carried)]
 #[read_component(Name)]
-#[read_component(BattleItem)]
-#[read_component(Weapon)]
-#[read_component(Description)]
-#[read_component(Gold)]
 #[read_component(ShopStock)]
 #[read_component(Price)]
 #[read_component(Point)]
+#[read_component(Gold)]
 #[read_component(Class)]
+#[read_component(BattleItem)]
 pub fn hud(
     ecs: &SubWorld,
-    #[resource] hud_mouse_pos: &HudMousePos,
     #[resource] ability_bar_mouse_pos: &AbilityBarMousePos,
     #[resource] shopping: &Option<ShoppingActive>,
     #[resource] arena_run: &Option<ArenaRun>,
@@ -166,20 +216,17 @@ pub fn hud(
         );
     }
 
-    // Out-of-combat class abilities now live on the Ability Bar - a row
-    // of icons along the bottom of the dungeon view - rather than a text
-    // list here. See below (after this draw_batch is submitted) for the
-    // actual bar; this system still needs `player`/`player_class` for
-    // both that and the Battle Attacks/Weapons panels further down.
+    // The dungeon-exploration screen is deliberately bare besides the
+    // above (health/level/gold) and the Ability Bar further down -
+    // Battle Attacks and Weapons used to have their own panels here too,
+    // but both moved to the Item Menu's read-only reference panel (press
+    // M - see screens/item_menu.rs) so this screen stays clean and the
+    // Ability Bar is the only thing drawing attention lower down. Shop
+    // stock is the one exception - it's tied to standing at a specific
+    // shop counter, not general inventory, so it still belongs here.
     let player_class = entity_class(ecs, player);
-    let row = 3;
-    // ShoppingActive. Every ShopStock entity currently on the map (a real
-    // Point + Name + ShopStock + Price - see spawner::spawn_shop_stock_at),
-    // not filtered by proximity, so the player can see the whole counter's
-    // prices at a glance rather than only whatever they're standing next
-    // to.
     if shopping.is_some() {
-        let mut shop_row = row + 1;
+        let mut shop_row = 3;
         let mut stock_query = <(&ShopStock, &Name, &Price)>::query();
         let mut any_stock = false;
         for (stock, name, price) in stock_query.iter(ecs) {
@@ -192,98 +239,8 @@ pub fn hud(
             shop_row += 1;
         }
         if any_stock {
-            draw_batch.print_color(Point::new(3, row), "Shop", ColorPair::new(YELLOW, BLACK));
+            draw_batch.print_color(Point::new(3, 2), "Shop", ColorPair::new(YELLOW, BLACK));
         }
-    }
-
-    // Battle attacks, grouped by name with a count - right side, upper.
-    // Keeps one representative entity per group so a hovered row can look
-    // up that item's Description.
-    let mut battle_item_query = <(Entity, &Carried, &BattleItem, &Name)>::query();
-    let mut battle_item_groups: Vec<(String, i32, Entity)> = Vec::new();
-    battle_item_query
-        .iter(ecs)
-        .filter(|(_, carried, _, _)| carried.0 == player)
-        .for_each(|(entity, _, _, name)| {
-            match battle_item_groups.iter_mut().find(|(n, _, _)| *n == name.0) {
-                Some(entry) => entry.1 += 1,
-                None => battle_item_groups.push((name.0.clone(), 1, *entity)),
-            }
-        });
-
-    // Precise mouse position in this console's own coordinates (captured
-    // with console 4 active - see main.rs::tick), used to detect hovering
-    // a Battle Attacks row for its tooltip.
-    let hud_mouse = hud_mouse_pos.0;
-    let mut hovered: Option<(i32, String, String)> = None;
-
-    let mut y2 = 3;
-    for (name, count, entity) in battle_item_groups.iter() {
-        draw_batch.print_color_right(
-            Point::new(HUD_COLS, y2),
-            format!("{} x{}", name, count),
-            ColorPair::new(GREEN, BLACK),
-        );
-        // Loose hit-test: same row, and generally over the right-side
-        // panel area (not the left item list, which shares row numbers).
-        if hud_mouse.y == y2 && hud_mouse.x >= HUD_COLS - 30 {
-            if let Ok(entry) = ecs.entry_ref(*entity) {
-                if let Ok(desc) = entry.get_component::<Description>() {
-                    hovered = Some((y2, name.clone(), desc.0.clone()));
-                }
-            }
-        }
-        y2 += 1;
-    }
-    if y2 > 3 {
-        draw_batch.print_color_right(
-            Point::new(HUD_COLS, 2),
-            "Battle Attacks",
-            ColorPair::new(YELLOW, BLACK),
-        );
-        y2 += 1; // blank row before the weapons section
-    }
-
-    // Weapons, grouped by name with a count - right side, below battle
-    // attacks. Weapons apply automatically (see carried_weapon_damage),
-    // so they're informational only, not number-key-usable - hence their
-    // own panel rather than the left list.
-    let mut weapon_query = <(&Carried, &Weapon, &Name)>::query();
-    let mut weapon_counts: Vec<(String, i32)> = Vec::new();
-    weapon_query
-        .iter(ecs)
-        .filter(|(carried, _, _)| carried.0 == player)
-        .for_each(
-            |(_, _, name)| match weapon_counts.iter_mut().find(|(n, _)| *n == name.0) {
-                Some(entry) => entry.1 += 1,
-                None => weapon_counts.push((name.0.clone(), 1)),
-            },
-        );
-    if !weapon_counts.is_empty() {
-        draw_batch.print_color_right(
-            Point::new(HUD_COLS, y2),
-            "Weapons",
-            ColorPair::new(YELLOW, BLACK),
-        );
-        y2 += 1;
-        for (name, count) in weapon_counts.iter() {
-            draw_batch.print_color_right(
-                Point::new(HUD_COLS, y2),
-                format!("{} x{}", name, count),
-                ColorPair::new(GREEN, BLACK),
-            );
-            y2 += 1;
-        }
-    }
-
-    // Battle Attacks tooltip: drawn last so it sits on top, positioned to
-    // the left of the panel on the same row as the hovered entry.
-    if let Some((row, name, description)) = hovered {
-        draw_batch.print_color(
-            Point::new(25, row),
-            format!("{}: {}", name, description),
-            ColorPair::new(WHITE, BLACK),
-        );
     }
 
     draw_batch.submit(10000).expect("Batch error");
@@ -299,55 +256,55 @@ pub fn hud(
     // reliably paints over the dungeon view beneath it regardless of
     // draw order here.
     if let Some(class) = &player_class {
-        let roster = class_effect_names(class);
-        if !roster.is_empty() {
-            let mut bar_batch = DrawBatch::new();
-            bar_batch.target(ABILITY_BAR_CONSOLE);
+        let effect_roster = class_effect_names(class);
+        let technique_roster = class_technique_names(class);
+        let bar_mouse = ability_bar_mouse_pos.0;
+        let bar_row = ability_bar_row();
 
-            let slots = ability_bar_slots(ecs, player, class, &roster);
-            let n = (slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
-            let start_col = ability_bar_start_col(n);
-            let bar_row = ability_bar_row();
-            let bar_mouse = ability_bar_mouse_pos.0;
-            let mut hovered_ability: Option<&str> = None;
+        let mut bar_batch = DrawBatch::new();
+        bar_batch.target(ABILITY_BAR_CONSOLE);
+        let mut label_batch = DrawBatch::new();
+        label_batch.target(HUD_CONSOLE);
+        // (name, description-lookup key, box_y for the tooltip anchor) -
+        // whichever bar's icon the mouse is currently over, checked
+        // across BOTH bars so hovering either one shows its description.
+        let mut hovered: Option<(String, i32)> = None;
 
-            // Label positions/text - see ability_bar_key_label and
-            // ability_bar_label_position for the actual math and
-            // reasoning (pulled out to module level so they're testable
-            // without a real ECS/DrawBatch).
-            let mut label_batch = DrawBatch::new();
-            label_batch.target(HUD_CONSOLE);
+        // Out-of-combat Ability Bar - centered as a group, with number
+        // labels (1-9, then 0) since these ARE directly usable via
+        // player_input.rs::use_ability, and a RED box.
+        let ability_slots = ability_bar_slots(ecs, player, class, &effect_roster);
+        let ability_n = (ability_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
+        let ability_start_col = ability_bar_start_col(ability_n);
 
-            for (i, slot) in slots.iter().enumerate().take(n as usize) {
-                let col = start_col + i as i32;
-                let owned = slot.owned.is_some();
-                let glyph = glyph_for_item_name(&slot.name).unwrap_or('?');
-                draw_portrait(
-                    &mut bar_batch,
-                    col,
-                    bar_row,
-                    Render {
-                        color: ColorPair::new(if owned { WHITE } else { DARK_GRAY }, BLACK),
-                        glyph: to_cp437(glyph),
-                    },
-                );
-                if bar_mouse.y == bar_row && bar_mouse.x == col {
-                    hovered_ability = Some(&slot.name);
-                }
-
-                let (label_col, label_row) = ability_bar_label_position(col);
-                label_batch.print_color(
-                    Point::new(label_col, label_row),
-                    ability_bar_key_label(i),
-                    ColorPair::new(if owned { YELLOW } else { GRAY }, BLACK),
-                );
+        for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
+            let col = ability_start_col + i as i32;
+            let owned = slot.owned.is_some();
+            let glyph = glyph_for_item_name(&slot.name).unwrap_or('?');
+            draw_portrait(
+                &mut bar_batch,
+                col,
+                bar_row,
+                Render {
+                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
+                    glyph: to_cp437(glyph),
+                },
+            );
+            if bar_mouse.y == bar_row && bar_mouse.x == col {
+                let (_, box_y, _, _) = ability_bar_box_bounds(ability_start_col, ability_n, true);
+                hovered = Some((slot.name.clone(), box_y));
             }
-            // A single box around the whole bar (icons + labels
-            // together), not one per icon - drawn on HUD_CONSOLE, same
-            // ASCII box style (render_helpers::draw_ascii_box) the
-            // battle menu's own action box already uses, just in RED
-            // here to stand out as a distinct HUD element.
-            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(n);
+
+            let (label_col, label_row) = ability_bar_label_position(col);
+            label_batch.print_color(
+                Point::new(label_col, label_row),
+                ability_bar_key_label(i),
+                ColorPair::new(if owned { YELLOW } else { GRAY }, BLACK),
+            );
+        }
+        if ability_n > 0 {
+            let (box_x, box_y, box_w, box_h) =
+                ability_bar_box_bounds(ability_start_col, ability_n, true);
             draw_ascii_box(
                 &mut label_batch,
                 box_x,
@@ -356,40 +313,138 @@ pub fn hud(
                 box_h,
                 ColorPair::new(RED, BLACK),
             );
-            bar_batch.submit(10001).expect("Batch error");
-            label_batch.submit(10002).expect("Batch error");
+        }
 
-            // The hovered slot's tooltip - drawn on HUD_CONSOLE (fine
-            // text) rather than the bar's own coarse console, which has
-            // no room for readable prose. Centered rather than aligned
-            // under the specific hovered icon, for the same reasoning
-            // the label positions above needed real pixel-ratio math to
-            // get right - a full sentence of prose is far more sensitive
-            // to being a few columns off than a single digit is.
-            if let Some(name) = hovered_ability {
-                let mut tooltip_batch = DrawBatch::new();
-                tooltip_batch.target(HUD_CONSOLE);
-                let description = description_for_item_name(name)
-                    .unwrap_or_else(|| "No description.".to_string());
-                // Wrapped across multiple lines rather than one long
-                // print_color_centered call - some real descriptions
-                // (Freeze Trap's, for one) are long enough to run off
-                // both edges of the screen on a single line. Anchored to
-                // grow UPWARD from just above the bar's own red box
-                // (box_y, computed above) rather than a fixed row, so a
-                // longer description never collides with the box/icons
-                // below it regardless of how many lines it wraps to.
-                let lines = wrap_text(&format!("{}: {}", name, description), 70);
-                let start_row = ability_bar_tooltip_start_row(box_y, lines.len() as i32);
-                for (i, line) in lines.iter().enumerate() {
-                    tooltip_batch.print_color_centered(
-                        start_row + i as i32,
-                        line,
-                        ColorPair::new(WHITE, BLACK),
-                    );
-                }
-                tooltip_batch.submit(10003).expect("Batch error");
+        // Battle Bar - the class's in-battle Techniques, read-only
+        // reference only (not usable outside a fight at all - see
+        // battle::apply_player_technique/screens/battle.rs, which is the
+        // only place a Technique ever actually resolves), so no number
+        // labels and a GREEN box instead of red to visually tell the two
+        // bars apart at a glance. Sits immediately to the right of the
+        // Ability Bar - see battle_bar_start_col.
+        let battle_slots = battle_bar_slots(ecs, player, &technique_roster);
+        let battle_n = (battle_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
+        let battle_start_col = battle_bar_start_col(ability_start_col, ability_n);
+
+        for (i, slot) in battle_slots.iter().enumerate().take(battle_n as usize) {
+            let col = battle_start_col + i as i32;
+            let owned = slot.owned.is_some();
+            let glyph = glyph_for_item_name(&slot.name).unwrap_or('?');
+            draw_portrait(
+                &mut bar_batch,
+                col,
+                bar_row,
+                Render {
+                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
+                    glyph: to_cp437(glyph),
+                },
+            );
+            if bar_mouse.y == bar_row && bar_mouse.x == col {
+                let (_, box_y, _, _) = ability_bar_box_bounds(battle_start_col, battle_n, false);
+                hovered = Some((slot.name.clone(), box_y));
             }
         }
+        if battle_n > 0 {
+            let (box_x, box_y, box_w, box_h) =
+                ability_bar_box_bounds(battle_start_col, battle_n, false);
+            draw_ascii_box(
+                &mut label_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                ColorPair::new(GREEN, BLACK),
+            );
+        }
+
+        bar_batch.submit(10001).expect("Batch error");
+        label_batch.submit(10002).expect("Batch error");
+
+        // The hovered slot's tooltip (from either bar) - drawn on
+        // HUD_CONSOLE (fine text) rather than either bar's own coarse
+        // console, which has no room for readable prose. Centered rather
+        // than aligned under the specific hovered icon, for the same
+        // reasoning the label positions above needed real pixel-ratio
+        // math to get right - a full sentence of prose is far more
+        // sensitive to being a few columns off than a single digit is.
+        if let Some((name, box_y)) = hovered {
+            let mut tooltip_batch = DrawBatch::new();
+            tooltip_batch.target(HUD_CONSOLE);
+            let description =
+                description_for_item_name(&name).unwrap_or_else(|| "No description.".to_string());
+            // Wrapped across multiple lines rather than one long
+            // print_color_centered call - some real descriptions
+            // (Freeze Trap's, for one) are long enough to run off both
+            // edges of the screen on a single line. Anchored to grow
+            // UPWARD from just above whichever bar's box was hovered
+            // (box_y, captured above) rather than a fixed row, so a
+            // longer description never collides with the box/icons
+            // below it regardless of how many lines it wraps to.
+            let lines = wrap_text(&format!("{}: {}", name, description), 70);
+            let start_row = ability_bar_tooltip_start_row(box_y, lines.len() as i32);
+            for (i, line) in lines.iter().enumerate() {
+                tooltip_batch.print_color_centered(
+                    start_row + i as i32,
+                    line,
+                    ColorPair::new(WHITE, BLACK),
+                );
+            }
+            tooltip_batch.submit(10003).expect("Batch error");
+        }
+    }
+}
+
+#[cfg(test)]
+mod hud_system_execution_tests {
+    use super::*;
+
+    /// Actually EXECUTES the real hud system through a real Schedule -
+    /// not just a type-check. This is the only way to catch a legion
+    /// component-access declaration mismatch: querying a component type
+    /// inside a #[system] function that isn't also listed in that
+    /// function's own #[read_component]/#[write_component] attributes
+    /// compiles just fine (the type exists, the query is well-formed)
+    /// but panics at RUNTIME with `AccessDenied` the moment the system
+    /// actually executes and legion checks its declared permissions.
+    /// This exact bug shipped once already: components::
+    /// battle_items_carried queries BattleItem, but this system's own
+    /// #[read_component] list didn't include it after the Battle Bar
+    /// was added, since BattleItem had been removed from the list in an
+    /// earlier round (when the old Battle Attacks panel was deleted)
+    /// and never re-added when a NEW BattleItem query was introduced
+    /// later. `cargo check`/`cargo build` both stayed clean throughout -
+    /// only running the system for real surfaces this class of bug.
+    #[test]
+    fn hud_system_runs_without_a_component_access_panic() {
+        let mut world = World::default();
+        let player = world.push((
+            Health {
+                current: 10,
+                max: 10,
+            },
+            Player { map_level: 0 },
+            Class("Barbarian".to_string()),
+        ));
+        // A real BattleItem-tagged entity - exercises the exact query
+        // path that previously panicked, not just an empty/never-taken
+        // branch.
+        world.push((
+            Item,
+            BattleItem,
+            Carried(player),
+            Name("Deathblow".to_string()),
+        ));
+
+        let mut resources = Resources::default();
+        resources.insert(AbilityBarMousePos(Point::zero()));
+        resources.insert(None::<ShoppingActive>);
+        resources.insert(None::<ArenaRun>);
+        resources.insert(None::<ShopMessage>);
+
+        let mut schedule = Schedule::builder().add_system(hud_system()).build();
+
+        // No assertion needed beyond "this doesn't panic" - that IS the
+        // regression this test exists to catch.
+        schedule.execute(&mut world, &mut resources);
     }
 }

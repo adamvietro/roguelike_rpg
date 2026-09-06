@@ -3184,3 +3184,43 @@ Good catch — let's check why. This is a data gap, not a logic bug: Healing Pot
 2. **Added a fallback** in `item_menu.rs` so this can't go silently blank again — if a future item ever ships without a description, the selected-item line now shows "No description." instead of nothing, matching the same fallback the Ability Bar's tooltip already uses.
 
 **Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus 2 real tests against the actual `template.ron` file — one specifically confirming Healing Potion and Dungeon Map now have descriptions, and a broader sweep checking *every* universal usable item (not just these two) has one, so this exact class of gap gets caught automatically if it ever happens again with a future item. Both passed, removed before delivery.
+
+## Move Battle Abilities Hud to Item Menu
+Good — that's a clean simplification. Let's do it: strip the main dungeon HUD down to just the essentials, and consolidate Battle Attacks into the Item Menu's reference panel alongside Abilities and Weapons.Now let's rewrite the whole `hud` system, stripping it to just the essentials plus the Ability Bar:Now let's view what's left after that replacement and remove the remaining dead Battle Attacks/Weapons rendering code that follows:Now let's remove all the leftover dead code (from the orphaned Battle Attacks/Weapons block through the now-duplicate `draw_batch.submit`):Now let's remove the now-unused `HudMousePos` capture from `main.rs`, and the `Weapon`/`BattleItem` component-attribute leftovers already removed. Let's compile-check first:Good — `mouse_to_hud` is unrelated and still used elsewhere. Now let's remove the now-dead `HudMousePos` struct and fix `AbilityBarMousePos`'s doc comment reference:Now let's add the "Battle Attacks" section to the Item Menu's right-side panel:Now let's add the Battle Attacks section, right before Abilities:Now let's fix the top doc comment and typo, and compile check:Clean, zero warnings. Full build:Good — clean, no leftover tests as expected (this round was structural, no new numeric logic to test). Final sanity sweep:All clean, balanced, no leftover references anywhere. Restoring your real `Cargo.lock`:Confirmed untouched. Packaging the 4 changed files:## Done — 4 files, all modified
+
+| File                   | Save to                    |
+| ---------------------- | -------------------------- |
+| `systems_hud.rs`       | `src/systems/hud.rs`       |
+| `screens_item_menu.rs` | `src/screens/item_menu.rs` |
+| `main.rs`              | `src/main.rs`              |
+| `components.rs`        | `src/components.rs`        |
+
+**Dungeon HUD, stripped down:** removed the "Battle Attacks" and "Weapons" panels (and their mouse-hover tooltip machinery) from the exploration screen entirely. What's left there now is just the health bar, the top hint text, the dungeon level/gold indicator, shop stock while actually shopping, and the Ability Bar — nothing else.
+
+**Item Menu, now the one place to check everything:** the right-side reference panel now shows **Battle Attacks**, **Abilities**, and **Weapons** together, in that order, all read-only. Battle Attacks uses the exact same grouping logic the old HUD panel had, just without the entity-tracking that panel needed for its hover tooltip (not needed here, since this menu is keyboard-driven).
+
+**Cleanup that came along with it:** since Battle Attacks' hover tooltip was the *only* thing using the `HudMousePos` mouse-tracking resource, I removed that resource entirely rather than leaving it computed every frame for nothing — the type, its per-frame capture in `main.rs`, and the console-4 mouse read that fed it are all gone. `AbilityBarMousePos` (still very much in use) is untouched.
+
+**Verified:** full `cargo build` clean with zero warnings (including no leftover-unused-resource warnings from the `HudMousePos` removal), `Cargo.lock` restored and confirmed untouched, and a full sweep confirming no stale references to anything removed. This round was mostly relocation and deletion rather than new computed logic, so there wasn't new numeric/pixel math to write a test against — I ran the existing suite to confirm nothing regressed instead.
+
+## Battle Ability Bar
+Good, this is a clean addition to the pattern I've already got. Let me check the existing "Battle Attacks" data (technique roster + descriptions) before building the second bar.Good — battle techniques already carry real descriptions and glyphs, so `glyph_for_item_name`/`description_for_item_name` work as-is. Let's add the data-layer helper for the Battle Bar first:Now let's rework `hud.rs` — generalize the box-bounds function and add the second bar:Now let's view and rewrite the actual rendering block in the `hud` system:Now let's rewrite this whole block to add the second (Battle) bar with a shared hover/tooltip mechanism:Clean, zero warnings. Let's do a full build, then add real tests for the new/changed layout math:Now let's add real tests covering both bars, including the no-overlap guarantee for the second (label-less) bar and the two bars not colliding with each other:All 6 pass — including the new top-and-bottom overlap check specific to the label-less Battle Bar, and the gap/positioning check between the two bars. Let's run the full suite, then remove the test module:Clean full build, balanced braces, no leftover test scaffolding. Restoring your real `Cargo.lock`:Confirmed untouched. Packaging the 2 changed files:## Done — 2 files, both modified
+
+| File             | Save to              |
+| ---------------- | -------------------- |
+| `systems_hud.rs` | `src/systems/hud.rs` |
+| `components.rs`  | `src/components.rs`  |
+
+**Item Menu:** untouched, exactly as it was — Battle Attacks, Abilities, and Weapons all still there in the reference panel, item list and description on the left.
+
+**New Battle Bar, next to the existing Ability Bar:**
+- Shows every in-battle Technique the class could ever have, full roster with unowned ones greyed out — same convention as the Ability Bar.
+- Same icon size (40×40px), positioned immediately to the right of the Ability Bar with a small gap between the two boxes.
+- **Green box**, no number labels (these aren't usable outside battle at all, so a hotkey wouldn't mean anything here).
+- **Hover works on both bars now** — mouse over any icon in either bar shows its real description, wrapped and anchored just above whichever bar's box you're hovering.
+
+**One thing worth knowing:** the label-less Battle Bar's top edge needed its own careful pixel math — the Ability Bar gets safe clearance "for free" because its number label already sits above the icons, but the Battle Bar has nothing there, so I had to derive the same kind of z-order-safe clearance for its top edge that we fixed for the bottom edge last round. I wrote a dedicated test for exactly that (checking both edges, not just the bottom) since it's a new code path, not just a copy of the existing one.
+
+**Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus 6 real tests — including one confirming the two bars never overlap or touch across every possible combination of ability/technique counts (0 through 10 each). All passed, removed before delivery.
+
+### Greyed Out When Count is Zero
