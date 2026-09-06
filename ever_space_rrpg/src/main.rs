@@ -202,6 +202,20 @@ mod prelude {
     /// ABILITY_BAR_COLS cells is ever drawn into - the rest of this
     /// console's grid stays empty on purpose (see ABILITY_BAR_ROWS).
     pub const ABILITY_BAR_CONSOLE: usize = 12;
+    /// Console 13: a plain console, same DISPLAY_WIDTH x DISPLAY_HEIGHT
+    /// grid/32x32px dungeonfont cells as console 0/GLIDE_CONSOLE/etc -
+    /// the player-status frame's buff badges (systems/hud.rs), for the
+    /// abilities' own real sprite icons at a size smaller than
+    /// ABILITY_BAR_CONSOLE's 40px (32px is this project's other common
+    /// "native resolution" for dungeonfont art, already used by several
+    /// consoles above, rather than an arbitrary new size that would need
+    /// scaling the source art down and likely looking worse for it).
+    /// Registered last, after ABILITY_BAR_CONSOLE, so a badge always
+    /// paints over the portrait/bars beneath it. No background
+    /// (transparent everywhere except wherever a badge is actually
+    /// drawn), same as ABILITY_BAR_CONSOLE - only a few cells in the
+    /// whole grid are ever used.
+    pub const BUFF_BADGE_CONSOLE: usize = 13;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -1123,6 +1137,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(ABILITY_BAR_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(BUFF_BADGE_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1295,6 +1311,11 @@ fn main() -> BError {
         // the HUD, and every icon console above. See
         // ABILITY_BAR_CONSOLE's own doc comment for the grid shape.
         .with_simple_console_no_bg(ABILITY_BAR_COLS, ABILITY_BAR_ROWS, "dungeonfont.png")
+        // Console 13 (BUFF_BADGE_CONSOLE): a plain console, registered
+        // last of all so a badge always paints over the portrait/bars
+        // beneath it. See BUFF_BADGE_CONSOLE's own doc comment for why
+        // this grid (32px cells) rather than reusing ABILITY_BAR_CONSOLE.
+        .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_vsync(false)
         .build()?;
 

@@ -95,12 +95,20 @@ Roughly in the order they've come up:
      that hint was first added (copied verbatim from a hint list written
      assuming this already worked). Worth double-checking any hint text
      against actual behavior before trusting it as documentation.
-8. **Player buffs shown on the portrait** — the top-left class-portrait
-   icon (see item 5 above) should reflect an active buff while exploring
-   the dungeon, so the player has an at-a-glance signal without opening a
-   menu. Not scoped - needs a look at how `Buff`/`BuffKind` (currently a
-   battle-only concept) would map onto something visible outside combat,
-   and what happens with more than one active buff at once.
+8. ~~Player buffs shown on the portrait~~ — **done.** Turned out not to
+   need `Buff`/`BuffKind` at all - that's a battle-only concept, but the
+   3 out-of-combat lasting effects the player actually cares about
+   (Invisible Cloak, Stealth, Ice Armor) already exist as their own
+   dedicated components (`Invisible`/`Stealthed`/`IceArmored`), so this
+   is just "does the player entity currently have one of these 3
+   components," no new status-tracking system needed. Badges are the
+   abilities' own real sprite icons (not a generic placeholder), on a
+   new dedicated console (`BUFF_BADGE_CONSOLE`, 32px cells) - smaller
+   than the 40px portrait/Ability Bar icons, but still a resolution this
+   project's art is already drawn at elsewhere, so nothing needed
+   scaling down. Multiple simultaneous badges are supported (queued left
+   to right) even though in practice at most 2 can ever be active at
+   once (Invisible and Stealthed are mutually exclusive by class).
 9. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
 10. **Standing "fix issues with the battle system" bucket** — not a fixed

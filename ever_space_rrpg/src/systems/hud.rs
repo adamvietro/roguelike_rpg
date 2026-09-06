@@ -57,6 +57,60 @@ const HEALTH_BAR_WIDTH: i32 = 16;
 /// and the bar row are the same row, centered by construction.
 const HEALTH_BAR_ROWS: i32 = 1;
 
+/// Small status-effect badges, just below the class-portrait icon, for
+/// lasting effects on the player (Invisible Cloak, Stealth, Ice Armor -
+/// anything that persists for multiple turns/attacks rather than
+/// resolving instantly). These are the abilities' own real dungeonfont
+/// sprite icons - see BUFF_BADGE_CONSOLE's own doc comment in main.rs
+/// for why that needed a dedicated console (32px cells: smaller than
+/// the 40px portrait/Ability Bar icons, but still a resolution this
+/// project's art is already drawn at elsewhere, unlike an arbitrary
+/// smaller size that would need the source art scaled down).
+///
+/// Column/row here are in BUFF_BADGE_CONSOLE's own 32px-cell grid, NOT
+/// HEALTH_FRAME_ICON_COL/ROW's 40px one - converted by hand from the
+/// portrait's real pixel footprint (col/row 1 on a 40px grid = pixels
+/// [40,80)x[40,80)): BUFF_BADGE_COL_START sits under the portrait's
+/// left edge (40px / 32px ~= 1.25, floored - starting under rather than
+/// past it), BUFF_BADGE_ROW clears its bottom edge (80px / 32px = 2.5,
+/// ceiling to row 3 for real clearance, same reasoning
+/// ability_bar_box_bounds' own doc comment already gives for why a
+/// plain truncating division isn't enough on the far side of a gap).
+const BUFF_BADGE_COL_START: i32 = 1;
+const BUFF_BADGE_ROW: i32 = 3;
+
+/// Draws one buff badge at `*col` if `active`, then advances `*col` so
+/// the next badge (if any) sits immediately to its right - shared by all
+/// 3 checks in hud() rather than repeating the same draw+advance for
+/// each. `name` is the ability's own template name (e.g. "Ice Armor") -
+/// reuses glyph_for_item_name so the badge always matches whatever
+/// sprite that ability is actually mapped to, rather than a second,
+/// independently-hardcoded glyph that could drift out of sync with it.
+/// Drawn at full color (WHITE, i.e. no tint) rather than a distinct
+/// color per buff the way an earlier plain-text version of this did -
+/// this console's shader multiplies a glyph's real color by the color
+/// passed in (see UNOWNED_ICON_TINT's own doc comment on this same
+/// multiply for full-color custom art), so a strong tint here would
+/// distort each icon's actual colors instead of just distinguishing
+/// them; the icons themselves already look different from each other.
+fn draw_buff_badge(batch: &mut DrawBatch, col: &mut i32, active: bool, name: &str) {
+    if !active {
+        return;
+    }
+    if let Some(glyph) = glyph_for_item_name(name) {
+        draw_portrait(
+            batch,
+            *col,
+            BUFF_BADGE_ROW,
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437(glyph),
+            },
+        );
+        *col += 1;
+    }
+}
+
 /// How far below the player's own HUD_CONSOLE row the shop item tooltip
 /// box starts - one console-0 tile (the player's own dungeon-view sprite)
 /// is ~2.68 HUD_CONSOLE rows (32px / ~11.94px), so this needs to clear at
@@ -194,6 +248,9 @@ fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
 #[read_component(Class)]
 #[read_component(BattleItem)]
 #[read_component(Render)]
+#[read_component(Invisible)]
+#[read_component(Stealthed)]
+#[read_component(IceArmored)]
 pub fn hud(
     ecs: &SubWorld,
     #[resource] ability_bar_mouse_pos: &AbilityBarMousePos,
@@ -392,6 +449,34 @@ pub fn hud(
                 player_render,
             );
         }
+
+        // Buff badges - the abilities' own real sprite icons, just below
+        // the class portrait, for any lasting effect currently on the
+        // player. See BUFF_BADGE_CONSOLE's own doc comment in main.rs
+        // for why this needs its own console rather than reusing
+        // ABILITY_BAR_CONSOLE or HUD_CONSOLE.
+        let has_invisible = ecs
+            .entry_ref(player)
+            .ok()
+            .and_then(|entry| entry.get_component::<Invisible>().ok().copied())
+            .is_some();
+        let has_stealth = ecs
+            .entry_ref(player)
+            .ok()
+            .and_then(|entry| entry.get_component::<Stealthed>().ok().copied())
+            .is_some();
+        let has_ice_armor = ecs
+            .entry_ref(player)
+            .ok()
+            .and_then(|entry| entry.get_component::<IceArmored>().ok().copied())
+            .is_some();
+        let mut buff_batch = DrawBatch::new();
+        buff_batch.target(BUFF_BADGE_CONSOLE);
+        let mut buff_badge_col = BUFF_BADGE_COL_START;
+        draw_buff_badge(&mut buff_batch, &mut buff_badge_col, has_invisible, "Invisible Cloak");
+        draw_buff_badge(&mut buff_batch, &mut buff_badge_col, has_stealth, "Stealth");
+        draw_buff_badge(&mut buff_batch, &mut buff_badge_col, has_ice_armor, "Ice Armor");
+        buff_batch.submit(10003).expect("Batch error");
 
         // Out-of-combat Ability Bar - centered as a group, with number
         // labels (1-9, then 0) since these ARE directly usable via
@@ -598,6 +683,9 @@ mod hud_system_execution_tests {
             Player { map_level: 0 },
             Class("Barbarian".to_string()),
             Point::new(5, 5),
+            // Exercises the buff-badge path (Invisible/Stealthed/
+            // IceArmored) for real, not just an empty/never-taken branch.
+            Invisible { moves_remaining: 3 },
         ));
         // A real BattleItem-tagged entity - exercises the exact query
         // path that previously panicked, not just an empty/never-taken
