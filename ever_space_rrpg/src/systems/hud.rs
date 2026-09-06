@@ -17,6 +17,44 @@ use crate::prelude::*;
 /// color but can never truly desaturate it).
 const UNOWNED_ICON_TINT: (u8, u8, u8) = (40, 40, 40);
 
+/// The player-status frame's class-portrait icon lives at this
+/// ABILITY_BAR_CONSOLE cell (40x40px) - one full icon-size down and right
+/// from the screen's true top-left corner (cell (1,1), not (0,0)), so the
+/// whole frame isn't flush against the physical screen edge. Separate
+/// from the health bar's own HEALTH_BAR_* constants below because the
+/// icon is drawn on a different console (the coarse icon grid, not
+/// HUD_CONSOLE's fine text one).
+const HEALTH_FRAME_ICON_COL: i32 = 1;
+const HEALTH_FRAME_ICON_ROW: i32 = 1;
+
+/// Leaves room, in HUD_CONSOLE columns, for the icon's real right edge at
+/// (HEALTH_FRAME_ICON_COL + 1) * 40px - HUD_CONSOLE's own cells are
+/// roughly 12px each (1280 / HUD_COLS), so 80px needs about 7 of them;
+/// rounded up rather than down so the bar's own left edge clears the
+/// icon's real right edge instead of just barely reaching it.
+const HEALTH_BAR_START_COL: i32 = 7;
+/// Lines the bar's top edge up with the icon's own top edge - both now
+/// start one icon-size down from the physical top of the screen (see
+/// HEALTH_FRAME_ICON_ROW), just in each console's own row units
+/// (HEALTH_FRAME_ICON_ROW * 40px, converted to HUD_CONSOLE's ~12px rows).
+const HEALTH_BAR_START_ROW: i32 = 3;
+/// How many HUD_CONSOLE columns wide the health bar is - shorter than
+/// the original top-left version specifically because HEALTH_BAR_START_COL
+/// moved right (see that constant's own doc comment): keeping the SAME
+/// width here would push the bar's right edge into the "Explore the
+/// Dungeon..." hint text centered on this same row range, something the
+/// original version's width was already sized to clear.
+const HEALTH_BAR_WIDTH: i32 = 16;
+/// How many HUD_CONSOLE rows tall the health bar reads as (see hud()'s
+/// bar-drawing loop). A single row rather than 2+ deliberately - text can
+/// only ever print on one whole integer row (bracket-lib's console API
+/// has no sub-cell/fractional row positioning for text the way set_fancy
+/// offers for individual glyphs), so a multi-row bar can never actually
+/// CENTER the "current / max" overlay between its rows - it has to pick
+/// one, which reads as off-center. One row sidesteps that: the text row
+/// and the bar row are the same row, centered by construction.
+const HEALTH_BAR_ROWS: i32 = 1;
+
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
 /// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
@@ -126,6 +164,7 @@ fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
 #[read_component(Gold)]
 #[read_component(Class)]
 #[read_component(BattleItem)]
+#[read_component(Render)]
 pub fn hud(
     ecs: &SubWorld,
     #[resource] ability_bar_mouse_pos: &AbilityBarMousePos,
@@ -145,19 +184,45 @@ pub fn hud(
     } else {
         draw_batch.print_centered(1, "Explore the Dungeon. Cursor keys to move. M for Items.");
     }
-    draw_batch.bar_horizontal(
-        Point::zero(),
-        HUD_COLS,
-        player_health.current,
-        player_health.max,
-        ColorPair::new(RED, BLACK),
-    );
-    draw_batch.print_color_centered(
-        0,
-        format!(
-            " Health: {} / {} ",
-            player_health.current, player_health.max
-        ),
+    // Compact player-status frame, offset one icon-size down and right
+    // from the corner: a class-portrait icon (drawn further down on
+    // ABILITY_BAR_CONSOLE, see HEALTH_FRAME_ICON_COL/ROW) next to a health
+    // bar, replacing the old plain bar that used to span the ENTIRE top
+    // edge of the screen. HEALTH_BAR_START_COL/ROW line the bar up with
+    // the icon; HEALTH_BAR_WIDTH deliberately stops well short of
+    // HUD_COLS's full width so it doesn't run into the "Explore the
+    // Dungeon..." hint text centered on this same row range - all of
+    // these are still first-pass pixel guesses (see CLAUDE.md's
+    // bracket-lib layout gotcha) pending another screenshot.
+    //
+    // bar_horizontal only fills whole CELLS (one block glyph per cell, no
+    // partial-cell fill - confirmed against bracket-terminal's own
+    // draw_bar_horizontal source), so a bar this narrow on HUD_CONSOLE's
+    // fine ~12px-per-cell grid still gets HEALTH_BAR_WIDTH real fill
+    // steps - drawing it on the coarse 40px-per-cell icon console instead
+    // would look chunkier for the exact same reason with far fewer cells
+    // to work with. Drawn on HEALTH_BAR_ROWS consecutive rows (identical
+    // params each row) to fake a visually thick bar despite HUD_CONSOLE's
+    // cells being short.
+    for row in HEALTH_BAR_START_ROW..HEALTH_BAR_START_ROW + HEALTH_BAR_ROWS {
+        draw_batch.bar_horizontal(
+            Point::new(HEALTH_BAR_START_COL, row),
+            HEALTH_BAR_WIDTH,
+            player_health.current,
+            player_health.max,
+            ColorPair::new(RED, BLACK),
+        );
+    }
+    // Plain "current / max" numbers, no "Health:" label - centered on the
+    // BAR's own column range specifically (not the whole HUD_CONSOLE
+    // width the way the old label was), so it stays visually anchored to
+    // the bar regardless of how wide the rest of the console is.
+    let health_text = format!("{} / {}", player_health.current, player_health.max);
+    let health_text_col =
+        HEALTH_BAR_START_COL + (HEALTH_BAR_WIDTH - health_text.len() as i32) / 2;
+    draw_batch.print_color(
+        Point::new(health_text_col, HEALTH_BAR_START_ROW + HEALTH_BAR_ROWS / 2),
+        health_text,
         ColorPair::new(WHITE, RED),
     );
 
@@ -243,6 +308,25 @@ pub fn hud(
         // whichever bar's icon the mouse is currently over, checked
         // across BOTH bars so hovering either one shows its description.
         let mut hovered: Option<(String, i32)> = None;
+
+        // Player-status frame's class-portrait icon (top-left corner,
+        // next to the health bar drawn earlier on HUD_CONSOLE - see
+        // HEALTH_FRAME_ICON_COL/ROW). The exact same Render the player's
+        // own dungeon-map glyph and battle portrait already use (spawner
+        // ::spawn_player sets it once per class) - not a separate "icon"
+        // asset, just the same glyph at this console's bigger cell size.
+        if let Some(player_render) = ecs
+            .entry_ref(player)
+            .ok()
+            .and_then(|entry| entry.get_component::<Render>().ok().copied())
+        {
+            draw_portrait(
+                &mut bar_batch,
+                HEALTH_FRAME_ICON_COL,
+                HEALTH_FRAME_ICON_ROW,
+                player_render,
+            );
+        }
 
         // Out-of-combat Ability Bar - centered as a group, with number
         // labels (1-9, then 0) since these ARE directly usable via
