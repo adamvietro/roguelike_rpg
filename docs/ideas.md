@@ -12,13 +12,17 @@ build them — nothing there is scoped or scheduled just by being listed.
 
 Roughly in the order they've come up:
 
-1. **Player-status frame / Battle Arena shop overlap** — the new top-left
-   class-icon + health bar frame (see item 3 below) and the Battle Arena
-   shop's item list (`Shop` header + prices, drawn starting around
-   HUD_CONSOLE row 2-3) both claim the same top-left corner and now
-   collide whenever shopping. Confirmed via screenshot, not yet fixed -
-   likely either the shop list moves down, or the frame repositions
-   itself while `shopping` is active.
+1. ~~Player-status frame / Battle Arena shop overlap~~ — **done.** Rather
+   than moving either element, replaced the old fixed top-left item LIST
+   entirely with a single tooltip for whichever item is currently
+   adjacent to the player (`components::shop_item_near`, the exact same
+   lookup `buy_nearby_item` uses to decide what Enter actually buys, so
+   the tooltip can never show something different from what you'd
+   purchase). Anchored to the player's own on-screen position (converted
+   map coordinate -> HUD_CONSOLE cell via `mouse_to_hud`, same conversion
+   `tooltips.rs` already used for the mouse-hover tile tooltip) rather
+   than a fixed screen spot, so it travels with the player along the
+   counter instead of colliding with the frame above it.
 2. **Overall balance pass** — starting gold, starting items, and player/
    enemy stats generally. Not scoped - a real look at the numbers across
    both Dungeon Crawl and Battle Arena, not a specific bug.

@@ -57,6 +57,19 @@ const HEALTH_BAR_WIDTH: i32 = 16;
 /// and the bar row are the same row, centered by construction.
 const HEALTH_BAR_ROWS: i32 = 1;
 
+/// How far below the player's own HUD_CONSOLE row the shop item tooltip
+/// box starts - one console-0 tile (the player's own dungeon-view sprite)
+/// is ~2.68 HUD_CONSOLE rows (32px / ~11.94px), so this needs to clear at
+/// least that much to avoid sitting on top of the player, plus a little
+/// breathing room. First-pass pixel guess - see CLAUDE.md's bracket-lib
+/// layout gotcha - pending a screenshot.
+const SHOP_TOOLTIP_ROW_OFFSET: i32 = 4;
+/// The shop item tooltip box's fixed width/height, in HUD_CONSOLE cells -
+/// wide enough for the longest "{name} x{count} - {price}g" line
+/// currently possible, with margin either side.
+const SHOP_TOOLTIP_WIDTH: i32 = 40;
+const SHOP_TOOLTIP_HEIGHT: i32 = 3;
+
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
 /// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
@@ -187,6 +200,7 @@ pub fn hud(
     #[resource] shopping: &Option<ShoppingActive>,
     #[resource] arena_run: &Option<ArenaRun>,
     #[resource] shop_message: &Option<ShopMessage>,
+    #[resource] camera: &Camera,
 ) {
     let mut health_query = <&Health>::query().filter(component::<Player>());
     let player_health = health_query.iter(ecs).nth(0).unwrap();
@@ -279,25 +293,57 @@ pub fn hud(
     // Battle Attacks and Weapons used to have their own panels here too,
     // but both moved to the Item Menu's read-only reference panel (press
     // M - see screens/item_menu.rs) so this screen stays clean and the
-    // Ability Bar is the only thing drawing attention lower down. Shop
-    // stock is the one exception - it's tied to standing at a specific
-    // shop counter, not general inventory, so it still belongs here.
+    // Ability Bar is the only thing drawing attention lower down.
+    //
+    // Shop stock used to list EVERY item in the shop as a fixed top-left
+    // text block (rows 2+), which collided with the player-status frame
+    // above once that frame moved into this same corner - replaced with a
+    // single tooltip for whichever item is actually adjacent right now
+    // (components::shop_item_near - the exact same lookup buy_nearby_item
+    // uses, so this always shows what pressing Enter would actually buy),
+    // anchored near the PLAYER's own position rather than a fixed screen
+    // spot, so it travels with them along the counter.
     let player_class = entity_class(ecs, player);
     if shopping.is_some() {
-        let mut shop_row = 3;
-        let mut stock_query = <(&ShopStock, &Name, &Price)>::query();
-        let mut any_stock = false;
-        for (stock, name, price) in stock_query.iter(ecs) {
-            any_stock = true;
-            draw_batch.print_color(
-                Point::new(3, shop_row),
-                format!("{} x{} - {}g", name.0, stock.0, price.0),
-                ColorPair::new(GREEN, BLACK),
-            );
-            shop_row += 1;
-        }
-        if any_stock {
-            draw_batch.print_color(Point::new(3, 2), "Shop", ColorPair::new(YELLOW, BLACK));
+        if let Some(player_pos) = ecs
+            .entry_ref(player)
+            .ok()
+            .and_then(|entry| entry.get_component::<Point>().ok().copied())
+        {
+            if let Some((_, count, name, price)) = shop_item_near(ecs, player_pos) {
+                // player_pos is a map coordinate - subtract the camera's
+                // own top-left to land in console 0's screen-space (32px
+                // tiles, same conversion entity_render.rs uses to place
+                // the player's own glyph), then mouse_to_hud to reach
+                // HUD_CONSOLE's finer grid, same as tooltips.rs already
+                // does for the mouse-hover tooltip.
+                let player_screen =
+                    player_pos - Point::new(camera.left_x, camera.top_y);
+                let player_hud = mouse_to_hud(player_screen);
+
+                let text = format!("{} x{} - {}g", name, count, price);
+                let box_y = player_hud.y + SHOP_TOOLTIP_ROW_OFFSET;
+                let box_x = (player_hud.x - SHOP_TOOLTIP_WIDTH / 2).max(0);
+
+                // Added to the same draw_batch/submit(10000) as the rest
+                // of this function's HUD_CONSOLE drawing above, rather
+                // than a second batch submitted at the same z-order -
+                // two batches sharing one z-value on the same console is
+                // an ambiguous draw order waiting to happen.
+                draw_ascii_box(
+                    &mut draw_batch,
+                    box_x,
+                    box_y,
+                    SHOP_TOOLTIP_WIDTH,
+                    SHOP_TOOLTIP_HEIGHT,
+                    ColorPair::new(YELLOW, BLACK),
+                );
+                draw_batch.print_color(
+                    Point::new(box_x + 2, box_y + 1),
+                    text,
+                    ColorPair::new(GREEN, BLACK),
+                );
+            }
         }
     }
 
@@ -535,6 +581,12 @@ mod hud_system_execution_tests {
     /// and never re-added when a NEW BattleItem query was introduced
     /// later. `cargo check`/`cargo build` both stayed clean throughout -
     /// only running the system for real surfaces this class of bug.
+    /// Also exercises the shop-tooltip path (components::shop_item_near,
+    /// added alongside the player-status frame) - Shopping is Some, the
+    /// player has a real Point, and a ShopStock+Name+Price+Point entity
+    /// sits adjacent to it, so this actually runs the query that
+    /// replaced the old fixed shop item list, not just an empty/never-
+    /// taken branch.
     #[test]
     fn hud_system_runs_without_a_component_access_panic() {
         let mut world = World::default();
@@ -545,6 +597,7 @@ mod hud_system_execution_tests {
             },
             Player { map_level: 0 },
             Class("Barbarian".to_string()),
+            Point::new(5, 5),
         ));
         // A real BattleItem-tagged entity - exercises the exact query
         // path that previously panicked, not just an empty/never-taken
@@ -555,12 +608,20 @@ mod hud_system_execution_tests {
             Carried(player),
             Name("Deathblow".to_string()),
         ));
+        // Adjacent (one tile above the player) - exercises shop_item_near.
+        world.push((
+            ShopStock(3),
+            Point::new(5, 4),
+            Name("Healing Potion".to_string()),
+            Price(5),
+        ));
 
         let mut resources = Resources::default();
         resources.insert(AbilityBarMousePos(Point::zero()));
-        resources.insert(None::<ShoppingActive>);
+        resources.insert(Some(ShoppingActive));
         resources.insert(None::<ArenaRun>);
         resources.insert(None::<ShopMessage>);
+        resources.insert(Camera::new(Point::zero()));
 
         let mut schedule = Schedule::builder().add_system(hud_system()).build();
 

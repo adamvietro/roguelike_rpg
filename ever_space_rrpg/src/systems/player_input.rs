@@ -343,7 +343,7 @@ pub fn player_input(
 /// the floor (see spawner::spawn_shop_stock_at) - the counter row is a
 /// Wall tile (MapBuilder::new_arena_shop), so the player can never
 /// actually stand ON one, only in the walkable row directly below it.
-/// That structurally guarantees the ADJACENT check below only ever
+/// That structurally guarantees components::shop_item_near only ever
 /// matches the one item directly in front of the player, not a neighbor
 /// one column over - a real bug in an earlier version of this function,
 /// back when items sat on walkable floor tiles a player could stand on
@@ -361,19 +361,7 @@ fn buy_nearby_item(
         None => return false,
     };
 
-    const ADJACENT: [Point; 5] = [
-        Point { x: 0, y: 0 },
-        Point { x: 0, y: -1 },
-        Point { x: 0, y: 1 },
-        Point { x: -1, y: 0 },
-        Point { x: 1, y: 0 },
-    ];
-
-    let found = <(Entity, &ShopStock, &Point, &Name, &Price)>::query()
-        .iter(ecs)
-        .filter(|(_, _, &pos, _, _)| ADJACENT.iter().any(|&d| pos == player_pos + d))
-        .map(|(e, stock, _, name, price)| (*e, stock.0, name.0.clone(), price.0))
-        .next();
+    let found = shop_item_near(ecs, player_pos);
 
     let (stock_entity, remaining, name, price) = match found {
         Some(f) => f,

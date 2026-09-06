@@ -333,6 +333,40 @@ pub struct Gold(pub i32);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Price(pub i32);
 
+/// The ShopStock counter item currently on `pos`'s own tile or directly
+/// (orthogonally) adjacent to it, if any - (entity, remaining count,
+/// display name, price). Shared by player_input.rs's buy_nearby_item
+/// (the actual purchase) and systems/hud.rs's shop tooltip (what gets
+/// shown while standing there), so what the tooltip displays always
+/// matches what pressing Enter would actually buy - previously each had
+/// its own independent copy of this exact query before the tooltip
+/// needed the same lookup.
+///
+/// Shop items are ShopStock counter markers, not real Items sitting on
+/// the floor (see spawner::spawn_shop_stock_at) - the counter row is a
+/// Wall tile (MapBuilder::new_arena_shop), so the player can never
+/// actually stand ON one, only in the walkable row directly below it.
+/// That structurally guarantees this only ever matches the one item
+/// directly in front of `pos`, not a neighbor one column over.
+pub fn shop_item_near<T: EntityStore>(
+    ecs: &T,
+    pos: Point,
+) -> Option<(Entity, i32, String, i32)> {
+    const ADJACENT: [Point; 5] = [
+        Point { x: 0, y: 0 },
+        Point { x: 0, y: -1 },
+        Point { x: 0, y: 1 },
+        Point { x: -1, y: 0 },
+        Point { x: 1, y: 0 },
+    ];
+
+    <(Entity, &ShopStock, &Point, &Name, &Price)>::query()
+        .iter(ecs)
+        .filter(|(_, _, &p, _, _)| ADJACENT.iter().any(|&d| p == pos + d))
+        .map(|(e, stock, _, name, price)| (*e, stock.0, name.0.clone(), price.0))
+        .next()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WantsToMove {
     pub entity: Entity,
