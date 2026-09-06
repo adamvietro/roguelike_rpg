@@ -202,18 +202,6 @@ mod prelude {
     /// ABILITY_BAR_COLS cells is ever drawn into - the rest of this
     /// console's grid stays empty on purpose (see ABILITY_BAR_ROWS).
     pub const ABILITY_BAR_CONSOLE: usize = 12;
-    /// Console 2: the general-purpose "fine 8px text" overlay console
-    /// shared by several full-screen menus (battle, Pause, Options,
-    /// History, the Item Menu) - registered as SCREEN_WIDTH*2 x
-    /// SCREEN_HEIGHT*2 (160x100) 8px cells. Was previously only ever
-    /// referred to by the bare literal `2` at each call site; named here
-    /// so a helper like render_helpers::print_menu_row_centered (which
-    /// needs to know the ACTIVE console's real width to place its
-    /// pointer glyph correctly) has a correct value to pass instead of
-    /// accidentally reusing HUD_CONSOLE's different width (107) - see
-    /// screens/item_menu.rs, which did exactly that.
-    pub const FINE_TEXT_CONSOLE: usize = 2;
-    pub const FINE_TEXT_COLS: i32 = SCREEN_WIDTH * 2;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -296,12 +284,18 @@ struct State {
     /// Overview from a drill-down sub-view, so the cursor stays where it
     /// was on the class you just looked at).
     stats_view_cursor: usize,
-    /// Cursor row for the Item Menu's browsing list (press M) - see
-    /// screens/item_menu.rs. Reset to 0 in return_to_title; persists
+    /// Cursor position for the Item Menu (press M) - see
+    /// screens/item_menu.rs. Reuses battle::MenuCursor's exact 2-column
+    /// + remembered-row-per-column shape (col 0 = the left side's Items
+    /// + Equipped Items, concatenated into one list; col 1 = the right
+    /// side's Battle Actions + Dungeon Actions, same treatment) rather
+    /// than duplicating that logic for a second, unrelated menu - see
+    /// MenuCursor's own doc comment for why nothing about it is actually
+    /// battle-specific. Reset to (0, 0) in return_to_title; persists
     /// across individual menu opens within the same run otherwise (a
-    /// small, harmless convenience - if the list has since shrunk,
-    /// menu_nav's own clamping keeps this in bounds regardless).
-    item_menu_cursor: usize,
+    /// small, harmless convenience - if a list has since shrunk,
+    /// MenuCursor's own clamping keeps this in bounds regardless).
+    item_menu_cursor: MenuCursor,
     /// Cursor row for the Paused screen's menu (Resume/Options/Quit) -
     /// see screens/pause.rs. Same "reset only in return_to_title, not on
     /// every fresh open" reasoning as item_menu_cursor - Escape reaches
@@ -468,7 +462,7 @@ impl State {
             class_select_cursor: 0,
             options_cursor: 0,
             stats_view_cursor: 0,
-            item_menu_cursor: 0,
+            item_menu_cursor: MenuCursor::new(),
             pause_cursor: 0,
             enter_not_held_ms: 0.0,
             pending_enter_release: false,
@@ -985,7 +979,7 @@ impl State {
         self.class_select_cursor = 0;
         self.pending_enter_release = false;
         self.enter_not_held_ms = 0.0;
-        self.item_menu_cursor = 0;
+        self.item_menu_cursor = MenuCursor::new();
         self.pause_cursor = 0;
         self.pause_hint_index = 0;
         self.pause_hint_timer_ms = 0.0;

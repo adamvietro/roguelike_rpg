@@ -27,7 +27,8 @@ Templates(
             frequency: 1,
             base_damage: Some(1),
             class: Some("Barbarian"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A dull, rusted blade - better than fists, barely.")
         ),
         Template(
             entity_type: Item,
@@ -35,7 +36,8 @@ Templates(
             frequency: 1,
             base_damage: Some(2),
             class: Some("Barbarian"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A well-kept blade with a decent edge.")
         ),
         Template(
             entity_type: Item,
@@ -43,7 +45,8 @@ Templates(
             frequency: 1,
             base_damage: Some(3),
             class: Some("Barbarian"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A massive blade that hits like a truck.")
         ),
         Template(
             // Mage's weapon tier, parallel to the 3 Swords above - same
@@ -56,7 +59,8 @@ Templates(
             frequency: 1,
             base_damage: Some(1),
             class: Some("Mage"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A simple wooden staff, worn smooth from casting.")
         ),
         Template(
             entity_type: Item,
@@ -64,7 +68,8 @@ Templates(
             frequency: 1,
             base_damage: Some(2),
             class: Some("Mage"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A silver-capped staff that channels magic more cleanly.")
         ),
         Template(
             entity_type: Item,
@@ -72,7 +77,8 @@ Templates(
             frequency: 1,
             base_damage: Some(3),
             class: Some("Mage"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A staff humming with raw arcane power.")
         ),
         Template(
             // Rogue's weapon tier, parallel to the Swords/Staffs above -
@@ -84,7 +90,8 @@ Templates(
             frequency: 1,
             base_damage: Some(1),
             class: Some("Rogue"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A pitted little blade, more improvised than forged.")
         ),
         Template(
             entity_type: Item,
@@ -92,7 +99,8 @@ Templates(
             frequency: 1,
             base_damage: Some(2),
             class: Some("Rogue"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A balanced blade built for quick, precise strikes.")
         ),
         Template(
             entity_type: Item,
@@ -100,7 +108,8 @@ Templates(
             frequency: 1,
             base_damage: Some(3),
             class: Some("Rogue"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("Its edge is faintly discolored - best not to lick it.")
         ),
         Template(
             // Battle loot only - levels:[] means this never appears as a
@@ -312,7 +321,8 @@ Templates(
             frequency: 1,
             base_damage: Some(1),
             class: Some("Amazon"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A crude wooden spear, sharpened by hand.")
         ),
         Template(
             entity_type: Item,
@@ -320,7 +330,8 @@ Templates(
             frequency: 1,
             base_damage: Some(2),
             class: Some("Amazon"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A well-balanced bronze-tipped spear.")
         ),
         Template(
             entity_type: Item,
@@ -328,7 +339,8 @@ Templates(
             frequency: 1,
             base_damage: Some(3),
             class: Some("Amazon"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A heavy iron spear that punches clean through armor.")
         ),
         Template(
             // Amazon out-of-combat item - see
@@ -410,7 +422,8 @@ Templates(
             frequency: 1,
             base_damage: Some(1),
             class: Some("Hunter"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A simple bow, carved from a single branch.")
         ),
         Template(
             entity_type: Item,
@@ -418,7 +431,8 @@ Templates(
             frequency: 1,
             base_damage: Some(2),
             class: Some("Hunter"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A sturdy bow built for real game, not target practice.")
         ),
         Template(
             entity_type: Item,
@@ -426,7 +440,8 @@ Templates(
             frequency: 1,
             base_damage: Some(3),
             class: Some("Hunter"),
-            prefab_only: true
+            prefab_only: true,
+            description: Some("A powerful longbow with serious range and punch.")
         ),
         Template(
             // Hunter out-of-combat item, same shape as Amazon's Throw

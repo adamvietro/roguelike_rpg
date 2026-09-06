@@ -647,6 +647,30 @@ pub fn item_bar_slots<T: EntityStore>(
     build_roster_slots(roster, &owned_groups)
 }
 
+/// The Item Menu's "Equipped Items" section (screens/item_menu.rs) - just
+/// the currently-carried Weapon for now (armor/trinkets don't exist as
+/// components yet - see docs/ideas.md). Unlike ability_bar_slots/
+/// battle_bar_slots/item_bar_slots, there's no fixed "roster of every
+/// weapon this class could ever equip" to show greyed-out placeholders
+/// for - only one weapon is ever carried at a time (auto-pickup discards
+/// whatever was carried before), so this is just whatever's actually
+/// equipped right now, or empty if nothing is.
+pub fn equipped_weapon_slots<T: EntityStore>(ecs: &T, wielder: Entity) -> Vec<AbilityBarSlot> {
+    <(Entity, &Carried, &Weapon, &Name)>::query()
+        .iter(ecs)
+        .filter(|(_, carried, _, _)| carried.0 == wielder)
+        .map(|(entity, _, _, name)| AbilityBarSlot {
+            name: name.0.clone(),
+            // The real weapon entity, even though Equipped Items is
+            // browse/description-only today (see screens/item_menu.rs)
+            // and never actions this via Enter - the real entity costs
+            // nothing extra to thread through and is a lot less
+            // confusing than a placeholder that would need explaining.
+            owned: Some((1, *entity)),
+        })
+        .collect()
+}
+
 /// How many columns of breathing room sit between two adjacent bar groups
 /// on ABILITY_BAR_CONSOLE (Item | gap | Ability | gap | Battle) - shared
 /// by battle_bar_start_col and item_bar_start_col so the two gaps stay

@@ -23,10 +23,28 @@ Roughly in the order they've come up:
    `tooltips.rs` already used for the mouse-hover tile tooltip) rather
    than a fixed screen spot, so it travels with the player along the
    counter instead of colliding with the frame above it.
-2. **Overall balance pass** — starting gold, starting items, and player/
+2. ~~Item Menu redesign: full character dashboard~~ — **done.** Replaced
+   the old single potion-list-plus-reference-panel screen with 5 boxes:
+   Items, Equipped Items (just the carried weapon for now - no armor/
+   trinket components exist yet), Stats, Battle Actions, Dungeon Actions,
+   plus a shared description panel for whichever entry the cursor is on.
+   Cursor reuses `battle::MenuCursor` as-is (Left/Right switches side,
+   Up/Down flows through both stacked boxes on that side as one list) -
+   no new navigation logic needed, since nothing about that type was
+   actually battle-specific. Only Items and Dungeon Actions are usable
+   via Enter; Equipped Items and Battle Actions stay browse-only, the
+   same restriction they already had. Stats box is mode-aware (Arena
+   Level/Wave during a Battle Arena run, Dungeon Level otherwise - same
+   resource check the dungeon HUD's top-right corner already makes).
+   Also added descriptions to all 15 weapon templates (previously none
+   had any, so selecting a weapon showed "No description.") and removed
+   the now-fully-unused `FINE_TEXT_CONSOLE`/`FINE_TEXT_COLS` named
+   constants (console 2 itself is still used elsewhere, just via the
+   bare literal, not these names).
+3. **Overall balance pass** — starting gold, starting items, and player/
    enemy stats generally. Not scoped - a real look at the numbers across
    both Dungeon Crawl and Battle Arena, not a specific bug.
-3. ~~An Item Bar, mirroring the Ability Bar/Battle Bar model~~ — **done.**
+4. ~~An Item Bar, mirroring the Ability Bar/Battle Bar model~~ — **done.**
    A third icon bar, BLUE box, sitting immediately left of the Ability
    Bar (Item | gap | Ability | gap | Battle, all one row). Sits ALONGSIDE
    the Item Menu rather than replacing it — the Item Menu (`M`) is still
@@ -40,7 +58,7 @@ Roughly in the order they've come up:
    Roster is `spawner::universal_item_names()` (currently just Healing
    Potion + Dungeon Map, will grow as more universal items are added),
    shown greyed-out when unowned like the other two bars.
-4. ~~Player-status frame (class-portrait icon + health bar, top-left)~~ —
+5. ~~Player-status frame (class-portrait icon + health bar, top-left)~~ —
    **done.** Replaces the old plain full-width health bar. Icon reuses
    the player's existing `Render` component (same sprite as the dungeon-
    map glyph/battle portrait) on the Ability/Battle/Item Bar's console at
@@ -50,7 +68,7 @@ Roughly in the order they've come up:
    chunkier), one row tall specifically because text can't be centered
    between 2+ rows on this console API. See item 1 above for the one
    known collision this introduced (Battle Arena shop's item list).
-5. ~~Pause screen: bigger text, cursor menu, rotating hints~~ — **done.**
+6. ~~Pause screen: bigger text, cursor menu, rotating hints~~ — **done.**
    Header on the same big-font console Options/History already use;
    body on the medium HUD font instead of the old tiny 8px console.
    Resume/Options/Quit is now a real arrow-key + Enter menu
@@ -61,7 +79,7 @@ Roughly in the order they've come up:
    HUD moved here as a rotating "Hints" box (lower third of the screen,
    3 lines, cycling every 4s) instead - see `PAUSE_HINTS` for the list,
    add/remove freely.
-6. ~~Mouse-click-to-use on the Ability Bar~~ — **done** (`player_input.rs`'s
+7. ~~Mouse-click-to-use on the Ability Bar~~ — **done** (`player_input.rs`'s
    `use_ability_bar_click`). Turned out to need no new design at all -
    click hit-tests the bar's own column range, then calls the exact same
    `use_ability` the number keys already use, so clicking slot `n` and
@@ -77,52 +95,53 @@ Roughly in the order they've come up:
      that hint was first added (copied verbatim from a hint list written
      assuming this already worked). Worth double-checking any hint text
      against actual behavior before trusting it as documentation.
-7. **Player buffs shown on the portrait** — the top-left class-portrait
-   icon (see item 4 above) should reflect an active buff while exploring
+8. **Player buffs shown on the portrait** — the top-left class-portrait
+   icon (see item 5 above) should reflect an active buff while exploring
    the dungeon, so the player has an at-a-glance signal without opening a
    menu. Not scoped - needs a look at how `Buff`/`BuffKind` (currently a
    battle-only concept) would map onto something visible outside combat,
    and what happens with more than one active buff at once.
-8. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
+9. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
-9. **Standing "fix issues with the battle system" bucket** — not a fixed
-   list, just wherever ATB/multi-enemy/the cursor system turns up real
-   bugs as they get more play.
-10. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
+10. **Standing "fix issues with the battle system" bucket** — not a fixed
+    list, just wherever ATB/multi-enemy/the cursor system turns up real
+    bugs as they get more play.
+11. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
     floor loot entirely, likely reusing a good chunk of the Battle Arena
     shop's pricing/stock/purchase code. More natural now that a real
     "universal item" pool already exists behind the Item Menu.
-11. **Idle walk-in-place animation art** — the cycling infrastructure
+12. **Idle walk-in-place animation art** — the cycling infrastructure
     (`IdleAnimation` component) is built and genuinely cycling; every
     frame just points at the same placeholder glyph. Needs real distinct
     per-frame art, and maybe a move to a sprite sheet per class instead of
     cramming more cells into the one shared `dungeonfont.png`.
-12. **Music & sound effects** — no crate picked yet (`rodio` is the
+13. **Music & sound effects** — no crate picked yet (`rodio` is the
     leading candidate, since bracket-lib has no built-in audio support).
-13. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
+14. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
     small "x2" for two Freeze Traps, simplified away to actually finish
     the bars in one session. Hovering already reveals ownership, just not
     the exact count at a glance.
-14. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
+15. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
     overlap bug is fixed and tested, but the exact label/tooltip
     positioning was computed via pixel-ratio math without a full round of
     "here's a screenshot, nudge this" the way most of this project's
     visual work gets. Worth a dedicated look with a few different ability
     counts.
-15. **README.md needs a manual pass** — controls changed materially over
-    the last couple sessions (M for the Item Menu, number keys now mean
-    abilities not potions/maps, Item Bar/Ability Bar clicking, Pause
-    screen now a cursor menu) and the README wasn't touched.
-16. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
+16. **README.md needs a manual pass** — controls changed materially over
+    the last few sessions (M now opens a full character dashboard, not a
+    potion list; number keys mean abilities, not potions/maps; Item Bar/
+    Ability Bar clicking; Pause screen now a cursor menu) and the README
+    wasn't touched.
+17. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
     `start_arena`'s shop-building code — not urgent, just flagged.
-17. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
+18. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
     offset during a glide, instead of the smooth fractional one.
 
 ## Content / world
 
 - **Dungeon Shop** — replace most dungeon floor items with a shop at the
   end of each floor. Needs mobs to drop gold first (Battle Arena already
-  has a gold economy to borrow patterns from). See item 10 above — the
+  has a gold economy to borrow patterns from). See item 11 above — the
   Item Menu's universal-item pool makes this a more natural fit now.
 - **Chests** — findable in the dungeon, holding items; a way to keep some
   of the "find an item" feeling once floor-item drops move to the shop.
