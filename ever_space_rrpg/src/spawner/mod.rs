@@ -294,3 +294,34 @@ pub fn class_technique_names(class: &str) -> Vec<String> {
     let template = Templates::load();
     template.technique_names_for_class(class)
 }
+
+/// Every distinct out-of-combat ability name defined for `class`,
+/// regardless of ownership, in template.ron's own file order - see
+/// Templates::effect_names_for_class. Used by components::ability_bar_slots
+/// (via systems/hud.rs) to show a class's full out-of-combat roster on
+/// the Ability Bar with unowned ones greyed out - the exact same
+/// always-show-the-roster convention class_technique_names already
+/// established for the battle menu.
+pub fn class_effect_names(class: &str) -> Vec<String> {
+    let template = Templates::load();
+    template.effect_names_for_class(class)
+}
+
+/// The glyph a template named `name` renders as - see
+/// Templates::glyph_for_name. Used by the Ability Bar (systems/hud.rs) to
+/// show an icon for a roster slot even when the player doesn't currently
+/// own any copies of it (so there's no carried entity to read a Render
+/// component from).
+pub fn glyph_for_item_name(name: &str) -> Option<char> {
+    let template = Templates::load();
+    template.glyph_for_name(name)
+}
+
+/// The Description text a template named `name` carries, if any - see
+/// Templates::description_for_name. Used by the Ability Bar so hovering
+/// an unowned (greyed-out) roster slot still shows a real description,
+/// not nothing.
+pub fn description_for_item_name(name: &str) -> Option<String> {
+    let template = Templates::load();
+    template.description_for_name(name)
+}

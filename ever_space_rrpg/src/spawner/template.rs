@@ -450,6 +450,47 @@ impl Templates {
             .collect()
     }
 
+    /// Every distinct out-of-combat ABILITY name defined for `class` -
+    /// Trap, Throw Spear, Invisible Cloak, and so on - in template.ron's
+    /// own file order, which is what fixes the Ability Bar's slot order
+    /// (see components::ability_bar_slots/systems/hud.rs). Deliberately
+    /// mirrors technique_names_for_class's shape but filters on `effect`
+    /// instead of `technique`, so a class's out-of-combat abilities and
+    /// its in-battle techniques stay two clearly separate rosters -
+    /// exactly the split the Item Menu (universal consumables) and
+    /// Ability Bar (class abilities) now rely on.
+    pub fn effect_names_for_class(&self, class: &str) -> Vec<String> {
+        self.entities
+            .iter()
+            .filter(|t| t.effect.is_some() && t.class.as_deref() == Some(class))
+            .map(|t| t.name.clone())
+            .collect()
+    }
+
+    /// The glyph a template with this exact `name` renders as - used by
+    /// the Ability Bar (systems/hud.rs) to show an icon for a roster slot
+    /// the player doesn't currently own any copies of, where there's no
+    /// carried entity to read a Render component from at all. None if no
+    /// template has that name (shouldn't happen for anything actually in
+    /// a class's roster, but fails quietly rather than panicking).
+    pub fn glyph_for_name(&self, name: &str) -> Option<char> {
+        self.entities
+            .iter()
+            .find(|t| t.name == name)
+            .map(|t| t.glyph)
+    }
+
+    /// The Description text a template with this exact `name` carries, if
+    /// any - same reasoning as glyph_for_name (the Ability Bar needs this
+    /// for a roster slot with no carried entity to read a Description
+    /// component from).
+    pub fn description_for_name(&self, name: &str) -> Option<String> {
+        self.entities
+            .iter()
+            .find(|t| t.name == name)
+            .and_then(|t| t.description.clone())
+    }
+
     /// Every distinct ABILITY name defined for `class` - both in-battle
     /// Techniques (Deathblow, Fireball, ...) AND out-of-combat Effects
     /// (Stealth, Throw Spear, Invisible Cloak, ...), as long as the

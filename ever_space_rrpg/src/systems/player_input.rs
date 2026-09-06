@@ -10,6 +10,7 @@ use crate::prelude::*;
 #[read_component(Carried)]
 #[read_component(Weapon)]
 #[read_component(BattleItem)]
+#[read_component(Class)]
 #[read_component(Invisible)]
 #[read_component(Stealthed)]
 #[read_component(AmuletOfYala)]
@@ -40,6 +41,20 @@ pub fn player_input(
         // not rebindable.
         if key == VirtualKeyCode::Escape {
             *turn_state = TurnState::Paused;
+            return;
+        }
+
+        // Opens the Item Menu (universal consumables - Healing Potion,
+        // Dungeon Map, any future item every class can carry). Doesn't
+        // consume a turn by itself - see screens/item_menu.rs, which
+        // does that only once an item is actually used. Class-restricted
+        // abilities (Trap, Throw Spear, ...) never go through this menu
+        // at all - see the number-key handling below, which triggers
+        // those directly from the Ability Bar instead. Hardcoded rather
+        // than going through Keymap, same reasoning as Escape above -
+        // every letter can be rebound to a movement action.
+        if key == VirtualKeyCode::M {
+            *turn_state = TurnState::ItemMenu;
             return;
         }
 
@@ -130,7 +145,7 @@ pub fn player_input(
 
         // Only a genuinely turn-consuming action - movement (a real step
         // OR a wall/enemy bump, both of which cost a turn same as
-        // before), using a Potion/Map/out-of-combat ability item, or a
+        // before), using an Ability Bar slot (see use_ability), or a
         // successful shop purchase - actually advances the dungeon turn
         // below. Every other keypress (an unrecognized key, a number key
         // on an empty inventory slot, a failed purchase) leaves
@@ -153,43 +168,43 @@ pub fn player_input(
             Some(Action::MoveRight) => Point::new(1, 0),
             None => match key {
                 VirtualKeyCode::Key1 => {
-                    did_something |= use_item(0, ecs, commands);
+                    did_something |= use_ability(0, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key2 => {
-                    did_something |= use_item(1, ecs, commands);
+                    did_something |= use_ability(1, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key3 => {
-                    did_something |= use_item(2, ecs, commands);
+                    did_something |= use_ability(2, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key4 => {
-                    did_something |= use_item(3, ecs, commands);
+                    did_something |= use_ability(3, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key5 => {
-                    did_something |= use_item(4, ecs, commands);
+                    did_something |= use_ability(4, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key6 => {
-                    did_something |= use_item(5, ecs, commands);
+                    did_something |= use_ability(5, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key7 => {
-                    did_something |= use_item(6, ecs, commands);
+                    did_something |= use_ability(6, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key8 => {
-                    did_something |= use_item(7, ecs, commands);
+                    did_something |= use_ability(7, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key9 => {
-                    did_something |= use_item(8, ecs, commands);
+                    did_something |= use_ability(8, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Key0 => {
-                    did_something |= use_item(9, ecs, commands);
+                    did_something |= use_ability(9, ecs, commands);
                     Point::zero()
                 }
                 VirtualKeyCode::Return if shopping.is_some() => {
@@ -398,26 +413,44 @@ fn buy_nearby_item(
     true
 }
 
-/// Queues an ActivateItem for the item in usable_item_slots' slot `n`
-/// (see that function's doc comment for the fixed-identity Potion/Map
-/// layout), if one is actually there. Returns true only when a real item
-/// was found and queued - callers use this to decide whether the dungeon
-/// turn should advance at all (see player_input's did_something), since
-/// pressing a number key over an empty slot didn't actually do anything.
-fn use_item(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> bool {
+/// Queues an ActivateItem for the Ability Bar slot `n` (see
+/// components::ability_bar_slots and systems/hud.rs for the bar itself) -
+/// i.e. the class's `n`th out-of-combat ability in template.ron's own
+/// roster order, REGARDLESS of whether the player currently has any
+/// copies. Returns true only when a real, currently-owned copy was found
+/// and queued - callers use this to decide whether the dungeon turn
+/// should advance at all (see player_input's did_something). Pressing a
+/// number key over an ability the player doesn't currently have (an
+/// empty/greyed bar slot) does nothing, same as clicking a greyed-out
+/// button would - it's a legitimate "not available right now," not a
+/// bug, so no turn is spent trying.
+fn use_ability(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> bool {
     let player_entity = <(Entity, &Player)>::query()
         .iter(ecs)
         .find_map(|(entity, _player)| Some(*entity))
         .unwrap();
 
-    // usable_item_slots reserves key 1 for the potion slot and key 2 for
-    // the map slot by fixed identity - if either isn't carried, that slot
-    // is None and this key does nothing, rather than the next item
-    // sliding up to take its place.
-    let item_entity = usable_item_slots(ecs, player_entity)
-        .get(n)
-        .and_then(|slot| slot.as_ref())
-        .map(|(_, _, entity)| *entity);
+    let class = match entity_class(ecs, player_entity) {
+        Some(class) => class,
+        // No Class component at all shouldn't happen for a real player,
+        // but fail safe rather than panic.
+        None => return false,
+    };
+    let roster = class_effect_names(&class);
+    let ability_name = match roster.get(n) {
+        Some(name) => name,
+        None => return false,
+    };
+
+    let item_entity = usable_ability_items(ecs, player_entity, &class)
+        .into_iter()
+        .find(|item| {
+            ecs.entry_ref(*item)
+                .ok()
+                .and_then(|entry| entry.get_component::<Name>().ok().map(|n| n.0.clone()))
+                .as_deref()
+                == Some(ability_name.as_str())
+        });
 
     match item_entity {
         Some(item_entity) => {

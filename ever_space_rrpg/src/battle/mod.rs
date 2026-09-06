@@ -186,8 +186,11 @@ pub fn number_key_index(key: VirtualKeyCode) -> Option<usize> {
 // `wielder_class`), so callers can both count them (for the menu) and
 // consume one (removing the first entity in the list) when used.
 
-/// The class name on an entity's Class component, if it has one.
-pub fn entity_class(ecs: &World, entity: Entity) -> Option<String> {
+/// The class name on an entity's Class component, if it has one. Generic
+/// over EntityStore so it works both from plain `&World` contexts
+/// (screens/battle.rs, screens/title.rs) and from inside a `#[system]`'s
+/// `&SubWorld` (systems/player_input.rs's use_ability).
+pub fn entity_class<T: EntityStore>(ecs: &T, entity: Entity) -> Option<String> {
     <(Entity, &Class)>::query()
         .iter(ecs)
         .find(|(e, _)| **e == entity)

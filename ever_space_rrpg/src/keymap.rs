@@ -56,7 +56,7 @@ impl Action {
 // what lets a saved keymap.ron round-trip through plain text instead of
 // needing bracket-lib's own (feature-gated, not currently enabled)
 // VirtualKeyCode serde support.
-const REBINDABLE_KEYS: [VirtualKeyCode; 30] = [
+const REBINDABLE_KEYS: [VirtualKeyCode; 29] = [
     VirtualKeyCode::Up,
     VirtualKeyCode::Down,
     VirtualKeyCode::Left,
@@ -73,7 +73,11 @@ const REBINDABLE_KEYS: [VirtualKeyCode; 30] = [
     VirtualKeyCode::J,
     VirtualKeyCode::K,
     VirtualKeyCode::L,
-    VirtualKeyCode::M,
+    // M deliberately excluded - it's now hardcoded to open the Item Menu
+    // (see systems/player_input.rs), the same reason Escape/Space are
+    // never in this list either. Without this exclusion, a player could
+    // rebind a movement Action to M and then be unable to ever trigger
+    // it, since player_input checks for the Item Menu key first.
     VirtualKeyCode::N,
     VirtualKeyCode::O,
     VirtualKeyCode::P,

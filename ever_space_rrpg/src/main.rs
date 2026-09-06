@@ -168,6 +168,31 @@ mod prelude {
     /// EVERY portrait regardless of which of those consoles a portrait
     /// happens to use.
     pub const DAMAGE_POPUP_CONSOLE: usize = 11;
+    /// Columns in the Ability Bar's coarse icon grid - see
+    /// ABILITY_BAR_CONSOLE. Fixed at 9 (matching the 1-9 number-key
+    /// range every slot is already triggered by - see
+    /// systems/player_input.rs::use_ability), regardless of how many
+    /// abilities the current class actually has; unused trailing columns
+    /// on the right simply aren't drawn into.
+    pub const ABILITY_BAR_COLS: i32 = 9;
+    /// Rows in the Ability Bar's coarse grid - chosen so a cell's own
+    /// aspect ratio comes out close to square (1280/9 ≈ 142px wide vs.
+    /// 800/6 ≈ 133px tall) even though only the BOTTOM row is ever drawn
+    /// into - the rest exist purely to make that bottom row thin instead
+    /// of spanning the console's full physical height. Same "extra rows
+    /// just to control one cell's shape" trick BATTLE_PORTRAIT_COLS/ROWS
+    /// already uses, just inverted (there it's one wide row per
+    /// portrait; here it's one thin row of many).
+    pub const ABILITY_BAR_ROWS: i32 = 6;
+    /// Console 12: the Ability Bar's icon strip along the bottom of the
+    /// dungeon screen (systems/hud.rs) - a plain (non-fancy) console,
+    /// same dungeonfont as the class-select/battle-portrait icon
+    /// consoles, registered last so it renders above the dungeon tiles/
+    /// entities/HUD beneath it. No background (transparent everywhere
+    /// except the icons themselves), since only its bottom row of
+    /// ABILITY_BAR_COLS cells is ever drawn into - the rest of this
+    /// console's grid stays empty on purpose (see ABILITY_BAR_ROWS).
+    pub const ABILITY_BAR_CONSOLE: usize = 12;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -250,6 +275,12 @@ struct State {
     /// Overview from a drill-down sub-view, so the cursor stays where it
     /// was on the class you just looked at).
     stats_view_cursor: usize,
+    /// Cursor row for the Item Menu's browsing list (press M) - see
+    /// screens/item_menu.rs. Reset to 0 in return_to_title; persists
+    /// across individual menu opens within the same run otherwise (a
+    /// small, harmless convenience - if the list has since shrunk,
+    /// menu_nav's own clamping keeps this in bounds regardless).
+    item_menu_cursor: usize,
     /// Real elapsed ms Enter has been continuously NOT the held key,
     /// while pending_enter_release is armed - see that field's own doc
     /// comment and ENTER_RELEASE_DEBOUNCE_MS. Reset to 0 the instant
@@ -385,6 +416,7 @@ impl State {
             class_select_cursor: 0,
             options_cursor: 0,
             stats_view_cursor: 0,
+            item_menu_cursor: 0,
             enter_not_held_ms: 0.0,
             pending_enter_release: false,
         };
@@ -897,6 +929,7 @@ impl State {
         self.class_select_cursor = 0;
         self.pending_enter_release = false;
         self.enter_not_held_ms = 0.0;
+        self.item_menu_cursor = 0;
 
         let mut stats = Stats::load();
         if let Some((map_level, class)) = player_info {
@@ -1035,6 +1068,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(DAMAGE_POPUP_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(ABILITY_BAR_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1054,6 +1089,9 @@ impl GameState for State {
         ctx.set_active_console(HUD_CONSOLE);
         self.resources
             .insert(HudMousePos(Point::from_tuple(ctx.mouse_pos())));
+        ctx.set_active_console(ABILITY_BAR_CONSOLE);
+        self.resources
+            .insert(AbilityBarMousePos(Point::from_tuple(ctx.mouse_pos())));
         ctx.set_active_console(0);
         let current_state = self.resources.get::<TurnState>().unwrap().clone();
         match current_state {
@@ -1078,6 +1116,9 @@ impl GameState for State {
                 .execute(&mut self.ecs, &mut self.resources),
             TurnState::Paused => {
                 self.paused_tick(ctx);
+            }
+            TurnState::ItemMenu => {
+                self.item_menu_tick(ctx);
             }
             TurnState::Options => {
                 self.options_tick(ctx);
@@ -1191,6 +1232,11 @@ fn main() -> BError {
         // comment in the prelude module for why a separate console (not
         // just moving the draw calls) was the actual fix needed.
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
+        // Console 12 (ABILITY_BAR_CONSOLE): a plain console, registered
+        // last so it renders above everything else - the dungeon view,
+        // the HUD, and every icon console above. See
+        // ABILITY_BAR_CONSOLE's own doc comment for the grid shape.
+        .with_simple_console_no_bg(ABILITY_BAR_COLS, ABILITY_BAR_ROWS, "dungeonfont.png")
         .with_vsync(false)
         .build()?;
 

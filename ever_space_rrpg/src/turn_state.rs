@@ -10,6 +10,16 @@ pub enum TurnState {
     PlayerTurn,
     MonsterTurn,
     Paused,
+    /// The Item Menu (press M during dungeon exploration) - a browsable,
+    /// cursor-navigable list of universal consumables (Healing Potion,
+    /// Dungeon Map, any future item every class can carry). Reached from
+    /// AwaitingInput, returns there on Escape (no turn consumed) or after
+    /// using an item (PlayerTurn - see screens/item_menu.rs, which DOES
+    /// consume a turn). Class-restricted abilities (Trap, Throw Spear,
+    /// ...) live on the Ability Bar instead - see components::
+    /// ability_bar_slots/systems/hud.rs - and are triggered directly by
+    /// number key without ever opening this menu.
+    ItemMenu,
     /// Rebindable-keys screen - reached from Paused (press O) or the
     /// title screen (press O), returns there on Escape. See
     /// screens/options.rs and keymap.rs.

@@ -3087,4 +3087,60 @@ The fix: don't clear the guard on a single "not held" frame — require it to st
 
 **Verified with 5 real tests** (removed before delivery): stays armed under continuous hold, clears after a genuine sustained release, survives a single-frame flicker-then-held-again (the actual bug scenario), doesn't clear a moment early right up against the threshold, and leaves an already-unarmed guard alone. All passed. Also reran the whole test suite afterward to confirm nothing else regressed, and did a full `cargo build` (clean) plus your `Cargo.lock` restore-and-verify.
 
-## 
+## Item Menu/Ability Hotkeys
+All 6 tests pass. Now let's run the full test suite to confirm nothing else regressed, then remove the test module before delivery.Good — only these 6 in this run (the earlier rounds' tests were already removed in prior turns, as expected). Now removing this test module before delivery:Clean removal, balanced. Full `cargo build` to confirm nothing broke:Clean full build. Restoring your real `Cargo.lock`:Confirmed untouched. Let's do a final brace-balance sweep across every changed file, then package everything:All clean, balanced, and no leftover test scaffolding. Packaging the full set of 11 changed/new files for delivery:## Item Menu + Ability hotkeys — functional core done and verified
+
+**11 files — 1 new, 10 modified:**
+
+| File                      | Save to                       | Status       |
+| ------------------------- | ----------------------------- | ------------ |
+| `components.rs`           | `src/components.rs`           | modified     |
+| `battle_mod.rs`           | `src/battle/mod.rs`           | modified     |
+| `spawner_template.rs`     | `src/spawner/template.rs`     | modified     |
+| `spawner_mod.rs`          | `src/spawner/mod.rs`          | modified     |
+| `turn_state.rs`           | `src/turn_state.rs`           | modified     |
+| `keymap.rs`               | `src/keymap.rs`               | modified     |
+| `systems_player_input.rs` | `src/systems/player_input.rs` | modified     |
+| `systems_hud.rs`          | `src/systems/hud.rs`          | modified     |
+| `screens_item_menu.rs`    | `src/screens/item_menu.rs`    | **new file** |
+| `screens_mod.rs`          | `src/screens/mod.rs`          | modified     |
+| `main.rs`                 | `src/main.rs`                 | modified     |
+
+**What's working:**
+- **M opens the Item Menu** — a paused, cursor-navigable list of universal consumables (Healing Potion, Dungeon Map, future items). Escape closes it free; using an item costs a turn, exactly as you asked.
+- **Number keys 1–9 now trigger abilities directly**, by fixed roster position — "3" always means the class's 3rd ability, greyed/no-op if you don't currently have it.
+- **The item/ability split is driven entirely by the existing `class:` field** in template.ron — no schema changes, and it's fully general: any future item just needs (or skips) a `class:` tag to land in the right place automatically.
+- **`M` removed from rebindable keys** (it was a valid movement-rebind target before — could've silently broken).
+
+**Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed byte-identical, 6 real tests covering the split (menu-vs-ability filtering, weapons/battle-items excluded from both, stacking, full-roster-with-gaps, and — importantly — that a slot's position always matches roster order regardless of pickup order, since that's what makes "press 3" reliable) all passed and were removed before delivery.
+
+**Still ahead:** the actual visual — a row of ability icons along the bottom of the dungeon view with mouse-hover tooltips. Right now abilities show as a plain text list on the HUD's left side (functional, not the WoW-style bar). That's a distinct, sizable rendering task (new console, icon layout, hover hit-testing) — want me to start on that next?
+
+### Cont
+Now let's add `AbilityBarMousePos` right next to `HudMousePos`:Now let's add the console registration in `main.rs`. First let's check the const declarations block:Now register the actual console in the `BTermBuilder` chain:Now let's add the per-frame clear and mouse capture in `tick()`:Let's add a `description_for_name` lookup too, mirroring `glyph_for_name`:Good — they all have real descriptions already (used for the existing "Battle Attacks" hover tooltip). Now let's write the actual bar rendering in `systems/hud.rs`:Now let's replace the interim text-based Abilities panel with the real icon bar:Let's add a quick real-data test for the two new template lookups before wrapping up, matching this project's "verify against the real RON file" convention:Both pass, including the sweep confirming every real class's ability roster resolves a valid glyph and description in the actual template.ron file. Let's run the full test suite once more, then remove the test module.Now removing the test module before delivery:Clean full build. Restoring your real `Cargo.lock`:Confirmed untouched. Final sanity sweep across every file touched this round:All clean and balanced. Packaging the 5 files changed this round:## Ability Bar — done for tonight
+
+**5 files, all modified:**
+
+| File                  | Save to                   |
+| --------------------- | ------------------------- |
+| `components.rs`       | `src/components.rs`       |
+| `spawner_template.rs` | `src/spawner/template.rs` |
+| `spawner_mod.rs`      | `src/spawner/mod.rs`      |
+| `systems_hud.rs`      | `src/systems/hud.rs`      |
+| `main.rs`             | `src/main.rs`             |
+
+**What's there now:**
+
+- A real icon bar along the bottom of the dungeon screen, on its own new console (`ABILITY_BAR_CONSOLE`, registered last so it always renders on top). Icons come straight from the existing dungeonfont art — no new art needed.
+- **Greyed out when not currently carried** — reuses the exact `owned: Option<...>` data from `ability_bar_slots` you already have, so a slot with 0 charges shows dim instead of just vanishing.
+- **Hover shows the real description** — pulled from each ability's own `template.ron` entry, which works even for a *greyed-out* slot (no carried item entity needed to read it from).
+- Number keys 1–9 already drove these slots from the last round, so the bar and the hotkeys are now the same underlying data — nothing to keep in sync separately.
+
+**One thing I simplified to actually finish tonight, worth knowing about:**
+- **No stack-count badge on the icons yet** (e.g., no small "x2" for two Freeze Traps) — hovering still shows you own it, just not the exact count at a glance. Small addition for later if you want it.
+- **Tooltip text is centered on screen**, not aligned precisely under the hovered icon — the two consoles involved don't share a simple pixel conversion the way the dungeon-view/HUD ones do, and I didn't want to guess at exact positioning without being able to render and check it. Functionally complete, just not pixel-perfect placement — a good candidate for the "expect a round of correction from real screenshots" treatment next time you're at the keyboard.
+- Mouse-click-to-use is still deferred, as planned — number keys only for now.
+
+**Verified:** full `cargo build` clean, `Cargo.lock` restored and confirmed untouched, plus a real test that checked *every* class's actual ability roster resolves a valid glyph and description against the live `template.ron` file (not a mock) — catches exactly the kind of "roster lists something the data doesn't back up" bug that would otherwise show up silently as a `?` icon in-game. Removed before delivery, like everything else this session.
+
+### Icon is too Big

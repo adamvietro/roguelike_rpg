@@ -374,6 +374,16 @@ pub struct BattleItem;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HudMousePos(pub Point);
 
+/// The mouse position captured in the Ability Bar console's own
+/// coordinate space (see main.rs::ABILITY_BAR_CONSOLE), same reasoning
+/// as HudMousePos above - captured directly in that console's own
+/// (coarse, few-cells) grid rather than converted from a finer one,
+/// since converting DOWN loses no precision but converting UP can't
+/// recover it. Used by systems/hud.rs to detect hovering a bar slot for
+/// its tooltip.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AbilityBarMousePos(pub Point);
+
 /// Flavor/mechanical text shown when hovering an item's HUD listing (see
 /// systems/hud.rs). Optional - only items that want a tooltip need one.
 #[derive(Clone, PartialEq)]
@@ -398,12 +408,11 @@ pub struct Carried(pub Entity);
 /// usable via a number-key press - i.e. NOT a Weapon (equipped/applied
 /// automatically, see carried_weapon_damage in battle.rs) and NOT a
 /// BattleItem (used from the battle menu instead, not the dungeon-view
-/// item keys). This is the single source of truth for both what the HUD
-/// lists on the left AND which entity a given number key activates
-/// (see systems/hud.rs and systems/player_input.rs::use_item) - using the
-/// same list in both places keeps the displayed numbering and the actual
-/// key-to-item mapping from ever drifting apart.
-pub fn usable_carried_items(ecs: &SubWorld, wielder: Entity) -> Vec<Entity> {
+/// item keys). This is the single source of truth both usable_menu_items
+/// and usable_ability_items below split further - using the same
+/// underlying list in both keeps them from ever double-counting or
+/// missing an item type.
+pub fn usable_carried_items<T: EntityStore>(ecs: &T, wielder: Entity) -> Vec<Entity> {
     let mut items: Vec<Entity> = <(Entity, &Item, &Carried)>::query()
         .iter(ecs)
         .filter(|(_, _, carried)| carried.0 == wielder)
@@ -414,31 +423,69 @@ pub fn usable_carried_items(ecs: &SubWorld, wielder: Entity) -> Vec<Entity> {
         })
         .collect();
 
-    // Fixed hotkey slots: Healing Potion always lands on key 1 (when
-    // carried), Dungeon Map always lands on key 2, and every other
-    // out-of-combat item (Invisible Cloak, Ice Armor, future class
-    // items, etc.) fills key 3+ - in whatever order they were picked up,
-    // since sort_by_key is stable. Without this, "1" would be whatever
-    // happened to iterate first in the ECS, which has no relationship to
-    // item type and would shift around depending on pickup order.
+    // Healing Potion first, Dungeon Map second (when carried), everything
+    // else after - just a stable, sensible default ordering for the Item
+    // Menu list now (see usable_menu_items) rather than a fixed-identity
+    // hotkey requirement the way it used to be, back when 1/2 were
+    // hardcoded to these specific items.
     items.sort_by_key(|e| item_hotkey_priority(ecs, *e));
     items
 }
 
-/// Groups usable_carried_items by item name, stacking identical copies
-/// (e.g. two Healing Potions become one "Healing Potion" entry with a
-/// count of 2) instead of one line/hotkey slot per physical copy. Number
-/// keys and the HUD's item list both key off position in THIS list now -
-/// see systems/player_input.rs::use_item and systems/hud.rs. Keeps one
-/// representative entity per group (the first copy encountered); pressing
-/// that slot's number key consumes just that one entity, so a stack of 2
-/// potions correctly becomes a stack of 1 after using one, not both.
-/// Group order still follows usable_carried_items' hotkey priority
-/// (potion first, map second, everything else after) - same pattern
-/// systems/hud.rs already uses for grouping the battle-items panel.
-pub fn usable_item_groups(ecs: &SubWorld, wielder: Entity) -> Vec<(String, i32, Entity)> {
+/// The Class name on an item entity, if it has one - the signal that
+/// splits usable_carried_items into the Item Menu's universal
+/// consumables (usable_menu_items, no Class at all) versus the Ability
+/// Bar's class-restricted abilities (usable_ability_items, Class ==
+/// wielder's own class). Every out-of-combat item template already
+/// either omits `class:` entirely (Healing Potion, Dungeon Map) or tags
+/// it with a specific class (Trap, Throw Spear, Invisible Cloak, ...) -
+/// this reuses that existing data rather than needing any new field.
+fn item_class<T: EntityStore>(ecs: &T, item: Entity) -> Option<String> {
+    ecs.entry_ref(item)
+        .ok()
+        .and_then(|entry| entry.get_component::<Class>().ok().map(|c| c.0.clone()))
+}
+
+/// The Item Menu's contents (press M - see screens/item_menu.rs): every
+/// usable_carried_items entry with NO Class restriction at all -
+/// Healing Potion, Dungeon Map, and any future item every class can
+/// carry. Class-restricted items are deliberately excluded here - see
+/// usable_ability_items, their home on the Ability Bar instead.
+pub fn usable_menu_items<T: EntityStore>(ecs: &T, wielder: Entity) -> Vec<Entity> {
+    usable_carried_items(ecs, wielder)
+        .into_iter()
+        .filter(|e| item_class(ecs, *e).is_none())
+        .collect()
+}
+
+/// The Ability Bar's contents (systems/hud.rs) - every
+/// usable_carried_items entry whose Class matches `wielder_class`.
+/// Filtered to the wielder's own class defensively, though in practice a
+/// carried item's Class should already always match the wielder's -
+/// items are only ever granted class-matched in the first place.
+pub fn usable_ability_items<T: EntityStore>(
+    ecs: &T,
+    wielder: Entity,
+    wielder_class: &str,
+) -> Vec<Entity> {
+    usable_carried_items(ecs, wielder)
+        .into_iter()
+        .filter(|e| item_class(ecs, *e).as_deref() == Some(wielder_class))
+        .collect()
+}
+
+/// Groups a list of item entities by display Name, stacking identical
+/// copies (e.g. two Healing Potions become one "Healing Potion" entry
+/// with a count of 2) instead of one line/hotkey slot per physical copy.
+/// Keeps one representative entity per group (the first copy
+/// encountered) - using that group's slot consumes just that one entity,
+/// so a stack of 2 correctly becomes a stack of 1 after using one, not
+/// both. Shared by the Item Menu (grouping usable_menu_items) and the
+/// Ability Bar (grouping usable_ability_items) - previously each had its
+/// own near-identical copy of this loop before the item/ability split.
+pub fn group_items<T: EntityStore>(ecs: &T, items: Vec<Entity>) -> Vec<(String, i32, Entity)> {
     let mut groups: Vec<(String, i32, Entity)> = Vec::new();
-    for item in usable_carried_items(ecs, wielder) {
+    for item in items {
         let name = match ecs
             .entry_ref(item)
             .ok()
@@ -455,33 +502,61 @@ pub fn usable_item_groups(ecs: &SubWorld, wielder: Entity) -> Vec<(String, i32, 
     groups
 }
 
-/// Fixed-identity hotkey slots: index 0 is ALWAYS the Healing Potion slot
-/// and index 1 is ALWAYS the Dungeon Map slot - `None` when not carried,
-/// rather than usable_item_groups' behavior of letting the next item
-/// quietly slide up to fill the gap (so key 2 stops being "whatever's
-/// second" and starts being "the map, or nothing"). Every other item
-/// group follows at index 2+, in usable_item_groups' order. main.rs and
-/// hud.rs both index off THIS list now for number keys 1-9.
-pub fn usable_item_slots(ecs: &SubWorld, wielder: Entity) -> Vec<Option<(String, i32, Entity)>> {
-    let mut potion = None;
-    let mut map = None;
-    let mut rest = Vec::new();
-    for group in usable_item_groups(ecs, wielder) {
-        match group.0.as_str() {
-            "Healing Potion" => potion = Some(group),
-            "Dungeon Map" => map = Some(group),
-            _ => rest.push(Some(group)),
-        }
-    }
-    let mut slots = vec![potion, map];
-    slots.extend(rest);
-    slots
+/// The Item Menu's grouped, displayable rows (see screens/item_menu.rs) -
+/// usable_menu_items, grouped by name. Since it's a real scrollable/
+/// cursor-navigable list now rather than fixed hotkey slots, there's no
+/// need to preserve gaps for an uncarried Potion/Map the way the old
+/// fixed-identity usable_item_slots had to - group_items' natural
+/// "only what's actually carried" output is exactly what a real menu
+/// wants.
+pub fn usable_item_groups<T: EntityStore>(ecs: &T, wielder: Entity) -> Vec<(String, i32, Entity)> {
+    group_items(ecs, usable_menu_items(ecs, wielder))
+}
+
+/// One Ability Bar slot - see ability_bar_slots. `owned` is None for an
+/// ability the class roster includes but the player doesn't currently
+/// have any copies of (shown greyed out, per the always-show-the-full-
+/// roster convention the battle menu already established for
+/// techniques).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AbilityBarSlot {
+    pub name: String,
+    /// (count, a representative entity to consume when used) - None if
+    /// not currently carried at all.
+    pub owned: Option<(i32, Entity)>,
+}
+
+/// The Ability Bar's full row of slots, in FIXED roster order (from
+/// `roster` - see spawner::effect_names_for_class, which reads that
+/// order straight from template.ron) - every slot the class could ever
+/// have shows up here every time, greyed out (owned: None) when not
+/// currently carried, rather than the list compacting around whatever's
+/// actually owned right now. This is what makes "press 3" always mean
+/// "this class's 3rd roster ability," in battle or out, even during a
+/// run where that ability hasn't dropped yet.
+pub fn ability_bar_slots<T: EntityStore>(
+    ecs: &T,
+    wielder: Entity,
+    wielder_class: &str,
+    roster: &[String],
+) -> Vec<AbilityBarSlot> {
+    let owned_groups = group_items(ecs, usable_ability_items(ecs, wielder, wielder_class));
+    roster
+        .iter()
+        .map(|name| AbilityBarSlot {
+            name: name.clone(),
+            owned: owned_groups
+                .iter()
+                .find(|(n, _, _)| n == name)
+                .map(|(_, count, entity)| (*count, *entity)),
+        })
+        .collect()
 }
 
 /// Sort key used by usable_carried_items - see its comment for the slot
 /// assignment. Falls back to the "other items" bucket if the entity has
 /// no Name for some reason, rather than panicking.
-fn item_hotkey_priority(ecs: &SubWorld, item: Entity) -> i32 {
+fn item_hotkey_priority<T: EntityStore>(ecs: &T, item: Entity) -> i32 {
     let name = ecs
         .entry_ref(item)
         .ok()
