@@ -99,19 +99,25 @@ fn ability_bar_label_position(col: i32) -> (i32, i32) {
 /// it. A pad on every side keeps the border from touching the icons/
 /// labels themselves.
 ///
-/// Both edges facing the icon row need more care than a flat "+-1" pad:
-/// ABILITY_BAR_CONSOLE (where the icons actually live) renders ABOVE
-/// HUD_CONSOLE (where this box is drawn) in z-order, so any HUD_CONSOLE
-/// row whose PIXELS overlap the icon's own pixel range gets visually
-/// painted over by the icon, border or not. A plain truncating division
-/// from a pixel position into HUD_CONSOLE row units can land a row whose
-/// pixels still reach into that overlap - a flat "+-1 row" of nominal
-/// padding then isn't actually one whole row of real clearance. The
-/// bottom edge rounds UP first (ceiling division) before adding
-/// clearance, so the chosen row's pixels start at or after the icon's
-/// true bottom edge; the top edge's plain truncating division already
-/// rounds down (safe on that side) so it only needs the extra "-1" for
-/// breathing room, not a ceiling.
+/// The edges past which the box GROWS AWAY from the icons (bottom, right)
+/// need more care than a flat "+1" pad, on both axes: ABILITY_BAR_CONSOLE
+/// (where the icons actually live) renders ABOVE HUD_CONSOLE (where this
+/// box is drawn) in z-order, so any HUD_CONSOLE row/column whose PIXELS
+/// overlap the icon's own pixel range gets visually painted over by the
+/// icon, border or not. A plain truncating division from a pixel position
+/// into HUD_CONSOLE cell units can land a cell whose pixels still reach
+/// into that overlap - a flat "+1" of nominal padding then isn't actually
+/// one whole cell of real clearance. Both the bottom and right edges
+/// round UP first (ceiling division) before adding clearance, so the
+/// chosen row/column's pixels start at or after the icon's true bottom/
+/// right edge; the top and left edges' plain truncating division already
+/// rounds down/toward the icon (safe on those sides, since the box is
+/// growing AWAY from the icon there) so they only need the extra "-1"
+/// for breathing room, not a ceiling. The right edge originally used the
+/// same plain-truncation-plus-flat-pad the bottom edge already avoided -
+/// confirmed as a real bug via screenshot, not just theoretical: a
+/// full-bleed ability icon's art visibly crowded right up against the
+/// border with almost no gap.
 fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32, i32, i32) {
     let bar_row = ability_bar_row();
 
@@ -121,7 +127,15 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
     let icons_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
 
     let left = (icons_left_px * HUD_COLS / 1280) - 1;
-    let right = (icons_right_px * HUD_COLS / 1280) + 1;
+    // Ceiling division (the "+ 1279" trick), THEN +1 for real clearance -
+    // same reasoning as the bottom edge below, and the same bug the
+    // bottom edge already avoided: a plain truncating division here
+    // rounds the right edge DOWN, i.e. toward the icon's own pixels
+    // rather than past them, so a flat "+1" wasn't real clearance -
+    // confirmed visually (a full-bleed icon's art crowded right up
+    // against the border with almost no gap).
+    let icons_right_col = (icons_right_px * HUD_COLS + 1279) / 1280;
+    let right = icons_right_col + 1;
     // Ceiling division (the "+ 799" trick), THEN +1 for real clearance -
     // see this function's own doc comment.
     let icons_bottom_row = (icons_bottom_px * HUD_ROWS + 799) / 800;
