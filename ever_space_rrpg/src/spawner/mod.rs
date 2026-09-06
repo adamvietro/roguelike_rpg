@@ -307,6 +307,18 @@ pub fn class_effect_names(class: &str) -> Vec<String> {
     template.effect_names_for_class(class)
 }
 
+/// Every distinct universal usable item name (no class restriction),
+/// regardless of ownership, in template.ron's own file order - see
+/// Templates::universal_item_names. Used by components::item_bar_slots
+/// (via systems/hud.rs) to show the full roster of possible universal
+/// items on the Item Bar with unowned ones greyed out - the same
+/// always-show-the-roster convention class_effect_names/
+/// class_technique_names already established for the other two bars.
+pub fn universal_item_names() -> Vec<String> {
+    let template = Templates::load();
+    template.universal_item_names()
+}
+
 /// The glyph a template named `name` renders as - see
 /// Templates::glyph_for_name. Used by the Ability Bar (systems/hud.rs) to
 /// show an icon for a roster slot even when the player doesn't currently

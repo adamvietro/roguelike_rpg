@@ -372,6 +372,22 @@ pub struct BattleItem;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AbilityBarMousePos(pub Point);
 
+/// True for exactly one frame per physical left-click - the instant the
+/// button transitions from up to down, computed in main.rs::tick() from
+/// bracket-lib's own level-state query (`INPUT.lock().is_mouse_button_
+/// pressed(0)`) compared against the previous frame's state, NOT from
+/// `BTerm::left_click`. `left_click` is edge-triggered per mouse-button
+/// EVENT rather than per physical click - bracket-terminal's own
+/// `on_mouse_button` sets it unconditionally for button 0 regardless of
+/// whether the event was a press or a release, so a single click (one
+/// press + one later release) sets `left_click` true on two separate
+/// frames. A naive `if ctx.left_click` on the Item Bar's click-to-use
+/// handler would fire twice per click. Comparing consecutive frames of
+/// the real held/not-held state sidesteps that quirk entirely rather than
+/// trying to debounce it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MouseLeftJustPressed(pub bool);
+
 /// Flavor/mechanical text shown when hovering an item's HUD listing (see
 /// systems/hud.rs). Optional - only items that want a tooltip need one.
 #[derive(Clone, PartialEq)]
@@ -514,6 +530,28 @@ pub struct AbilityBarSlot {
     pub owned: Option<(i32, Entity)>,
 }
 
+/// Matches a fixed `roster` of names against whatever's actually owned
+/// (`owned_groups`, from group_items) - the shared "always show the full
+/// roster, grey out what's unowned" shape behind ability_bar_slots,
+/// battle_bar_slots, and item_bar_slots, pulled out once they'd otherwise
+/// be three near-identical copies of this same loop (the same reasoning
+/// group_items itself was already extracted for).
+fn build_roster_slots(
+    roster: &[String],
+    owned_groups: &[(String, i32, Entity)],
+) -> Vec<AbilityBarSlot> {
+    roster
+        .iter()
+        .map(|name| AbilityBarSlot {
+            name: name.clone(),
+            owned: owned_groups
+                .iter()
+                .find(|(n, _, _)| n == name)
+                .map(|(_, count, entity)| (*count, *entity)),
+        })
+        .collect()
+}
+
 /// The Ability Bar's full row of slots, in FIXED roster order (from
 /// `roster` - see spawner::effect_names_for_class, which reads that
 /// order straight from template.ron) - every slot the class could ever
@@ -529,16 +567,7 @@ pub fn ability_bar_slots<T: EntityStore>(
     roster: &[String],
 ) -> Vec<AbilityBarSlot> {
     let owned_groups = group_items(ecs, usable_ability_items(ecs, wielder, wielder_class));
-    roster
-        .iter()
-        .map(|name| AbilityBarSlot {
-            name: name.clone(),
-            owned: owned_groups
-                .iter()
-                .find(|(n, _, _)| n == name)
-                .map(|(_, count, entity)| (*count, *entity)),
-        })
-        .collect()
+    build_roster_slots(roster, &owned_groups)
 }
 
 /// Every BattleItem entity `wielder` currently carries - the Battle Bar's
@@ -565,16 +594,68 @@ pub fn battle_bar_slots<T: EntityStore>(
     roster: &[String],
 ) -> Vec<AbilityBarSlot> {
     let owned_groups = group_items(ecs, battle_items_carried(ecs, wielder));
-    roster
-        .iter()
-        .map(|name| AbilityBarSlot {
-            name: name.clone(),
-            owned: owned_groups
-                .iter()
-                .find(|(n, _, _)| n == name)
-                .map(|(_, count, entity)| (*count, *entity)),
-        })
-        .collect()
+    build_roster_slots(roster, &owned_groups)
+}
+
+/// The Item Bar's full row of slots (systems/hud.rs's third icon bar,
+/// left of the Ability Bar) - same shape and "always show the full
+/// roster, grey out what's unowned" convention as ability_bar_slots/
+/// battle_bar_slots, but for universal (no `class:` tag) consumables
+/// rather than a specific class's abilities. `roster` should be
+/// spawner::universal_item_names() - Healing Potion, Dungeon Map, and any
+/// future item every class can carry, in template.ron's own file order.
+pub fn item_bar_slots<T: EntityStore>(
+    ecs: &T,
+    wielder: Entity,
+    roster: &[String],
+) -> Vec<AbilityBarSlot> {
+    let owned_groups = group_items(ecs, usable_menu_items(ecs, wielder));
+    build_roster_slots(roster, &owned_groups)
+}
+
+/// How many columns of breathing room sit between two adjacent bar groups
+/// on ABILITY_BAR_CONSOLE (Item | gap | Ability | gap | Battle) - shared
+/// by battle_bar_start_col and item_bar_start_col so the two gaps stay
+/// visually identical.
+pub const BAR_GROUP_GAP_COLS: i32 = 2;
+
+/// Which ABILITY_BAR_CONSOLE row every bar's icons sit on - one full
+/// icon-height above the console's very bottom row, so the bars aren't
+/// flush against the physical screen edge. Shared by systems/hud.rs
+/// (rendering) and systems/player_input.rs (hit-testing an Item Bar
+/// click) - both need the exact same row, not two independently-computed
+/// copies that could drift out of sync.
+pub fn ability_bar_row() -> i32 {
+    ABILITY_BAR_ROWS - 2
+}
+
+/// The leftmost column `n` icons should start at to appear centered as a
+/// group on ABILITY_BAR_CONSOLE - e.g. a 2-ability class's icons sit
+/// centered in the middle of the screen, not pinned to the left edge the
+/// way a longer roster's would naturally reach toward anyway. Integer
+/// division rounds a genuinely-odd remainder toward the left rather than
+/// perfectly splitting a half-column, which isn't expressible on a
+/// whole-cell grid regardless. Shared with player_input.rs - see
+/// ability_bar_row's own doc comment on why this lives here now instead
+/// of only in systems/hud.rs.
+pub fn ability_bar_start_col(n: i32) -> i32 {
+    (ABILITY_BAR_COLS - n) / 2
+}
+
+/// The Battle Bar's own starting column - immediately to the right of the
+/// out-of-combat Ability Bar's icons, plus a small gap, so the two boxes
+/// read as clearly separate groups rather than touching.
+pub fn battle_bar_start_col(ability_bar_start_col: i32, ability_bar_n: i32) -> i32 {
+    ability_bar_start_col + ability_bar_n + BAR_GROUP_GAP_COLS
+}
+
+/// The Item Bar's own starting column - immediately to the LEFT of the
+/// out-of-combat Ability Bar's icons (mirroring battle_bar_start_col's
+/// gap on the right), so the row reads as Item | gap | Ability | gap |
+/// Battle. Subtracts rather than adds since this group grows leftward
+/// from the Ability Bar's own left edge.
+pub fn item_bar_start_col(ability_bar_start_col: i32, item_bar_n: i32) -> i32 {
+    ability_bar_start_col - BAR_GROUP_GAP_COLS - item_bar_n
 }
 
 /// Sort key used by usable_carried_items - see its comment for the slot

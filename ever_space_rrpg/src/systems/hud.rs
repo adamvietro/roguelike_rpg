@@ -27,24 +27,6 @@ fn ability_bar_key_label(i: usize) -> &'static str {
     LABELS.get(i).copied().unwrap_or("")
 }
 
-/// Which ABILITY_BAR_CONSOLE row the icons sit on - one full icon-height
-/// above the console's very bottom row, so the bar isn't flush against
-/// the physical screen edge.
-fn ability_bar_row() -> i32 {
-    ABILITY_BAR_ROWS - 2
-}
-
-/// The leftmost column `n` icons should start at to appear centered as a
-/// group on ABILITY_BAR_CONSOLE - e.g. a 2-ability class's icons sit
-/// centered in the middle of the screen, not pinned to the left edge the
-/// way a longer roster's would naturally reach toward anyway. Integer
-/// division rounds a genuinely-odd remainder toward the left rather than
-/// perfectly splitting a half-column, which isn't expressible on a
-/// whole-cell grid regardless.
-fn ability_bar_start_col(n: i32) -> i32 {
-    (ABILITY_BAR_COLS - n) / 2
-}
-
 /// Converts Ability Bar column `col`'s icon position into a (col, row) on
 /// HUD_CONSOLE for its number label - both consoles share the same
 /// physical 1280x800 window, so this is a ratio of cell counts, same
@@ -130,14 +112,6 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
 fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
     let bottom_row = box_y - 1;
     bottom_row - (line_count - 1)
-}
-
-/// The Battle Bar's own starting column - immediately to the right of
-/// the out-of-combat Ability Bar's icons, plus a small gap, so the two
-/// boxes read as clearly separate groups rather than touching.
-fn battle_bar_start_col(ability_bar_start_col: i32, ability_bar_n: i32) -> i32 {
-    const GAP_COLS: i32 = 2;
-    ability_bar_start_col + ability_bar_n + GAP_COLS
 }
 
 #[system]
@@ -276,6 +250,50 @@ pub fn hud(
         let ability_slots = ability_bar_slots(ecs, player, class, &effect_roster);
         let ability_n = (ability_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
         let ability_start_col = ability_bar_start_col(ability_n);
+
+        // Item Bar - universal consumables (Healing Potion, Dungeon Map,
+        // any future item every class can carry), click-to-use rather
+        // than a number key (see player_input.rs's use_item_bar_click) -
+        // 1-9/0 are already fully claimed by class abilities, and this
+        // keeps the bar usable without adding any new keybinds. No number
+        // labels for the same reason the Battle Bar has none, and a BLUE
+        // box - a third color distinct from Ability's RED and Battle's
+        // GREEN. Sits immediately to the LEFT of the Ability Bar - see
+        // item_bar_start_col.
+        let item_roster = universal_item_names();
+        let item_slots = item_bar_slots(ecs, player, &item_roster);
+        let item_n = (item_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
+        let item_start_col = item_bar_start_col(ability_start_col, item_n);
+
+        for (i, slot) in item_slots.iter().enumerate().take(item_n as usize) {
+            let col = item_start_col + i as i32;
+            let owned = slot.owned.is_some();
+            let glyph = glyph_for_item_name(&slot.name).unwrap_or('?');
+            draw_portrait(
+                &mut bar_batch,
+                col,
+                bar_row,
+                Render {
+                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
+                    glyph: to_cp437(glyph),
+                },
+            );
+            if bar_mouse.y == bar_row && bar_mouse.x == col {
+                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, item_n, false);
+                hovered = Some((slot.name.clone(), box_y));
+            }
+        }
+        if item_n > 0 {
+            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
+            draw_ascii_box(
+                &mut label_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                ColorPair::new(BLUE, BLACK),
+            );
+        }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
             let col = ability_start_col + i as i32;

@@ -335,6 +335,17 @@ struct State {
     /// held key blows through fast" behavior, which stays exactly as it
     /// was.
     pending_enter_release: bool,
+    /// Whether the left mouse button was down as of the PREVIOUS frame -
+    /// compared against the current frame's real held/not-held state
+    /// (`INPUT.lock().is_mouse_button_pressed(0)`) each tick() to derive
+    /// MouseLeftJustPressed, the one-frame-per-physical-click signal the
+    /// Item Bar's click-to-use handler reads. See MouseLeftJustPressed's
+    /// own doc comment for why this compares real held-state across
+    /// frames rather than using BTerm::left_click directly. Never reset
+    /// on return_to_title - unlike pending_enter_release, this has no
+    /// per-screen hand-off semantics, it just continuously tracks physical
+    /// button state regardless of what screen is showing.
+    mouse_left_was_down: bool,
 }
 
 /// How long Enter must be continuously absent before pending_enter_release
@@ -440,6 +451,7 @@ impl State {
             item_menu_cursor: 0,
             enter_not_held_ms: 0.0,
             pending_enter_release: false,
+            mouse_left_was_down: false,
         };
         state.spawn_title_background();
         state
@@ -1111,6 +1123,14 @@ impl GameState for State {
         self.resources
             .insert(AbilityBarMousePos(Point::from_tuple(ctx.mouse_pos())));
         ctx.set_active_console(0);
+        // See MouseLeftJustPressed's own doc comment for why this reads
+        // real held-state (INPUT's level-triggered query) and diffs it
+        // against last frame, rather than trusting BTerm::left_click.
+        let mouse_left_down = INPUT.lock().is_mouse_button_pressed(0);
+        self.resources.insert(MouseLeftJustPressed(
+            mouse_left_down && !self.mouse_left_was_down,
+        ));
+        self.mouse_left_was_down = mouse_left_down;
         let current_state = self.resources.get::<TurnState>().unwrap().clone();
         match current_state {
             TurnState::TitleScreen => {

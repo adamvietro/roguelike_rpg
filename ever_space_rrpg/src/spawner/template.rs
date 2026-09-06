@@ -467,6 +467,22 @@ impl Templates {
             .collect()
     }
 
+    /// Every distinct universal (no `class:` tag) usable item name defined
+    /// in template.ron - Healing Potion, Dungeon Map, and any future item
+    /// every class can carry - in template.ron's own file order, which
+    /// fixes the Item Bar's slot order (see components::item_bar_slots/
+    /// systems/hud.rs). Mirrors effect_names_for_class's shape exactly,
+    /// but for items with NO class restriction instead of one specific
+    /// class - the template-level equivalent of components::
+    /// usable_menu_items' `item_class(..).is_none()` filter.
+    pub fn universal_item_names(&self) -> Vec<String> {
+        self.entities
+            .iter()
+            .filter(|t| t.effect.is_some() && t.class.is_none())
+            .map(|t| t.name.clone())
+            .collect()
+    }
+
     /// The glyph a template with this exact `name` renders as - used by
     /// the Ability Bar (systems/hud.rs) to show an icon for a roster slot
     /// the player doesn't currently own any copies of, where there's no

@@ -26,9 +26,23 @@ pub fn player_input(
     #[resource] battle: &mut Option<Battle>,
     #[resource] shopping: &Option<ShoppingActive>,
     #[resource] shop_message: &mut Option<ShopMessage>,
+    #[resource] mouse_left_just_pressed: &MouseLeftJustPressed,
+    #[resource] ability_bar_mouse_pos: &AbilityBarMousePos,
 ) {
     let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
+
+    // A left-click on the Item Bar (systems/hud.rs) - checked independently
+    // of the `if let Some(key)` block below, since a mouse click doesn't
+    // set the `key` resource at all. Early-returns on a successful use,
+    // same as Escape/M below, so a click doesn't also fall through to
+    // whatever keyboard branch happened to be pending this frame.
+    if mouse_left_just_pressed.0
+        && use_item_bar_click(ecs, commands, ability_bar_mouse_pos.0)
+    {
+        *turn_state = TurnState::PlayerTurn;
+        return;
+    }
 
     if let Some(key) = *key {
         // Checked first and returns immediately - Escape never falls
@@ -451,6 +465,79 @@ fn use_ability(n: usize, ecs: &mut SubWorld, commands: &mut CommandBuffer) -> bo
                 .as_deref()
                 == Some(ability_name.as_str())
         });
+
+    match item_entity {
+        Some(item_entity) => {
+            commands.push((
+                (),
+                ActivateItem {
+                    used_by: player_entity,
+                    item: item_entity,
+                },
+            ));
+            true
+        }
+        None => false,
+    }
+}
+
+/// Handles a left-click on the Item Bar (systems/hud.rs's third icon bar,
+/// left of the Ability Bar) - the click-driven counterpart to use_ability
+/// above, but hit-tested against `mouse` (AbilityBarMousePos, already in
+/// ABILITY_BAR_CONSOLE's own cell coordinates) instead of a number key,
+/// and sourced from the universal item roster (spawner::
+/// universal_item_names) instead of a class's ability roster. Recomputes
+/// the Item Bar's own column range independently rather than being handed
+/// hud.rs's already-rendered position - same "each consumer derives its
+/// own small values" approach use_ability already takes with the Ability
+/// Bar's roster, and the alternative (threading hud.rs's render-time
+/// layout through as shared mutable state) would be a bigger change for
+/// no real benefit. Returns true only when the click actually lands on a
+/// currently-owned slot and something was queued - see player_input's
+/// did_something.
+fn use_item_bar_click(ecs: &mut SubWorld, commands: &mut CommandBuffer, mouse: Point) -> bool {
+    if mouse.y != ability_bar_row() {
+        return false;
+    }
+
+    let player_entity = <(Entity, &Player)>::query()
+        .iter(ecs)
+        .find_map(|(entity, _player)| Some(*entity))
+        .unwrap();
+
+    // Needed only to reproduce the Ability Bar's own start column (the
+    // Item Bar is positioned relative to it - see item_bar_start_col), not
+    // because using a universal item is class-gated in any way.
+    let class = match entity_class(ecs, player_entity) {
+        Some(class) => class,
+        None => return false,
+    };
+
+    let item_roster = universal_item_names();
+    let item_n = (item_roster.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
+    if item_n == 0 {
+        return false;
+    }
+
+    let ability_roster = class_effect_names(&class);
+    let ability_n = (ability_bar_slots(ecs, player_entity, &class, &ability_roster).len() as i32)
+        .min(ABILITY_BAR_MAX_SLOTS as i32);
+    let ability_start_col = ability_bar_start_col(ability_n);
+    let item_start_col = item_bar_start_col(ability_start_col, item_n);
+
+    let index = mouse.x - item_start_col;
+    if index < 0 || index >= item_n {
+        return false;
+    }
+
+    let item_name = &item_roster[index as usize];
+    let item_entity = usable_menu_items(ecs, player_entity).into_iter().find(|item| {
+        ecs.entry_ref(*item)
+            .ok()
+            .and_then(|entry| entry.get_component::<Name>().ok().map(|n| n.0.clone()))
+            .as_deref()
+            == Some(item_name.as_str())
+    });
 
     match item_entity {
         Some(item_entity) => {

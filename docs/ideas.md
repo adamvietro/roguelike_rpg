@@ -12,24 +12,27 @@ build them — nothing there is scoped or scheduled just by being listed.
 
 Roughly in the order they've come up:
 
-1. **An Item Bar, mirroring the Ability Bar/Battle Bar model** — raised at
-   the end of the last session. A third icon bar (or an extension of the
-   existing pair) for held items (Healing Potion, Dungeon Map, any future
-   universal item), using the same "icons + hover-for-description" visual
-   language as the Ability Bar/Battle Bar, instead of (or alongside) the
-   current press-M-for-a-list Item Menu. Not scoped yet — worth a real
-   discussion first:
-   - Does it REPLACE the Item Menu (direct-use straight from the bar, no
-     list screen at all), or sit ALONGSIDE it (bar for quick access, menu
-     still there for browsing/descriptions)?
-   - Where does a third bar physically fit — the Ability Bar and Battle
-     Bar already share the bottom of the screen?
-   - Does it get its own color-coded box, following the red (Ability) /
-     green (Battle) precedent?
-2. **Mouse-click-to-use on the Ability Bar/Battle Bar** — deferred when
-   those bars were first built. Hovering already shows a description;
-   clicking to actually trigger an ability doesn't work yet, only the
-   number-key hotkeys do.
+1. ~~An Item Bar, mirroring the Ability Bar/Battle Bar model~~ — **done.**
+   A third icon bar, BLUE box, sitting immediately left of the Ability
+   Bar (Item | gap | Ability | gap | Battle, all one row). Sits ALONGSIDE
+   the Item Menu rather than replacing it — the Item Menu (`M`) is still
+   there for browsing/descriptions, the bar is the fast path. Click
+   (left mouse button) to use directly, rather than a new number-key
+   range — 1-9/0 stay exclusive to class abilities, no new keybinds
+   needed. This was also the first click-to-activate interaction
+   anywhere in the game (see components::MouseLeftJustPressed) — a real
+   physical-click edge detector, not bracket-lib's own `left_click`
+   flag, which fires twice per click (see that struct's doc comment).
+   Roster is `spawner::universal_item_names()` (currently just Healing
+   Potion + Dungeon Map, will grow as more universal items are added),
+   shown greyed-out when unowned like the other two bars.
+2. **Mouse-click-to-use on the Ability Bar/Battle Bar** — the Item Bar
+   above got click support first since it had no competing keyboard
+   scheme; the Ability Bar's existing number-key hotkeys would need to
+   coexist with a click path rather than being replaced by one, and the
+   Battle Bar is reference-only outside a fight by design, so click
+   support there would need its own discussion about what it should even
+   do. Hovering already shows a description on both.
 3. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
 4. **Standing "fix issues with the battle system" bucket** — not a fixed
