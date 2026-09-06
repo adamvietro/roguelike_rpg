@@ -1,0 +1,74 @@
+# Changelog
+
+Notable player-facing changes to Ever Space RRPG, newest first. Dated
+rather than versioned, since the project doesn't use version numbers -
+see `docs/DEVLOG.md` for the detailed technical history and `docs/ideas.md`
+for what's planned next.
+
+## 2026-09-06
+
+### Added
+- **Item Bar** (blue box, next to the Ability Bar) for Potions, Maps, and
+  any other universal item - click an icon to use it directly, no need
+  to open the Item Menu for a quick heal.
+- **Click-to-use on the Ability Bar** - your Dungeon Abilities can now be
+  clicked directly too, same effect as pressing the hotkey.
+- **Buff icons on the player portrait** for active lasting effects (Ice
+  Armor, Stealth, Invisible Cloak), so you always know what's currently
+  affecting you without opening a menu.
+- **Item Menu redesign** (`M`) - a full character dashboard instead of a
+  potion list: Items, Equipped Items, Stats, Battle Actions, and Dungeon
+  Actions, all in one screen, with a description panel that updates for
+  whatever's selected.
+- **Pause screen overhaul** - much bigger text, and a real arrow-key +
+  Enter menu for Resume/Options/Quit (Esc still resumes instantly). Now
+  cycles through a handful of gameplay tips while it's open.
+- Real descriptions for all 15 weapons (previously blank).
+
+### Changed
+- Player health display: replaced the old full-width bar with a compact
+  class-portrait + health bar in the top-left corner.
+- The Battle Arena shop no longer lists every item in a corner list -
+  stand next to what you want and its name/price shows up right next to
+  you instead.
+- The Stats screen (Item Menu) shows your Arena Level/Wave during a
+  Battle Arena run, and your Dungeon Level otherwise.
+- The old permanent "how to play" hint on the dungeon screen moved to
+  the Pause screen's rotating tips instead.
+
+### Fixed
+- The Ability Bar/Battle Bar's red/green boxes could render with almost
+  no gap on the right side for some icons, making them look like they
+  were touching the border. Fixed for both bars.
+
+## 2026-09-01 to 2026-09-05
+
+### Added
+- **Multi-enemy battles** - engage with more than one enemy at a time.
+  Stack enemies onto a single tile and fight one to battle all of them,
+  or use the new **Wait** hotkey (`Space`) to let nearby enemies close
+  in on their own (up to 4 at once - be careful).
+- **AOE attacks** for every class - hit every enemy in the fight at
+  once, on top of each class's existing single-target options. Custom
+  icons for these are still on the to-do list.
+- **ATB (Active Time Battle) system** - a gauge under the player and
+  each enemy fills based on their Speed; once it's full, that combatant
+  can act.
+- **Battle Speed and ATB Mode options** - Battle Speed controls how fast
+  gauges fill; ATB Mode is Normal (gauges pause while you're choosing an
+  attack) or Full ATB (gauges never stop - faster fights, but the enemy
+  gets a lot more attacks in if you're slow to choose).
+- Arrow-key + Enter selection for battle actions, alongside the existing
+  number keys.
+
+### Changed
+- Advancing out of a battle result screen is now Enter specifically
+  (was "any key") - lets you hold Enter down and it'll auto-queue your
+  next action the moment you're able to act.
+- The player's ability box border turns yellow when you're able to
+  select an attack.
+
+### Fixed
+- Multi-hit attacks now show a separate damage number for each hit
+  (previously only the last hit's number would show, even though the
+  full damage was always being applied correctly).

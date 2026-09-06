@@ -6,16 +6,16 @@ playable classes, a second "Battle Arena" game mode with its own gold
 economy, and a growing set of animation/rendering polish passes.
 
 This README covers the basics: what the project is, how to build and run
-it, and where things currently stand. **The project instructions doc
-(pasted at the start of each AI chat session working on this project) is
-the authoritative, detailed log of design decisions and known issues** -
-this file is a lighter-weight orientation for anyone (including future
+it, and where things currently stand. **`CLAUDE.md` (repo root) is the
+authoritative, always-loaded log of conventions and known issues, and
+`docs/DEVLOG.md`/`docs/ideas.md` carry the detailed history and backlog**
+- this file is a lighter-weight orientation for anyone (including future
 you) opening the repo cold.
 
 ## Tech stack
 
 - **Language:** Rust, edition `2018`
-- **Rendering/engine:** [`bracket-lib`](https://github.com/amethyst/bracket-lib) (~0.8.1) - a classic roguelike toolkit (consoles, field-of-view, pathfinding, RNG)
+- **Rendering/engine:** [`bracket-lib`](https://github.com/amethyst/bracket-lib) (~0.8.7) - a classic roguelike toolkit (consoles, field-of-view, pathfinding, RNG)
 - **ECS:** [`legion`](https://docs.rs/legion) (`=0.3.1`)
 - **Data/serialization:** `serde` (`=1.0.115`), `ron` (`=0.6.1`) for the game's data files (`resources/*.ron`)
 - **Dev environment:** Windows + WSL (Ubuntu), GitHub Desktop for commits
@@ -68,18 +68,21 @@ real one afterward to confirm you never modified it.
 
 | Key(s)                                | Action                                                                                                                                                     |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Arrow keys (rebindable - see Options) | Move / attack by walking into an enemy                                                                                                                     |
-| `1`-`9` / `0`                         | Use item in that inventory slot (dungeon), or pick a battle menu action (in battle)                                                                        |
+| Arrow keys (rebindable - see Options) | Move / attack by walking into an enemy. Also drives every menu's cursor (Item Menu, Pause, battle menu, Options, History, ...) - arrows to move the highlight, `Enter` to confirm, everywhere. |
+| `1`-`9` / `0`                         | Use your class's out-of-combat abilities directly, by fixed roster position (the Ability Bar's own hotkeys) - or pick a battle menu action, in battle. Not inventory items - see `M` below. |
+| Mouse click                           | Click an icon on the Item Bar (blue) or Ability Bar (red), bottom of the dungeon screen, to use it directly - same effect as the hotkey. The Battle Bar (green) is reference-only. |
+| `M`                                   | Item Menu - a full character dashboard (Items, Equipped Items, Stats, Battle Actions, Dungeon Actions, plus a description panel for whatever's selected). Browsing is free; using an Item or Dungeon Action costs a turn. |
+| `Space`                               | Wait a turn in place - any enemy within 1 tile joins the fight immediately (up to 4 at once). |
 | `Escape`                              | Pause (in-game) / back out of a submenu                                                                                                                    |
-| `O`                                   | Options (rebind movement keys) - from the title screen or the pause menu                                                                                   |
+| `O`                                   | Options (rebind movement keys, Battle Speed, ATB Mode) - from the title screen or the Pause menu                                                           |
 | `H`                                   | Play history / stats - from the title screen                                                                                                               |
 | `I`                                   | Items Used breakdown - from the History screen                                                                                                             |
-| `Q`                                   | Quit - from the pause menu                                                                                                                                 |
+| `Q`                                   | Quit - from the Pause menu                                                                                                                                 |
 | `D`                                   | Hidden shortcut on Class Select: spawns the internal Debug class (overpowered stats, instant win/lose/next-level test items) - not part of the normal game |
 
 Movement keys can be rebound to WASD, IJKL, HJKL, or similar via the
 Options screen; the rebinding covers the four movement actions only
-(Escape and the number-row selectors are fixed).
+(Escape, `M`, and the number-row selectors are fixed).
 
 ## Playable classes
 
@@ -107,33 +110,51 @@ Options screen; the rebinding covers the four movement actions only
 Battles use an ATB (Active Time Battle, FFVII-style) system: each
 combatant has a Speed-driven gauge that fills continuously in real time,
 and whoever's gauge fills first gets to act - the player via a menu, the
-enemy automatically. This replaced an earlier fixed-round "whoever's
-faster goes first" system. See `src/battle/mod.rs` (`BattleTurn`,
-`atb_fill_rate`) for the mechanics.
+enemy automatically. Battle Speed and ATB Mode (Wait vs. True ATB) are
+both configurable from the Options screen. See `src/battle/mod.rs`
+(`BattleTurn`, `atb_fill_rate`) for the mechanics.
+
+Up to 4 enemies can be in a single fight at once (walk into a tile with
+more than one enemy stacked on it, or press `Space` to gather nearby
+enemies in first) - each with its own ATB gauge and status effects, and
+a highest-Speed auto-target. Every class has one AOE technique that hits
+every enemy in the fight at once, on top of its single-target options.
 
 ## Current state / what's in progress
 
-This section will drift out of date fast - **check the project
-instructions doc's own "Current state" and "Project Goal" sections for
-the real up-to-date picture**, since that's what gets refreshed at the
-end of every working session. As of this writing:
+This section will drift out of date fast - **check `docs/DEVLOG.md`'s
+own "Current state" section for the real up-to-date picture**, since
+that's what gets refreshed at the end of most working sessions; the full
+backlog of what's planned next lives in `docs/ideas.md`. As of this
+writing:
 
 - All 5 real classes are fully built; the Debug class is an intentional
-  hidden placeholder.
-- Battle Arena is feature-complete for a full playable loop.
-- Combat just moved from fixed-round turns to the ATB system described
-  above.
+  hidden placeholder. Battle Arena is feature-complete for a full
+  playable loop.
+- Out-of-combat abilities and universal items (Potions, Maps) each have
+  their own icon bar (Ability Bar, Item Bar) along the bottom of the
+  dungeon screen, plus a read-only Battle Bar for in-fight Techniques -
+  click an icon or use its hotkey to use it directly. Press `M` for the
+  full Item Menu, a character dashboard covering items, equipment,
+  stats, and both ability rosters in one screen.
+- The player's health/class-portrait frame (top-left) shows small icons
+  for any active lasting effect (Ice Armor, Stealth, Invisible Cloak).
 - A basic "walking in place" idle-animation system exists (every
   entity cycles through a small set of frames when standing still), but
   every frame currently points at the same placeholder art - real
   distinct walk-cycle art, and a possible move from one shared sprite
   sheet to a sheet per class, are both future work.
-- Planned next: AOE attacks, battling multiple stacked enemies at once,
-  a mouse-targeted ranged AOE, and eventually music/sound (no crate
-  chosen yet - `rodio` is the leading candidate, since bracket-lib has no
-  built-in audio support).
+- Planned next: an overall balance pass (starting gold/items, player/
+  enemy stats), more class abilities beyond each class's current small
+  roster, a mouse-targeted ranged AOE outside battle, a Dungeon Crawl
+  shop, and eventually music/sound (no crate chosen yet - `rodio` is the
+  leading candidate, since bracket-lib has no built-in audio support).
 
 ## Project structure
+
+`CLAUDE.md` and `docs/` (`DEVLOG.md`, `ideas.md`, `journal.md`, the
+sprite glyph map) live at the repo root, alongside the `ever_space_rrpg/`
+crate itself. Inside the crate:
 
 ```
 src/
