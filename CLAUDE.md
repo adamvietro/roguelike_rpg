@@ -1,0 +1,130 @@
+# Ever Space RRPG — CLAUDE.md
+
+Persistent instructions for Claude Code in this repo. Kept short on purpose —
+loaded every session, so token cost matters here. Full history and detailed
+quirk write-ups live in `docs/DEVLOG.md`; the backlog/brainstorm list lives
+in `docs/ideas.md`. Read either only when it's actually relevant (e.g. a bug
+smells like something documented there, or picking the next thing to
+build), not by default.
+
+## Stack
+
+- Rust, edition `2018`. `legion` (=0.3.1) ECS, `bracket-lib` (~0.8.7)
+  rendering, `serde`/`ron` (=1.0.115/=0.6.1) for data. Versions pinned with
+  `=` in several places — flag any new dependency clearly before adding it.
+- Repo: https://github.com/adamvietro/roguelike_rpg (public)
+- Glyph/sprite map lives in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
+  tracked in this repo — see "Sprite sheet editing" below before touching
+  `resources/dungeonfont.png`.
+
+## Build & verify — do this yourself now, don't just describe it
+
+You have direct file access and a real terminal here, so use them:
+
+- `cargo check` after every meaningful edit; `cargo build` before calling
+  anything done. Run the actual project — no scratch lockfile juggling
+  needed the way a sandboxed session used to require.
+- **A clean build is not sufficient proof of correctness for two specific
+  bug classes in this project**, both invisible to the compiler:
+  1. **legion component-access mismatches.** `#[system]` functions declare
+     access via `#[read_component]`/`#[write_component]`; querying a type
+     not declared there compiles fine and panics `AccessDenied` only at
+     runtime. Any time a system's query set changes (directly, or via a
+     helper function it calls), re-verify its attribute list matches.
+     `systems/hud.rs::hud_system_execution_tests` is a **permanent**
+     regression test for this — keep it, and copy the pattern (build a
+     `Schedule`, `.execute()` it for real) for any other system that's
+     been a repeat source of this.
+  2. **bracket-lib rendering specifics** (color blending, console z-order,
+     pixel-to-cell rounding) — invisible to any compiler check. Verify by
+     tracing the library source or asking for a screenshot; don't assume.
+- **Write a real test for logic a type-check can't confirm** (an
+  algorithm's actual behavior, a bugfix's actual effect), then remove it
+  before calling the work done — except the legion-access-pattern
+  exception above, which stays permanently.
+- Verify RON data at runtime too, not just that it parses — a missing
+  field a feature depends on (e.g. a `description:` some items lacked)
+  only surfaces when actually loaded and read.
+- Double-check brace balance and re-view the *exact* file about to be
+  committed after any large sequential edit, especially ones assembled
+  from several separate edits — don't trust an earlier read of the file.
+
+## Coding conventions
+
+- LF line endings throughout, enforced by `.gitattributes` — never
+  introduce CRLF.
+- Data-layer helpers that query components should be generic over
+  legion's `EntityStore` trait (`fn foo<T: EntityStore>(ecs: &T, ...)`)
+  rather than hardcoded to `&World` or `&SubWorld`, so they work both from
+  plain screen-tick methods and from inside `#[system]` functions. See
+  `components.rs`'s `usable_menu_items`/`ability_bar_slots`/etc.
+- The `class:` field already on item templates is the source of truth for
+  "universal item" (Item Menu) vs. "class-restricted ability" (Ability
+  Bar) vs. "battle-only technique" (Battle Bar) — don't add a new field
+  for this distinction, reuse the existing one.
+- When a large visual/architectural change is requested, talk through the
+  design (what triggers it, what data it needs, what interaction model)
+  before writing code — this project's Item Menu/Ability Bar/Battle Bar
+  work went smoothly specifically because that conversation happened
+  first. Ambiguity in a *design* request is worth a clarifying question;
+  ambiguity in a small, well-specified task is not.
+- When reasoning about exact pixel positions/layout in bracket-lib without
+  being able to render and check, say so plainly and expect a correction
+  round from a real screenshot rather than presenting a first guess as
+  confidently final.
+
+## Standing gotchas (condensed — see docs/DEVLOG.md for the full reasoning)
+
+- `WINIT_UNIX_BACKEND=x11` is required on this WSL setup — already set
+  permanently via `.cargo/config.toml`. Don't re-diagnose if this error
+  reappears in a fresh clone; check that file first.
+- A held key's OS auto-repeat on this WSLg/X11 stack can arrive as fake
+  alternating release+press events, not one sustained press. Any "did the
+  user actually let go of this key" logic needs a real-time debounce
+  (~150ms), not a single-frame check.
+- bracket-lib's console shader multiplies a glyph's color
+  (`texture_pixel * fg_color`). Fine for monochrome text (white × grey =
+  grey); for full-color custom sprite icons, a light grey barely dims them
+  — use a much darker dedicated tint for "disabled" icon states, not the
+  same constant used for greyed-out text.
+- Converting a pixel boundary into a row/column across two consoles of
+  different resolution: which way to round (floor vs. ceiling) depends on
+  which side of the boundary that edge must stay on. A flat "+1"/"-1"
+  is not a substitute for picking the correct rounding direction — verify
+  with a test that checks the real pixel relationship, not just "the
+  number looks bigger."
+- A new `#[resource]` used by any system in the title-background
+  schedulers (`systems/mod.rs`'s `build_title_background_*` functions)
+  must be inserted in both `State::new()` and `State::return_to_title()`,
+  or startup/return-to-title panics on an `Option::unwrap()`.
+- `CommandBuffer::add_component` calls computed from an entity's current
+  state are unsafe to issue more than once per entity per tick — edits
+  aren't visible until flush, so a second call reads the same stale value
+  and overwrites (doesn't add to) the first. Accumulate into a local and
+  apply once.
+- bracket-lib culls near-black opaque pixels to transparent on fancy
+  consoles (confirmed upstream bug, no toggle). Floor source art at RGB
+  10,10,10 or above.
+- `set_fancy` renders one full cell north of the same position via plain
+  `set()` — compensate with a `..._Y_ANCHOR_OFFSET` constant.
+- A custom-sized `Camera` doesn't shrink what renders around a small map
+  — the camera frames a fixed window regardless of map size. Use the
+  reveal-rectangle approach for "this map should look small" instead.
+- Console z-order is registration order; a later-registered console
+  (including anything the Ability/Battle Bar or any future icon bar use)
+  paints over lower ones wherever it actually draws something.
+
+## Sprite sheet editing (`resources/dungeonfont.png`)
+
+Confirm the supplied PNG is current before editing (ask if it isn't
+obviously the same session's upload). Match any reference image closely;
+check every reference for a visible watermark/stock-marketplace mark
+before using it — decline and ask for a different one if present. Crop to
+content, don't stretch non-square references, floor near-black pixels (see
+gotchas above), clear the complete target cell before pasting, and
+pixel-diff the whole sheet afterward to confirm only the intended cells
+changed. Full-character sprites fill their cell top-to-bottom on a true
+transparent background, not a face-only bust. Update
+`docs/Dungeon_Font_Glyph_to_Cell_Map.md` at the end of any session that
+changes the mapping — even a codepoint-reservation-only pass with no pixel
+edits counts as "changed" for this purpose.
