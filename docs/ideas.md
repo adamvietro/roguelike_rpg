@@ -12,192 +12,50 @@ build them — nothing there is scoped or scheduled just by being listed.
 
 Roughly in the order they've come up:
 
-1. ~~Player-status frame / Battle Arena shop overlap~~ — **done.** Rather
-   than moving either element, replaced the old fixed top-left item LIST
-   entirely with a single tooltip for whichever item is currently
-   adjacent to the player (`components::shop_item_near`, the exact same
-   lookup `buy_nearby_item` uses to decide what Enter actually buys, so
-   the tooltip can never show something different from what you'd
-   purchase). Anchored to the player's own on-screen position (converted
-   map coordinate -> HUD_CONSOLE cell via `mouse_to_hud`, same conversion
-   `tooltips.rs` already used for the mouse-hover tile tooltip) rather
-   than a fixed screen spot, so it travels with the player along the
-   counter instead of colliding with the frame above it.
-2. ~~Item Menu redesign: full character dashboard~~ — **done.** Replaced
-   the old single potion-list-plus-reference-panel screen with 5 boxes:
-   Items, Equipped Items (just the carried weapon for now - no armor/
-   trinket components exist yet), Stats, Battle Actions, Dungeon Actions,
-   plus a shared description panel for whichever entry the cursor is on.
-   Cursor reuses `battle::MenuCursor` as-is (Left/Right switches side,
-   Up/Down flows through both stacked boxes on that side as one list) -
-   no new navigation logic needed, since nothing about that type was
-   actually battle-specific. Only Items and Dungeon Actions are usable
-   via Enter; Equipped Items and Battle Actions stay browse-only, the
-   same restriction they already had. Stats box is mode-aware (Arena
-   Level/Wave during a Battle Arena run, Dungeon Level otherwise - same
-   resource check the dungeon HUD's top-right corner already makes).
-   Also added descriptions to all 15 weapon templates (previously none
-   had any, so selecting a weapon showed "No description.") and removed
-   the now-fully-unused `FINE_TEXT_CONSOLE`/`FINE_TEXT_COLS` named
-   constants (console 2 itself is still used elsewhere, just via the
-   bare literal, not these names).
-3. **Overall balance pass** — starting gold, starting items, and player/
-   enemy stats generally. Not scoped - a real look at the numbers across
-   both Dungeon Crawl and Battle Arena, not a specific bug.
-4. ~~An Item Bar, mirroring the Ability Bar/Battle Bar model~~ — **done.**
-   A third icon bar, BLUE box, sitting immediately left of the Ability
-   Bar (Item | gap | Ability | gap | Battle, all one row). Sits ALONGSIDE
-   the Item Menu rather than replacing it — the Item Menu (`M`) is still
-   there for browsing/descriptions, the bar is the fast path. Click
-   (left mouse button) to use directly, rather than a new number-key
-   range — 1-9/0 stay exclusive to class abilities, no new keybinds
-   needed. This was also the first click-to-activate interaction
-   anywhere in the game (see components::MouseLeftJustPressed) — a real
-   physical-click edge detector, not bracket-lib's own `left_click`
-   flag, which fires twice per click (see that struct's doc comment).
-   Roster is `spawner::universal_item_names()` (currently just Healing
-   Potion + Dungeon Map, will grow as more universal items are added),
-   shown greyed-out when unowned like the other two bars.
-5. ~~Player-status frame (class-portrait icon + health bar, top-left)~~ —
-   **done.** Replaces the old plain full-width health bar. Icon reuses
-   the player's existing `Render` component (same sprite as the dungeon-
-   map glyph/battle portrait) on the Ability/Battle/Item Bar's console at
-   its existing 40x40px size - no new console or art. Bar stays on
-   HUD_CONSOLE's fine grid rather than the coarse icon console
-   (`bar_horizontal` only fills whole cells, so fewer/bigger cells reads
-   chunkier), one row tall specifically because text can't be centered
-   between 2+ rows on this console API. See item 1 above for the one
-   known collision this introduced (Battle Arena shop's item list).
-6. ~~Pause screen: bigger text, cursor menu, rotating hints~~ — **done.**
-   Header on the same big-font console Options/History already use;
-   body on the medium HUD font instead of the old tiny 8px console.
-   Resume/Options/Quit is now a real arrow-key + Enter menu
-   (`screens/pause.rs`'s `PAUSE_MENU_ITEMS`), matching every other menu
-   screen's convention - Escape/O/Q still work directly too, purely
-   additive like Adventure Select/Class Select's own cursor rollout. The
-   general how-to-play hint that used to sit permanently on the dungeon
-   HUD moved here as a rotating "Hints" box (lower third of the screen,
-   3 lines, cycling every 4s) instead - see `PAUSE_HINTS` for the list,
-   add/remove freely.
-7. ~~Mouse-click-to-use on the Ability Bar~~ — **done** (`player_input.rs`'s
-   `use_ability_bar_click`). Turned out to need no new design at all -
-   click hit-tests the bar's own column range, then calls the exact same
-   `use_ability` the number keys already use, so clicking slot `n` and
-   pressing the key for slot `n` queue the identical `ActivateItem`.
-   Coexists with the hotkeys rather than replacing them, same as the Item
-   Bar's click sits alongside the Item Menu. **Battle Bar click support
-   closed, not just deferred** - there is no action bar of any kind in
-   the actual battle screen (`screens/battle.rs`'s combat menu is a
-   separate keyboard-only Actions list; see the Battle Bar's own entry
-   above), so "click support in battle" was never a real option to begin
-   with. The dungeon-HUD Battle Bar stays hover-only reference, same as
-   today.
-   - This closed a real bug, not just a feature gap: one of the Pause
-     screen's rotating hints already claimed "Dungeon Abilities can be
-     clicked, or used with their hotkey" - true now, but it wasn't when
-     that hint was first added (copied verbatim from a hint list written
-     assuming this already worked). Worth double-checking any hint text
-     against actual behavior before trusting it as documentation.
-8. ~~Player buffs shown on the portrait~~ — **done.** Turned out not to
-   need `Buff`/`BuffKind` at all - that's a battle-only concept, but the
-   3 out-of-combat lasting effects the player actually cares about
-   (Invisible Cloak, Stealth, Ice Armor) already exist as their own
-   dedicated components (`Invisible`/`Stealthed`/`IceArmored`), so this
-   is just "does the player entity currently have one of these 3
-   components," no new status-tracking system needed. Badges are the
-   abilities' own real sprite icons (not a generic placeholder), on a
-   new dedicated console (`BUFF_BADGE_CONSOLE`, 32px cells) - smaller
-   than the 40px portrait/Ability Bar icons, but still a resolution this
-   project's art is already drawn at elsewhere, so nothing needed
-   scaling down. Multiple simultaneous badges are supported (queued left
-   to right) even though in practice at most 2 can ever be active at
-   once (Invisible and Stealthed are mutually exclusive by class).
-9. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
+1. **Overall balance pass** — starting gold, starting items, and player/
+   enemy stats generally, across both Dungeon Crawl and Battle Arena.
+   Dungeon Crawl's starting-kit sustain already got a first, data-driven
+   pass (see "Dungeon Crawl economy" in Done below) using a new permanent
+   headless class-survivability simulation
+   (`cargo test --release class_survivability_report -- --ignored
+   --nocapture`, see CLAUDE.md/docs/journal.md) - still open generally
+   (Battle Arena hasn't been looked at this way at all), and:
+   - **Known bot limitation, not yet fixed**: the simulation's bot
+     "flee below 25% HP" rule doesn't reposition, and its pathing always
+     recomputes the literal shortest route to the same target - if the
+     enemy it just fled is still sitting on that route (usually true),
+     the very next action walks right back into it and the fight repeats
+     in a loop. This is inflating "timed out" results in the latest run
+     without necessarily meaning anything real about reachability - needs
+     a real fix (e.g. avoid re-pathing onto the same enemy for a turn or
+     two after fleeing it) before those specific numbers can be trusted.
+2. **Mouse-targeted ranged AOE outside battle** ("rain of fire" for
    ranged classes) — not started.
-10. **Standing "fix issues with the battle system" bucket** — not a fixed
-    list, just wherever ATB/multi-enemy/the cursor system turns up real
-    bugs as they get more play.
-11. ~~A shop for Potions/Maps in Dungeon Crawl mode~~ — **done**, across
-    two sessions:
-    - ~~Pull Healing Potion/Dungeon Map out of ambient floor loot~~ —
-      **done.** New `Template::shop_only` flag (same pattern as
-      `prefab_only`/`boss_only`), set on both in `template.ron`, excluded
-      from `spawn_entities`' ambient pool. They're still grantable by
-      name (a chest, a future shop) via `spawn_named_item_via_commands` -
-      this only closes the AMBIENT floor-spawn path.
-    - ~~Dungeon Crawl players can now hold gold at all~~ — **done.**
-      `Gold` was Arena-only before this session (see its own doc comment
-      in `components.rs`); Dungeon Crawl players now get `Gold(0)` at
-      `start_game` (vs. Arena's pre-funded `ARENA_STARTING_GOLD`, since
-      Dungeon Crawl's first payout comes from a whole floor of kills plus
-      a guaranteed chest, not an empty first shop). Every existing gold
-      codepath (`use_items.rs`, `traps.rs`, `battle::finish_battle_victory`,
-      `buy_nearby_item`) already gated purely on "does the player have a
-      `Gold` component", not a mode check - so battle/trap/ranged-strike
-      kills started paying Dungeon Crawl gold for free, no per-mode
-      branching needed.
-    - ~~A guaranteed per-floor loot chest~~ — **done.** A new,
-      always-attempted (not random-one-of-three like the Fortress/Turret/
-      Bunker prefabs) chest room (`map_builder/prefab.rs`'s `apply_chest`),
-      guarded by 1-2 copies of that dungeon level's single toughest
-      non-boss enemy (`spawner::spawn_prefab_chest_guards` - Goblin/Orc/
-      Ogre/Ettin's own natural per-level ordering, not a random pick).
-      Walking onto it (same auto-interact convention as a normal Item)
-      grants 30-50 gold, a Dungeon Map, and 1-3 Healing Potions, then
-      shows a new full-screen `TurnState::ChestOpened` overlay
-      (`screens/chest.rs`) styled exactly like Paused per the user's
-      request - it reuses `pause_systems` outright (just `map_render`, no
-      entity/HUD redraw) so the frozen dungeon tiles stay visible while
-      every sprite drawn on them the frame before simply isn't redrawn,
-      rather than building a second identical scheduler. New `c` glyph
-      (row 6, col 3) drawn for this from a user-supplied reference image.
-    - ~~The actual shop between floors~~ — **done.** New
-      `TurnState::DungeonShopTransition`, reached by stepping on a
-      floor's own stairs tile while NOT already browsing the shop it
-      leads to (`systems/end_turn.rs`'s Exit-tile check is a 3-way split
-      now: Arena's own `ArenaTransition`, this, or - once `ShoppingActive`
-      is already Some, meaning you're standing on the SHOP's own stairs -
-      `NextLevel` again, which is what actually generates the next
-      floor). `State::dungeon_shop_transition` reuses
-      `MapBuilder::new_arena_shop`/`arena_rebuild_keep_player`/
-      `spawn_arena_shop_items`/`buy_nearby_item` completely unmodified,
-      just with a fixed Healing Potion (x5, same `HEALING_POTION_PRICE`)
-      + Dungeon Map (x2, new `DUNGEON_MAP_PRICE`) stock instead of
-      Arena's class-rolled weapon/ability list. `advance_level` (now also
-      reached by leaving the shop) clears `ShoppingActive`/`ShopMessage`
-      on its way out, or a freshly generated floor would silently inherit
-      the shop's auto-pickup suppression and frozen FOV forever. The HUD's
-      top-right corner now also shows Gold instead of Dungeon Level while
-      `shopping.is_some()`, not just during a whole Arena run - previously
-      there was no way to see your gold total while actually standing in
-      the Dungeon Crawl shop deciding what to buy.
-12. **Idle walk-in-place animation art** — the cycling infrastructure
-    (`IdleAnimation` component) is built and genuinely cycling; every
-    frame just points at the same placeholder glyph. Needs real distinct
-    per-frame art, and maybe a move to a sprite sheet per class instead of
-    cramming more cells into the one shared `dungeonfont.png`.
-13. **Music & sound effects** — no crate picked yet (`rodio` is the
-    leading candidate, since bracket-lib has no built-in audio support).
-14. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
-    small "x2" for two Freeze Traps, simplified away to actually finish
-    the bars in one session. Hovering already reveals ownership, just not
-    the exact count at a glance.
-15. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
-    overlap bug is fixed and tested, but the exact label/tooltip
-    positioning was computed via pixel-ratio math without a full round of
-    "here's a screenshot, nudge this" the way most of this project's
-    visual work gets. Worth a dedicated look with a few different ability
-    counts.
-16. **README.md needs a manual pass** — controls changed materially over
-    the last few sessions (M now opens a full character dashboard, not a
-    potion list; number keys mean abilities, not potions/maps; Item Bar/
-    Ability Bar clicking; Pause screen now a cursor menu) and the README
-    wasn't touched.
-17. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
-    `start_arena`'s shop-building code — not urgent, just flagged.
-18. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
-    offset during a glide, instead of the smooth fractional one.
-19. **More class abilities** — pull a few real ones out of the "Future
+3. **Standing "fix issues with the battle system" bucket** — not a fixed
+   list, just wherever ATB/multi-enemy/the cursor system turns up real
+   bugs as they get more play.
+4. **Idle walk-in-place animation art** — the cycling infrastructure
+   (`IdleAnimation` component) is built and genuinely cycling; every
+   frame just points at the same placeholder glyph. Needs real distinct
+   per-frame art, and maybe a move to a sprite sheet per class instead of
+   cramming more cells into the one shared `dungeonfont.png`.
+5. **Music & sound effects** — no crate picked yet (`rodio` is the
+   leading candidate, since bracket-lib has no built-in audio support).
+6. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
+   small "x2" for two Freeze Traps, simplified away to actually finish
+   the bars in one session. Hovering already reveals ownership, just not
+   the exact count at a glance.
+7. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
+   overlap bug is fixed and tested, but the exact label/tooltip
+   positioning was computed via pixel-ratio math without a full round of
+   "here's a screenshot, nudge this" the way most of this project's
+   visual work gets. Worth a dedicated look with a few different ability
+   counts.
+8. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
+   `start_arena`'s shop-building code — not urgent, just flagged.
+9. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
+   offset during a glide, instead of the smooth fractional one.
+10. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -217,15 +75,6 @@ Roughly in the order they've come up:
 
 ## Content / world
 
-- **Dungeon Shop** — replace most dungeon floor items with a shop at the
-  end of each floor. The gold economy this needed is now in place (see
-  item 11 above - Dungeon Crawl players earn gold the same way Arena
-  does), but the actual shop screen itself is still the open part of
-  item 11.
-- ~~**Chests**~~ — **done** (this session). Findable in the dungeon,
-  holding gold/items, defended by enemies rather than free loot, exactly
-  as originally scoped here - see item 11 above for the implementation
-  details.
 - **More winnable item variety** — right now a chest/shop can only ever
   contain Gold, a Dungeon Map, or a Healing Potion. Not scoped - could be
   equipment, trinkets, or anything else worth finding.
@@ -349,6 +198,73 @@ placeholder/test tool.
 - Victory/Game Over screens now dismiss on Enter specifically, not any
   key.
 
+## Dungeon Crawl economy — gold, a guaranteed chest, and a shop between floors
+- **Gold + the `shop_only` loot flag.** `Gold` (components.rs) was
+  Battle Arena-exclusive - Dungeon Crawl players now get `Gold(0)` at
+  `start_game` too, and every existing gold codepath (traps, ranged
+  strikes, `buy_nearby_item`, battle kills) already gated purely on the
+  component's PRESENCE, so those started paying out for free, no
+  per-mode branching needed. Healing Potion/Dungeon Map pulled out of
+  the ambient floor-loot pool via a new `Template::shop_only` flag (same
+  pattern as `prefab_only`/`boss_only`) - still grantable by name (a
+  chest, the shop).
+- **A guaranteed per-floor loot chest.** A new, always-attempted (not
+  random-one-of-three like Fortress/Turret/Bunker) prefab room
+  (`map_builder/prefab.rs`'s `apply_chest`), guarded by 1-2 copies of
+  that dungeon level's single toughest non-boss enemy
+  (`spawner::spawn_prefab_chest_guards` - Goblin/Orc/Ogre/Ettin's own
+  natural per-level ordering, not a random pick). Walking onto it grants
+  30-50 gold, a Dungeon Map, and 1-3 Healing Potions, then shows a
+  full-screen `TurnState::ChestOpened` overlay (`screens/chest.rs`)
+  styled like Paused - reuses `pause_systems` outright (just
+  `map_render`, so sprites drawn on the map a frame ago simply aren't
+  redrawn). New `c` glyph drawn from a user-supplied reference image,
+  flood-filled to true transparency from its outer edge so interior
+  highlights survived. The wall template originally fully enclosed the
+  room with no door at all (found via a user screenshot, "I can't get
+  in") - fixed by opening one on the guards' row specifically, so
+  reaching the chest requires passing them, not walking past them
+  (verified with a real flood-fill across 200 generated floors, both
+  times).
+- **A shop between dungeon floors.** A floor's own stairs now lead into
+  a shop room first (`TurnState::DungeonShopTransition`) -
+  `systems/end_turn.rs`'s Exit-tile check is a 3-way split now: Arena's
+  own `ArenaTransition`, this, or - once `ShoppingActive` is already
+  Some, meaning you're standing on the SHOP's own stairs - `NextLevel`
+  again, which is what actually generates the next floor.
+  `State::dungeon_shop_transition` reuses `MapBuilder::new_arena_shop`/
+  `arena_rebuild_keep_player`/`spawn_arena_shop_items`/`buy_nearby_item`
+  completely unmodified, stocked with a fixed Healing Potion (x5, same
+  `HEALING_POTION_PRICE`) + Dungeon Map (x2, new `DUNGEON_MAP_PRICE`)
+  pair instead of Arena's class-rolled list. `advance_level` (now also
+  reached by leaving the shop) clears `ShoppingActive`/`ShopMessage` on
+  its way out, or a freshly generated floor would silently inherit the
+  shop's auto-pickup suppression and frozen FOV forever. The HUD's
+  top-right corner now also shows Gold while `shopping.is_some()`, not
+  just during a whole Arena run. A separate real bug turned up here
+  too: `buy_nearby_item`'s player lookup had no `Player` filter, so it
+  could silently grab the Shopkeeper NPC's or a `ShopStock` counter's
+  `Point` instead (both exist in the same scene) - never visibly broke
+  the Arena shop (apparently by luck of legion's iteration order), but
+  broke the new Dungeon Crawl shop outright. Found by the user
+  ("I can't buy the potion"), reproduced with a real test both before
+  and after the one-line `.filter(component::<Player>())` fix.
+- **A first, data-driven starting-kit balance pass.** A new headless
+  class-survivability simulation (a naive-then-smarter bot plays several
+  runs per class through the real game logic - schedulers, movement,
+  combat resolution, chest/shop interaction) found only 3/50 runs
+  reaching the first shop once ambient floor Potions/Maps were removed,
+  with Mage dying 10/10. Every class's starting kit now carries 3
+  Healing Potions instead of 1 (Barbarian gets a kit at all now,
+  previously none), and Mage's Speed went 6 -> 7 - deaths dropped to
+  2/50 across all five classes in the re-run. The simulation itself is
+  now a permanent tool, not a one-off: `#[ignore]`d so it doesn't run in
+  the normal `cargo test` (real time even in release) - rerun by hand
+  after any balance change with `cargo test --release
+  class_survivability_report -- --ignored --nocapture` (see
+  `screens/battle.rs`; pointer in CLAUDE.md). See "Overall balance pass"
+  above for the one known open issue with the bot itself.
+
 ## Out-of-combat UI — Item Menu, Ability Bar, Battle Bar
 - **Item Menu** (press M) — a real arrow-key-navigable list of universal
   consumables (Healing Potion, Dungeon Map, future items), replacing the
@@ -356,13 +272,27 @@ placeholder/test tool.
   description (wrapped, with a fallback for anything missing one), and a
   read-only reference panel of Battle Attacks, class Abilities (full
   roster, greyed if unowned), and Weapons. Opening/browsing is free;
-  using an item costs a turn.
+  using an item costs a turn. Later redesigned into a full 5-box
+  character dashboard (Items, Equipped Items, Stats, Battle Actions,
+  Dungeon Actions) plus a shared description panel - cursor reuses
+  `battle::MenuCursor` as-is. Stats box is mode-aware (Arena Level/Wave
+  during a Battle Arena run, Dungeon Level otherwise). Also added
+  descriptions to all 15 weapon templates (previously blank).
 - **Number keys 1-9, 0 now trigger class Abilities directly**, by fixed
   roster position, instead of the old potion/map slots.
 - **Ability Bar** — a row of icons along the bottom of the dungeon
   screen for out-of-combat class abilities, centered as a group, red box
   border, number labels matching the real hotkeys, greyed out if
-  unowned, hover for a full description.
+  unowned, hover for a full description. Click-to-use added later
+  (`use_ability_bar_click`) - reuses the exact same `use_ability` the
+  number keys already call, no new design needed.
+- **Item Bar** — a third icon bar (blue box) immediately left of the
+  Ability Bar, for universal consumables (`spawner::universal_item_names`).
+  Sits alongside the Item Menu rather than replacing it. Click (left
+  mouse button) to use directly - the first click-to-activate
+  interaction in the game (`components::MouseLeftJustPressed`, a real
+  physical-click edge detector, since bracket-lib's own `left_click`
+  fires twice per click).
 - **Battle Bar** — a second row next to the Ability Bar for in-battle
   Techniques. Dungeon-HUD-only: it never renders during the actual
   battle screen (`TurnState::InBattle` routes to a completely separate
@@ -370,12 +300,26 @@ placeholder/test tool.
   cursor+Enter against an in-panel Actions list, no icon bar at all).
   Outside a fight it's pure reference (same icon size, green box, no
   number labels, greyed-out-when-unowned, hover-for-description) - there
-  is no in-battle action bar for it to mirror, so it has nothing to be
-  "usable" as.
+  is no in-battle action bar for it to mirror, so click support was
+  never actually a real option to begin with (closed, not deferred).
 - **The dungeon-exploration HUD is now minimal** — health bar, hint
-  text, dungeon level/gold, shop stock while shopping, and the two icon
-  bars. The old on-screen "Battle Attacks"/"Weapons" text panels are
-  gone, consolidated into the Item Menu's reference panel instead.
+  text, dungeon level/gold, shop stock while shopping, and the three
+  icon bars. The old on-screen "Battle Attacks"/"Weapons" text panels
+  are gone, consolidated into the Item Menu's reference panel instead.
+- **Player-status frame** — replaced the old plain full-width health bar
+  with a top-left class-portrait icon (the player's existing `Render`,
+  no new art) plus a compact one-row health bar (HUD_CONSOLE has no
+  sub-cell text positioning, so a multi-row bar could never center its
+  "current / max" overlay). Gained small buff badges
+  (`BUFF_BADGE_CONSOLE`, a new 32px-cell console) for
+  Invisible/Stealthed/IceArmored shortly after - real ability icon art,
+  not placeholders, queued left to right if more than one is active.
+  Introducing this frame collided with the Battle Arena shop's old fixed
+  top-left item list - replaced with a single tooltip for whichever item
+  is adjacent to the player (`components::shop_item_near`, the same
+  lookup `buy_nearby_item` uses, so it can never show something
+  different from what Enter would actually buy), anchored to the
+  player's own on-screen position so it travels with them.
 
 ## Battle screen / UI
 - Bordered actions box, Battle Victory screen, floating damage numbers,
@@ -392,9 +336,16 @@ tracking, its own shop map/UI.
 - Title screen, Class Select, Adventure Select — all now have arrow-key
   cursor navigation (yellow highlight + `►` pointer), alongside the
   number/letter-key shortcuts that already worked.
-- Pause screen, **Options screen** (now with a "Remember Last Battle
-  Action" toggle alongside Battle Speed/ATB Mode, also arrow-navigable),
-  **History/Stats screen** (also arrow-navigable).
+- **Pause screen overhaul** — moved off the old tiny 8px console onto
+  the same BIG_TEXT_CONSOLE/HUD_CONSOLE split every other menu uses. A
+  real arrow-key + Enter menu (Resume/Options/Quit, matching every other
+  menu screen's convention) - Escape/O/Q still work directly too,
+  purely additive. The dungeon HUD's old permanent "how to play" hint
+  moved here as a rotating "Hints" box in the lower third of the screen
+  (3 lines, cycling every 4s, freely add/remove from `PAUSE_HINTS`).
+- **Options screen** (now with a "Remember Last Battle Action" toggle
+  alongside Battle Speed/ATB Mode, also arrow-navigable), **History/
+  Stats screen** (also arrow-navigable).
 - Victory and Game Over screens.
 
 ## Player / dungeon
@@ -403,9 +354,17 @@ tracking, its own shop map/UI.
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5
-  classes, plus the Battle Arena Shopkeeper — see
-  `Dungeon_Font_Glyph_to_Cell_Map.md`. No new art this session; the
-  Ability Bar/Battle Bar reuse existing glyphs at a larger render size.
+  classes, plus the Battle Arena Shopkeeper and the dungeon Treasure
+  Chest (`c` glyph) — see `Dungeon_Font_Glyph_to_Cell_Map.md`.
+
+## Documentation
+- **README.md pass** — controls table, combat system section, and
+  current-state summary rewritten to match reality (M opens a full
+  dashboard, number keys mean abilities, Item Bar/Ability Bar clicking,
+  Pause is a cursor menu). Kept up to date in small pieces since (e.g.
+  the Dungeon Crawl shop/chest mention added when that shipped).
+- **CHANGELOG.md** added — dated, player-facing entries (this project
+  doesn't use version numbers).
 
 ## Engineering / refactors
 - `main.rs`/`battle` module splits, persistent settings files
@@ -424,8 +383,10 @@ tracking, its own shop map/UI.
   through a real `Schedule` — kept in the shipped code deliberately,
   unlike this project's other throwaway tests, specifically to catch a
   whole class of legion component-access bug that's invisible to every
-  compile check (see the project instructions doc's Section 2 for the
-  full story of the crash this caught).
+  compile check.
+- **A permanent class-survivability simulation** (`screens/battle.rs`'s
+  `class_survivability_report`, `#[ignore]`d) - see "Dungeon Crawl
+  economy" above.
 
 ## Stats tracking
 - Games played/won, enemies killed, deepest level reached, per-ability

@@ -353,7 +353,19 @@ fn buy_nearby_item(
     commands: &mut CommandBuffer,
     shop_message: &mut Option<ShopMessage>,
 ) -> bool {
+    // Filtered to Player specifically - a shop scene also has a
+    // Shopkeeper NPC and a Point-tagged ShopStock counter entity per
+    // item on sale, so an unfiltered query here can silently grab one of
+    // THOSE instead of the real player, depending on legion's internal
+    // archetype iteration order. That's exactly what happened: it never
+    // visibly broke the Battle Arena shop (the player's archetype
+    // happened to iterate first there), but the Dungeon Crawl shop's
+    // different entity-creation order (arena_rebuild_keep_player first,
+    // Shopkeeper/ShopStock pushed after) surfaced it - shop_item_near
+    // silently found nothing near the WRONG position, so pressing Enter
+    // did nothing with no error shown at all.
     let player = <(Entity, &Point)>::query()
+        .filter(component::<Player>())
         .iter(ecs)
         .find_map(|(entity, pos)| Some((*entity, *pos)));
     let (player_entity, player_pos) = match player {

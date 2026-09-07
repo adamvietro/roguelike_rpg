@@ -4,11 +4,23 @@
 // prefab_only weapons or levels:[] battle-loot techniques, since it
 // bypasses all the normal spawn pools and grants exactly what's listed.
 //
-// A class with no entry here just starts with nothing extra, same as
-// every class did before this file existed - Barbarian doesn't have one
-// yet since it's already proven playable without a kit.
+// Every class gets 3 Healing Potions now, Barbarian included - a
+// class-survivability simulation (10 headless runs per class, see
+// docs/journal.md) found only 3/50 runs reaching the first shop at all
+// once ambient Potions/Maps were pulled off the dungeon floor, with
+// Mage dying 10/10. A single starting Potion (or, for Barbarian,
+// none at all) was nowhere near enough sustain to bridge the gap to the
+// chest/shop now that floor-scattered healing is gone.
 StartingKits(
     kits: [
+        StartingKit(
+            // Barbarian has the best raw stats (highest HP, only class
+            // with a positive Defense) but still died in the same
+            // simulation without any guaranteed healing at all - see
+            // this file's own doc comment above.
+            class: "Barbarian",
+            items: [ "Healing Potion", "Healing Potion", "Healing Potion" ],
+        ),
         StartingKit(
             // Mage is squishy (Defense -1, no innate weapon damage) and
             // otherwise starts completely empty-handed relying on random
@@ -17,7 +29,10 @@ StartingKits(
             // one, without guaranteeing an offensive technique (Fireball
             // is still loot-only).
             class: "Mage",
-            items: [ "Healing Potion", "Invisible Cloak", "Ice Armor" ],
+            items: [
+                "Healing Potion", "Healing Potion", "Healing Potion",
+                "Invisible Cloak", "Ice Armor",
+            ],
         ),
         StartingKit(
             // Rogue starts with just enough to make Stealth ambushes
@@ -25,7 +40,7 @@ StartingKits(
             // Dagger are all still left to loot/the guarded fortress
             // room, same as Barbarian finding its Sword tier there.
             class: "Rogue",
-            items: [ "Healing Potion", "Stealth" ],
+            items: [ "Healing Potion", "Healing Potion", "Healing Potion", "Stealth" ],
         ),
         StartingKit(
             // Debug class - see spawner::class_base_stats and
@@ -38,21 +53,28 @@ StartingKits(
         ),
         StartingKit(
             // Amazon starts with one of each of its two out-of-combat
-            // tools (Trap, and a Healing Potion like most classes) plus
-            // its damage-reduction technique - Throw Spear and Poison
-            // Spear are left to loot/the guarded fortress room, same
-            // pattern as every other class's kit.
+            // tools (Trap, and now 3 Healing Potions like every class)
+            // plus its damage-reduction technique - Throw Spear and
+            // Poison Spear are left to loot/the guarded fortress room,
+            // same pattern as every other class's kit.
             class: "Amazon",
-            items: [ "Healing Potion", "Trap", "Battle Cry" ],
+            items: [
+                "Healing Potion", "Healing Potion", "Healing Potion",
+                "Trap", "Battle Cry",
+            ],
         ),
         StartingKit(
             // Hunter starts with two Freeze Traps (its signature
             // out-of-combat tool, worth having more than one of right
-            // away), a Healing Potion, and one Shoot - Poison Shot,
+            // away), 3 Healing Potions, and one Shoot - Poison Shot,
             // Stun, and Feint are left to loot/the guarded fortress
             // room, same pattern as every other class's kit.
             class: "Hunter",
-            items: [ "Freeze Trap", "Freeze Trap", "Healing Potion", "Shoot" ],
+            items: [
+                "Freeze Trap", "Freeze Trap",
+                "Healing Potion", "Healing Potion", "Healing Potion",
+                "Shoot",
+            ],
         ),
     ],
 )

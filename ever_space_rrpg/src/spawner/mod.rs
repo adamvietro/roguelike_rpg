@@ -39,7 +39,7 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
         "Mage" => ClassBaseStats {
             health: 10,
             damage: 1,
-            speed: 6,
+            speed: 7,
             defense: -1,
             evasion: 0,
             glyph: 'm',

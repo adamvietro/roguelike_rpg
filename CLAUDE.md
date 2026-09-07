@@ -45,6 +45,13 @@ You have direct file access and a real terminal here, so use them:
 - Verify RON data at runtime too, not just that it parses — a missing
   field a feature depends on (e.g. a `description:` some items lacked)
   only surfaces when actually loaded and read.
+- **After any class-balance change** (stats, starting kits, technique
+  numbers), rerun the class-survivability simulation:
+  `cargo test --release class_survivability_report -- --ignored --nocapture`
+  (a permanent `#[ignore]`d test in `screens/battle.rs` — real time even in
+  release, which is why it's not part of the normal suite). Plays several
+  headless runs per class through the real game logic and reports how many
+  reach the first dungeon shop alive.
 - Double-check brace balance and re-view the *exact* file about to be
   committed after any large sequential edit, especially ones assembled
   from several separate edits — don't trust an earlier read of the file.

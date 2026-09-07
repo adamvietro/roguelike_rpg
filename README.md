@@ -144,11 +144,19 @@ writing:
   every frame currently points at the same placeholder art - real
   distinct walk-cycle art, and a possible move from one shared sprite
   sheet to a sheet per class, are both future work.
-- Planned next: an overall balance pass (starting gold/items, player/
-  enemy stats), more class abilities beyond each class's current small
-  roster, a mouse-targeted ranged AOE outside battle, a Dungeon Crawl
-  shop, and eventually music/sound (no crate chosen yet - `rodio` is the
-  leading candidate, since bracket-lib has no built-in audio support).
+- Dungeon Crawl now has its own gold economy too: enemies drop gold, a
+  guaranteed per-floor chest (guarded by that floor's toughest enemy)
+  holds gold/a Map/Potions, and a shop sits between floors selling
+  Potions and Maps - the same `buy_nearby_item`/counter mechanics Battle
+  Arena's shop already used. A headless class-survivability simulation
+  (`cargo test --release class_survivability_report -- --ignored
+  --nocapture`) is a permanent tool for testing starting-kit balance
+  changes going forward.
+- Planned next: more class abilities beyond each class's current small
+  roster, a mouse-targeted ranged AOE outside battle, and eventually
+  music/sound (no crate chosen yet - `rodio` is the leading candidate,
+  since bracket-lib has no built-in audio support). See `docs/ideas.md`
+  for the full backlog, including an in-progress balance pass.
 
 ## Project structure
 

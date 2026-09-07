@@ -1382,3 +1382,315 @@ impl State {
         }
     }
 }
+
+/// Headless class-survivability simulation - a permanent fixture (marked
+/// `#[ignore]` so it doesn't run as part of the normal `cargo test`,
+/// since it takes real time even in release mode), rerun by hand after
+/// any class-balance change: `cargo test --release
+/// class_survivability_report -- --ignored --nocapture` from
+/// ever_space_rrpg/. Answers "how many runs actually reach the first
+/// shop" for each class, using the REAL game logic end to end wherever
+/// possible - the actual schedulers, movement, item pickup, chest
+/// interaction, and shop transition, not a separate simplified model.
+///
+/// Combat itself goes straight through the same
+/// resolve_player_action/trigger_enemy_action/dismiss_action_result
+/// functions battle_tick calls (turn order simplified to "player acts,
+/// then every living enemy acts back" instead of real-time ATB gauge
+/// filling - no real frame loop to drive that headlessly) rather than
+/// battle_tick/chest_loot_tick/battle_victory_tick themselves, which do
+/// real `ctx.set_active_console`/`ctx.print_*` calls that need a live
+/// window's console registry and panic without one. Placed here (not
+/// main.rs) specifically so it can call
+/// resolve_player_action/trigger_enemy_action/dismiss_action_result
+/// directly - those are private to this module, and Rust privacy lets a
+/// module's descendants (including a nested test module) see its own
+/// private items, not the reverse.
+///
+/// The player's in-battle policy (see choose_battle_action) isn't
+/// optimal, but it's not naive either: flee once critically low on
+/// health, use an owned offensive Technique when one's available (they're
+/// one-time-use, consumed on cast, so this naturally tapers off to plain
+/// Attack once a run's kit is spent), otherwise Attack. Between fights,
+/// drink a Healing Potion below half health. A genuinely optimal player
+/// (perfect target/technique selection, exact HP thresholds) would likely
+/// do somewhat better than these numbers - treat this as a realistic
+/// lower-middle bound, not a hard floor.
+#[cfg(test)]
+mod class_survivability_diagnostic {
+    use super::*;
+    use crate::State;
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum RunOutcome {
+        ReachedShop,
+        Died,
+        TimedOut,
+    }
+
+    fn find_exit_tile(map: &Map) -> Point {
+        let idx = map
+            .tiles
+            .iter()
+            .position(|t| *t == TileType::Exit)
+            .expect("no Exit tile on this floor");
+        map.index_to_point2d(idx)
+    }
+
+    /// One step toward `target`, going through the real player_input
+    /// system (via the same `key` resource main.rs's tick() sets from a
+    /// live keypress) so enemy-bump battle-starts/item auto-pickup/chest
+    /// interaction all happen exactly as they do for a real player -
+    /// only the SOURCE of the key (computed here, not read from a
+    /// window) differs.
+    ///
+    /// Picks directly among the 4 CARDINAL neighbors by their own
+    /// Dijkstra distance, rather than trusting
+    /// DijkstraMap::find_lowest_exit's own pick - that considers diagonal
+    /// exits too (get_available_exits allows them), which this bot has
+    /// no way to act on (Action only has Up/Down/Left/Right, no
+    /// diagonals). Decomposing a diagonal suggestion into a single
+    /// cardinal step by dx/dy sign doesn't reliably reduce distance and
+    /// caused a real back-and-forth stall right next to the chest's
+    /// one-tile approach corridor during development.
+    fn step_toward(state: &mut State, target: Point) {
+        let player_pt = *<&Point>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .unwrap();
+        let action = {
+            let map = state.resources.get::<Map>().unwrap();
+            let dijkstra = DijkstraMap::new(
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+                &vec![map.point2d_to_index(target)],
+                &*map,
+                1024.0,
+            );
+            let candidates: [(Action, Point); 4] = [
+                (Action::MoveUp, Point::new(player_pt.x, player_pt.y - 1)),
+                (Action::MoveDown, Point::new(player_pt.x, player_pt.y + 1)),
+                (Action::MoveLeft, Point::new(player_pt.x - 1, player_pt.y)),
+                (Action::MoveRight, Point::new(player_pt.x + 1, player_pt.y)),
+            ];
+            let mut best: Option<(Action, f32)> = None;
+            for (action, dest) in candidates {
+                if !map.can_enter_tile(dest) {
+                    continue;
+                }
+                let dist = dijkstra.map[map.point2d_to_index(dest)];
+                let better = match best {
+                    Some((_, best_dist)) => dist < best_dist,
+                    None => true,
+                };
+                if better {
+                    best = Some((action, dist));
+                }
+            }
+            best.map(|(action, _)| action)
+        };
+        let action = match action {
+            Some(a) => a,
+            None => return,
+        };
+        let key = state.resources.get::<Keymap>().unwrap().key_for(action);
+        state.resources.insert(Some(key));
+        state
+            .input_systems
+            .execute(&mut state.ecs, &mut state.resources);
+        state.resources.insert(None::<VirtualKeyCode>);
+    }
+
+    /// Uses one carried Healing Potion, exactly like pressing its Item
+    /// Bar slot would - returns false (does nothing) if none carried.
+    fn use_potion(state: &mut State) -> bool {
+        let player = *<Entity>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .unwrap();
+        let potion = <(Entity, &Name, &Carried)>::query()
+            .iter(&state.ecs)
+            .find(|(_, n, c)| n.0 == "Healing Potion" && c.0 == player)
+            .map(|(e, _, _)| *e);
+        let potion = match potion {
+            Some(p) => p,
+            None => return false,
+        };
+        state.ecs.push((ActivateItem {
+            used_by: player,
+            item: potion,
+        },));
+        state.resources.insert(TurnState::PlayerTurn);
+        state
+            .player_systems
+            .execute(&mut state.ecs, &mut state.resources);
+        true
+    }
+
+    /// Picks this turn's battle action - see this module's own doc
+    /// comment for the overall policy. Below a quarter health, flee
+    /// rather than risk dying outright (a real player would); otherwise
+    /// spend an owned offensive Technique if one's available (they're
+    /// one-time-use, so this naturally exhausts a run's kit rather than
+    /// spamming forever), falling back to a plain Attack.
+    fn choose_battle_action(ecs: &World, player: Entity) -> BattleAction {
+        let (hp, max_hp) = {
+            let h = <&Health>::query()
+                .filter(component::<Player>())
+                .iter(ecs)
+                .next()
+                .unwrap();
+            (h.current, h.max)
+        };
+        if hp * 4 < max_hp {
+            return BattleAction::Flee;
+        }
+        available_actions(ecs, player)
+            .into_iter()
+            .find_map(|entry| match entry.action {
+                Some(BattleAction::Technique(item)) => Some(BattleAction::Technique(item)),
+                _ => None,
+            })
+            .unwrap_or(BattleAction::Attack)
+    }
+
+    /// Resolves a whole fight synchronously - see this module's own doc
+    /// comment for the simplified (non-ATB) turn order.
+    fn resolve_battle(state: &mut State) {
+        let mut battle = state
+            .resources
+            .get::<Option<Battle>>()
+            .unwrap()
+            .clone()
+            .unwrap();
+        for _ in 0..200 {
+            let action = choose_battle_action(&state.ecs, battle.player);
+            state.resolve_player_action(&mut battle, action);
+            if matches!(
+                state.dismiss_action_result(&mut battle, false),
+                ResultOutcome::EndBattleTick
+            ) {
+                return;
+            }
+            if battle.fled {
+                return;
+            }
+            let enemies_this_round: Vec<Entity> =
+                battle.enemies.iter().map(|e| e.entity).collect();
+            for enemy in enemies_this_round {
+                if !battle.enemies.iter().any(|e| e.entity == enemy) {
+                    continue; // already died earlier this round
+                }
+                if state.trigger_enemy_action(&mut battle, enemy, false) {
+                    return; // ended via a DOT-kill inside trigger_enemy_action itself
+                }
+                if matches!(
+                    state.dismiss_action_result(&mut battle, false),
+                    ResultOutcome::EndBattleTick
+                ) {
+                    return;
+                }
+            }
+        }
+    }
+
+    fn simulate_one_run(class: &str, max_actions: usize) -> RunOutcome {
+        let mut state = State::new();
+        state.start_game(class);
+        // Per-frame resources main.rs's tick() normally sets from a live
+        // ctx/window before dispatching - never inserted by start_game
+        // itself, since that's a real-input concern, not a new-run one.
+        state.resources.insert(AbilityBarMousePos(Point::zero()));
+        state.resources.insert(MouseLeftJustPressed(false));
+        state.resources.insert(FrameTime(16.0));
+        state.resources.insert(Point::zero()); // raw mouse_pos - see tooltips_system
+
+        for _ in 0..max_actions {
+            let current = *state.resources.get::<TurnState>().unwrap();
+            match current {
+                TurnState::AwaitingInput => {
+                    let (hp, max_hp) = {
+                        let h = <&Health>::query()
+                            .filter(component::<Player>())
+                            .iter(&state.ecs)
+                            .next()
+                            .unwrap();
+                        (h.current, h.max)
+                    };
+                    if hp * 2 < max_hp && use_potion(&mut state) {
+                        continue;
+                    }
+                    let chest_pt = <(&Chest, &Point)>::query()
+                        .iter(&state.ecs)
+                        .next()
+                        .map(|(_, p)| *p);
+                    let target = match chest_pt {
+                        Some(p) => p,
+                        None => find_exit_tile(&state.resources.get::<Map>().unwrap()),
+                    };
+                    step_toward(&mut state, target);
+                }
+                TurnState::PlayerTurn => {
+                    state
+                        .player_systems
+                        .execute(&mut state.ecs, &mut state.resources);
+                }
+                TurnState::MonsterTurn => {
+                    state
+                        .monster_systems
+                        .execute(&mut state.ecs, &mut state.resources);
+                }
+                TurnState::InBattle => {
+                    resolve_battle(&mut state);
+                }
+                TurnState::BattleVictory => {
+                    // Same dismiss logic as battle_victory_tick's Enter
+                    // branch, minus the rendering it also does.
+                    state.resources.insert(None::<BattleVictory>);
+                    state.resources.insert(TurnState::AwaitingInput);
+                }
+                TurnState::ChestOpened => {
+                    // Same dismiss logic as chest_loot_tick's Enter
+                    // branch, minus the rendering it also does.
+                    state.resources.insert(None::<ChestLoot>);
+                    state.resources.insert(TurnState::AwaitingInput);
+                }
+                TurnState::DungeonShopTransition => {
+                    state.dungeon_shop_transition();
+                    return RunOutcome::ReachedShop;
+                }
+                TurnState::GameOver => {
+                    return RunOutcome::Died;
+                }
+                _ => {}
+            }
+        }
+        RunOutcome::TimedOut
+    }
+
+    #[test]
+    #[ignore]
+    fn class_survivability_report() {
+        let classes = ["Barbarian", "Mage", "Rogue", "Amazon", "Hunter"];
+        let runs_per_class = 10;
+        let mut report = String::new();
+        for class in classes {
+            let mut reached = 0;
+            let mut died = 0;
+            let mut timed_out = 0;
+            for _ in 0..runs_per_class {
+                match simulate_one_run(class, 2000) {
+                    RunOutcome::ReachedShop => reached += 1,
+                    RunOutcome::Died => died += 1,
+                    RunOutcome::TimedOut => timed_out += 1,
+                }
+            }
+            report.push_str(&format!(
+                "{class}: {reached}/{runs_per_class} reached the shop ({died} died, {timed_out} timed out)\n"
+            ));
+        }
+        println!("\n{}", report);
+    }
+}

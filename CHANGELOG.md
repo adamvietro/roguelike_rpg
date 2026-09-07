@@ -5,6 +5,30 @@ rather than versioned, since the project doesn't use version numbers -
 see `docs/DEVLOG.md` for the detailed technical history and `docs/ideas.md`
 for what's planned next.
 
+## 2026-09-07
+
+### Added
+- **Dungeon Crawl now has a real gold economy.** Enemies drop gold on
+  every kill, same as Battle Arena always has.
+- **A guaranteed treasure chest on every dungeon floor**, guarded by
+  that floor's toughest ordinary enemy - open it for gold, a Dungeon
+  Map, and a few Healing Potions all at once.
+- **A shop between dungeon floors** - reach it via the stairs, spend
+  your gold on Potions and Maps before heading to the next floor.
+
+### Changed
+- Potions and Maps no longer litter dungeon floors at random - find
+  them in the new chest or buy them at the new shop instead.
+- Every class now starts with 3 Healing Potions instead of 1 (Barbarian
+  previously started with none at all).
+- Mage's Speed increased slightly (6 → 7).
+
+### Fixed
+- A dungeon floor's treasure chest room could generate with no way in -
+  visible, but completely walled off.
+- Standing next to an item in the new dungeon shop and pressing Enter
+  could silently do nothing, even with enough gold.
+
 ## 2026-09-06
 
 ### Added

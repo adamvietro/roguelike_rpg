@@ -3469,4 +3469,53 @@ One thing that would've been an easy miss: `advance_level` is now ALSO how leavi
 
 Also noticed the HUD's top-right corner only ever showed Gold during a whole Arena run (`arena_run.is_some()`), never for Dungeon Crawl - meaning there was no way to actually see your gold total while standing in the new shop deciding what to buy. Now shows Gold whenever `shopping.is_some()` too, on top of the existing Arena case.
 
+---
+
+## Chest reachability bug (found in playtesting)
+Walked into my own chest room in-game and couldn't get in - the wall template fully enclosed the interior on every side, unlike the existing Fortress/Turret/Bunker prefabs, which all have a deliberate gap somewhere in their wall pattern. Mine didn't. Opened a door on the chest's own row first, then moved it onto the guards' row instead, so the only way in is past the guards - not a straight shot to the chest that just happens to have a guard standing nearby. Verified both times with a real flood-fill from the player's start across 200 generated floors, not just eyeballing the ASCII.
+<br />
+
+---
+
+## Class survivability simulation
+Once potions stopped scattering across dungeon floors, finishing a run got noticeably harder - wanted real numbers before guessing at a fix. Built a headless simulation: a naive bot (always Attacks, never uses a Technique or Flees, only drinks a Healing Potion below half health) plays 10 runs per class, using the REAL game logic end to end - the actual schedulers, movement, item pickup, chest interaction, and shop transition, not a separate simplified model. Combat itself goes straight through the same `resolve_player_action`/`trigger_enemy_action`/`dismiss_action_result` functions `battle_tick` calls, just with turn order simplified to "player attacks, then every living enemy attacks back" instead of real-time ATB gauge filling (no real frame loop to drive that headlessly) - `battle_tick`/`chest_loot_tick`/`battle_victory_tick` themselves can't be called directly, since they make real `ctx.set_active_console`/`ctx.print_*` calls that need a live window's console registry, which doesn't exist in a plain test binary.
+<br />
+
+Result: 3 out of 50 runs (6%) reached the first shop at all. Mage died 10/10. Only Barbarian, Rogue, and Hunter managed even 1 successful run each. A real player using Techniques and fleeing bad fights would probably do somewhat better than this bot, but not enough to explain away a number that stark - the guaranteed chest sits behind combat you can't avoid (guarded by that floor's toughest enemy), and every class's starting kit is now the entire sustain budget until the chest or shop, since ambient floor potions are gone. That budget was much too thin.
+<br />
+
+Building the bot itself surfaced a genuinely reusable insight for future headless testing: `State::new()`'s title-background schedulers need `AbilityBarMousePos`, `MouseLeftJustPressed`, `FrameTime`, and a raw `Point` (mouse_pos) resource that main.rs's real `tick()` sets every frame from a live window - none of which `start_game` itself inserts, since they're a real-input concern, not a new-run one. Missing any of them panics the instant the relevant system runs.
+<br />
+
+---
+
+## Balance fixes from the simulation
+Every class's starting kit now carries 3 Healing Potions instead of 1 - Barbarian gets a kit at all now (previously none, relying purely on stats + loot). Mage's Speed also went from 6 to 7, closing part of the gap between its rough early damage output and everything else's.
+
+---
+
+## The survivability simulation is now a permanent tool
+Made the diagnostic a real fixture instead of a throwaway - `#[ignore]`d so it doesn't run as part of the normal `cargo test` (it takes real time even in release), rerun by hand after any balance change: `cargo test --release class_survivability_report -- --ignored --nocapture`. Pointer added to CLAUDE.md so a future session actually remembers it exists.
+<br />
+
+Also made the bot itself less naive per request - it now flees below a quarter health instead of always Attacking to the death, and spends an owned offensive Technique (one-time-use, so this tapers off to plain Attack once a run's kit is spent) before falling back to a plain Attack. `battle::available_actions` - the exact same function the real battle menu itself builds from - is what it picks a Technique out of.
+<br />
+
+---
+
+## A real shop bug (found by the user, not the simulation)
+Couldn't buy a Healing Potion in the new dungeon shop despite having enough gold and the tooltip clearly showing it in reach - no error, just nothing happened. Root cause: `buy_nearby_item`'s own player lookup (`<(Entity, &Point)>::query().iter(ecs).find_map(...)`) had no `Player` filter at all - it just grabbed whichever entity with a `Point` component legion's iteration happened to return first. A shop scene also has a Shopkeeper NPC and a `Point`-tagged `ShopStock` counter entity per item on sale, so this could just as easily be one of THOSE. It never visibly broke the Battle Arena shop (the player's archetype apparently iterates first there, by chance), but the new Dungeon Crawl shop's different entity-creation order (`arena_rebuild_keep_player` first, Shopkeeper/ShopStock pushed after) exposed it.
+<br />
+
+Fixed with a plain `.filter(component::<Player>())` - one line. Verified properly both directions: built a test reproducing the exact scenario (Shopkeeper + ShopStock + player, all with `Point`), confirmed it genuinely FAILS against the old code (gold unchanged - the bug reproduces on demand, not just in theory), then confirmed it passes with the fix, then removed the test.
+<br />
+
+---
+
+## Re-running the simulation after the potion/speed/bug fixes
+Deaths basically vanished - 2/50 across all five classes, down from 36/50 before the starting-kit changes. The potions and Mage's speed bump look like they genuinely fixed the survivability problem.
+<br />
+
+But almost everyone times out instead of finishing now (43/50) - and I think that's a bot-AI artifact, not a new real balance problem. The bot's new "flee below 25% HP" rule ends a losing fight, but its pathing always recomputes the literal shortest route to the same target - if the enemy it just fled from is still sitting on that route (usually true, since Flee doesn't reposition anyone), the very next action walks right back into it, fights again, flees again, and loops without ever making progress. A real player would obviously route around or retreat further first; this bot doesn't know how to yet. Left open rather than rushed - the flee-then-repath loop needs a real fix (e.g. avoid re-pathing onto the same enemy for a turn or two after fleeing it) before the "reached the shop" numbers can be trusted again.
+
 
