@@ -574,90 +574,22 @@ impl State {
         let mut rng = RandomNumberGenerator::new();
         let arena_run = ArenaRun::new(1);
         let items = roll_arena_shop_items(&mut rng, class, arena_run.template_level());
-        let (
-            mut map_builder,
-            item_points,
-            shopkeeper_point,
-            reveal_x,
-            reveal_y,
-            reveal_w,
-            reveal_h,
-        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
-        // No starting kit to grant here (see this fn's doc comment), but
-        // the returned entity IS needed below to force full visibility.
-        let player = spawn_player(&mut self.ecs, map_builder.player_start, class);
+        // No starting kit to grant here (see this fn's doc comment).
+        // Spawned at a throwaway position - build_shop_room moves it to
+        // the real player_start once the shop map actually exists.
+        let player = spawn_player(&mut self.ecs, Point::zero(), class);
 
-        // No fog of war inside the reveal rectangle - deliberately NOT
-        // the whole 80x50 map (every Map is that size regardless of what
-        // any one MapBuilder actually uses, and revealing all of it is
-        // what made the arena shop look like a tiny room floating in an
-        // enormous dungeon). Leaving everything outside this rectangle
-        // unrevealed means nothing renders there at all (see
-        // components::tile_render_at's bounds/reveal check) - a plain
-        // black boundary, not more wall - which is what actually makes
-        // this map read as small. Same underlying trick
-        // spawn_title_background uses for the decorative title-screen
-        // background (revealed_tiles true + the entity's own
-        // FieldOfView pre-filled and frozen with is_dirty = false so
-        // it's never recomputed), just bounded to a small rectangle
-        // instead of the whole map. This also still matters for the
-        // shopkeeper specifically: it sits behind the counter (a
-        // Counter tile, opaque like a Wall), and real shadowcasting
-        // would never let the player see past that counter at all, no
-        // matter how close they stood.
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
-            }
-        }
-        let mut full_fov = FieldOfView::new(8);
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                full_fov.visible_tiles.insert(Point::new(x, y));
-            }
-        }
-        full_fov.is_dirty = false;
-        let mut commands = legion::systems::CommandBuffer::new(&self.ecs);
-        commands.add_component(player, full_fov);
+        self.build_shop_room(player, &mut rng, &items);
+
         // Only a Battle Arena player ever gets a Gold component at all -
         // see Gold's own doc comment for why every gold codepath treats
         // that presence, not a separate mode check, as the source of
         // truth.
+        let mut commands = legion::systems::CommandBuffer::new(&self.ecs);
         commands.add_component(player, Gold(ARENA_STARTING_GOLD));
         commands.flush(&mut self.ecs);
 
-        // Shopkeeper - purely decorative for now (no dialogue/trade
-        // logic, the items themselves are what's interactive). Glyph
-        // 'W' was picked because it's the one letter glyph documented as
-        // "free and unassigned" in Dungeon_Font_Glyph_to_Cell_Map.md -
-        // every other letter already has real custom art for a class,
-        // enemy, or boss. Renders as a plain default 'W' until a future
-        // art pass draws real shopkeeper pixel art into that cell (row
-        // 5, col 7 - see the master map).
-        self.ecs.push((
-            Name("Shopkeeper".to_string()),
-            shopkeeper_point,
-            Render {
-                color: ColorPair::new(YELLOW, BLACK),
-                glyph: to_cp437('W'),
-            },
-        ));
-
-        self.spawn_arena_shop_items(&items, &item_points);
-
-        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
-        map_builder.map.tiles[exit_idx] = TileType::Exit;
-
-        self.resources.insert(map_builder.map);
-        // Plain Camera::new - the standard 40x25 dungeon viewport, same
-        // as every other map. A custom smaller camera was tried here
-        // first, but it didn't address the actual problem (the map
-        // itself still being 80x50 underneath) and complicated other
-        // things unnecessarily - the reveal-rectangle approach above is
-        // what actually makes this map read as small.
-        self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
-        self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(Keymap::load());
@@ -691,6 +623,96 @@ impl State {
         for ((name, quantity, price), &pt) in items.iter().zip(item_points.iter()) {
             spawn_shop_stock_at(&mut self.ecs, name, pt, *quantity, *price);
         }
+    }
+
+    /// Builds a shop room around `player_entity` and stocks it with
+    /// `items` - the mechanical core every "enter a shop" transition
+    /// needs (start_arena's very first shop, arena_advance_to_next_shop's
+    /// later ones, and Dungeon Crawl's own dungeon_shop_transition), split
+    /// out after those three had all accumulated their own copy of it.
+    /// Moves `player_entity` to the new map's player_start (works whether
+    /// it already existed elsewhere or was just spawned at a throwaway
+    /// position moments ago - either way this is what actually places
+    /// it), reveals the map's reveal rectangle with no fog of war and a
+    /// frozen FieldOfView (see MapBuilder::new_arena_shop's own doc
+    /// comment for why - the shopkeeper sits behind an opaque Counter
+    /// tile, and real shadowcasting would never let the player see past
+    /// it), spawns the decorative Shopkeeper NPC, places the stock via
+    /// spawn_arena_shop_items, sets the Exit tile, and inserts the map/
+    /// Camera/theme resources.
+    ///
+    /// Deliberately does NOT touch TurnState/Battle/BattleVictory/
+    /// ArenaRun/Gold/Stats - those differ too much between a fresh-world
+    /// bootstrap (start_arena) and an in-run transition (the other two)
+    /// for a shared helper to guess correctly; every caller still sets
+    /// those itself right after calling this.
+    fn build_shop_room(
+        &mut self,
+        player_entity: Entity,
+        rng: &mut RandomNumberGenerator,
+        items: &[(String, i32, i32)],
+    ) {
+        let (
+            mut map_builder,
+            item_points,
+            shopkeeper_point,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ) = MapBuilder::new_arena_shop(rng, items.len());
+
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, map_builder.player_start);
+        cb.flush(&mut self.ecs);
+
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
+            }
+        }
+        let mut full_fov = FieldOfView::new(8);
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, full_fov);
+        cb.flush(&mut self.ecs);
+
+        // Shopkeeper - purely decorative for now (no dialogue/trade
+        // logic, the items themselves are what's interactive). Glyph
+        // 'W' was picked because it's the one letter glyph documented as
+        // "free and unassigned" in Dungeon_Font_Glyph_to_Cell_Map.md -
+        // every other letter already has real custom art for a class,
+        // enemy, or boss. Renders as a plain default 'W' until a future
+        // art pass draws real shopkeeper pixel art into that cell (row
+        // 5, col 7 - see the master map).
+        self.ecs.push((
+            Name("Shopkeeper".to_string()),
+            shopkeeper_point,
+            Render {
+                color: ColorPair::new(YELLOW, BLACK),
+                glyph: to_cp437('W'),
+            },
+        ));
+
+        self.spawn_arena_shop_items(items, &item_points);
+
+        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
+        map_builder.map.tiles[exit_idx] = TileType::Exit;
+
+        self.resources.insert(map_builder.map);
+        // Plain Camera::new - the standard 40x25 dungeon viewport, same
+        // as every other map. A custom smaller camera was tried here
+        // first, but it didn't address the actual problem (the map
+        // itself still being 80x50 underneath) and complicated other
+        // things unnecessarily - the reveal-rectangle approach above is
+        // what actually makes this map read as small.
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(map_builder.theme);
     }
 
     /// Reached by stepping on a shop's stairs tile while ArenaRun is
@@ -858,64 +880,18 @@ impl State {
 
     /// Moves the player on to `next_level`'s shop after clearing the
     /// previous level's boss - same player/inventory (see
-    /// arena_rebuild_keep_player), a freshly rolled and stocked shop
-    /// (see start_arena, which this necessarily duplicates a fair amount
-    /// of - a shared "build an arena shop world" helper would be a
-    /// reasonable follow-up cleanup, not done here to keep this change
-    /// focused on wave/boss orchestration).
+    /// arena_rebuild_keep_player), a freshly rolled and stocked shop (see
+    /// build_shop_room, shared with start_arena's very first shop and
+    /// Dungeon Crawl's own dungeon_shop_transition).
     fn arena_advance_to_next_shop(&mut self, next_level: u8) {
         let player_entity = self.arena_rebuild_keep_player();
         let class = entity_class(&self.ecs, player_entity).unwrap_or_default();
         let mut rng = RandomNumberGenerator::new();
         let template_level = (next_level - 1) as usize;
         let items = roll_arena_shop_items(&mut rng, &class, template_level);
-        let (
-            mut map_builder,
-            item_points,
-            shopkeeper_point,
-            reveal_x,
-            reveal_y,
-            reveal_w,
-            reveal_h,
-        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
 
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, map_builder.player_start);
-        cb.flush(&mut self.ecs);
+        self.build_shop_room(player_entity, &mut rng, &items);
 
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
-            }
-        }
-        let mut full_fov = FieldOfView::new(8);
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                full_fov.visible_tiles.insert(Point::new(x, y));
-            }
-        }
-        full_fov.is_dirty = false;
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, full_fov);
-        cb.flush(&mut self.ecs);
-
-        self.ecs.push((
-            Name("Shopkeeper".to_string()),
-            shopkeeper_point,
-            Render {
-                color: ColorPair::new(YELLOW, BLACK),
-                glyph: to_cp437('W'),
-            },
-        ));
-
-        self.spawn_arena_shop_items(&items, &item_points);
-
-        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
-        map_builder.map.tiles[exit_idx] = TileType::Exit;
-
-        self.resources.insert(map_builder.map);
-        self.resources.insert(Camera::new(map_builder.player_start));
-        self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
         self.resources.insert(TurnState::AwaitingInput);
@@ -957,55 +933,8 @@ impl State {
             ),
         ];
         let mut rng = RandomNumberGenerator::new();
-        let (
-            mut map_builder,
-            item_points,
-            shopkeeper_point,
-            reveal_x,
-            reveal_y,
-            reveal_w,
-            reveal_h,
-        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
+        self.build_shop_room(player_entity, &mut rng, &items);
 
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, map_builder.player_start);
-        cb.flush(&mut self.ecs);
-
-        // No fog of war inside the reveal rectangle - same reasoning as
-        // start_arena/arena_advance_to_next_shop's own identical block.
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
-            }
-        }
-        let mut full_fov = FieldOfView::new(8);
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                full_fov.visible_tiles.insert(Point::new(x, y));
-            }
-        }
-        full_fov.is_dirty = false;
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, full_fov);
-        cb.flush(&mut self.ecs);
-
-        self.ecs.push((
-            Name("Shopkeeper".to_string()),
-            shopkeeper_point,
-            Render {
-                color: ColorPair::new(YELLOW, BLACK),
-                glyph: to_cp437('W'),
-            },
-        ));
-
-        self.spawn_arena_shop_items(&items, &item_points);
-
-        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
-        map_builder.map.tiles[exit_idx] = TileType::Exit;
-
-        self.resources.insert(map_builder.map);
-        self.resources.insert(Camera::new(map_builder.player_start));
-        self.resources.insert(map_builder.theme);
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(Some(ShoppingActive));
         self.resources.insert(None::<ShopMessage>);

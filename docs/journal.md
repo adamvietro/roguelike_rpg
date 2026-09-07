@@ -3518,4 +3518,26 @@ Deaths basically vanished - 2/50 across all five classes, down from 36/50 before
 
 But almost everyone times out instead of finishing now (43/50) - and I think that's a bot-AI artifact, not a new real balance problem. The bot's new "flee below 25% HP" rule ends a losing fight, but its pathing always recomputes the literal shortest route to the same target - if the enemy it just fled from is still sitting on that route (usually true, since Flee doesn't reposition anyone), the very next action walks right back into it, fights again, flees again, and loops without ever making progress. A real player would obviously route around or retreat further first; this bot doesn't know how to yet. Left open rather than rushed - the flee-then-repath loop needs a real fix (e.g. avoid re-pathing onto the same enemy for a turn or two after fleeing it) before the "reached the shop" numbers can be trusted again.
 
+---
+
+# 9/07/26 (continued) - two small backlog cleanups
+
+Cleaned up docs/ideas.md properly this time - moved everything actually finished (this session's work, plus a couple of already-done items that were sitting unmarked) out of the numbered Working list and into real categorized Done sections, instead of leaving `~~strikethrough~~` items mixed into the numbered list. Committed the whole night's work as one commit, then started a real feature branch (`cleanup-arena-shop-dedup-and-tooltip-offset`) for what came next, rather than continuing to commit straight to master.
+<br />
+
+## Deduplicating the shop-building code
+Three functions - `start_arena` (the very first Arena shop), `arena_advance_to_next_shop` (later Arena shops), and this session's own `dungeon_shop_transition` (the new Dungeon Crawl shop) - had all accumulated their own copy of the exact same "build the room, reveal it with no fog of war, freeze the FOV, spawn the Shopkeeper, stock it, set the Exit tile" block. `arena_advance_to_next_shop`'s own doc comment already flagged this as a known cleanup, unfinished from an earlier session; adding my own third copy this session made it worse, not better.
+<br />
+
+Extracted a single `build_shop_room` helper. It deliberately does NOT touch TurnState/Battle/BattleVictory/ArenaRun/Gold/Stats - those differ too much between a fresh-world bootstrap (`start_arena`) and an in-run transition (the other two) for a shared helper to guess correctly, so every caller still sets those itself right after calling it. Verified all three callers still produce a correct shop world (right player entity kept, right resources set, real stock spawned) with a real test before removing it - net result was about 70 fewer lines in main.rs.
+<br />
+
+---
+
+## The tooltips.rs camera offset
+This one turned out more interesting than "swap one line for another." `tooltips.rs` computed which map tile the mouse was hovering using `Camera`'s own plain integer `left_x`/`top_y` - correct at rest, but during the ~150ms the camera is smoothly panning after a step, the actual on-screen position is a few pixels off from where that integer offset says it is (see `components::camera_render_offset`, which `map_render`/`entity_render` already use for the real drawing during a glide, for exactly this reason). Switched tooltips.rs to the same function, rounding the final fractional map position to the nearest tile.
+<br />
+
+`camera_render_offset` reads a `MovingAnimation` component internally, which tooltips_system hadn't declared access to - added `#[read_component(MovingAnimation)]` to be safe, matching `entity_render.rs`/`map_render.rs`'s own convention for this exact same call. Went to verify it the usual way (build a Schedule, force a real glide, confirm no AccessDenied panic without the declaration) - and it turns out this one genuinely doesn't panic without the declaration in this particular schedule. Single-entity `entry_ref().get_component()` lookups apparently aren't checked against the declared access list as strictly as bulk `::query()` calls are, and the one system that actually WRITES MovingAnimation (`tick_animations`) is already `.flush()`-separated from this whole read-only batch, so there's no live conflict to race against either. Kept the declaration anyway - it's still the correct, honest description of what this system reads, and matches its siblings - but worth remembering this isn't a universal safety net the way the hud.rs regression test's own bug was: query access is real access control, a lone `entry_ref` read apparently isn't enforced the same way.
+
 

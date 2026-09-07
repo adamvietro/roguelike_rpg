@@ -51,11 +51,7 @@ Roughly in the order they've come up:
    "here's a screenshot, nudge this" the way most of this project's
    visual work gets. Worth a dedicated look with a few different ability
    counts.
-8. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
-   `start_arena`'s shop-building code — not urgent, just flagged.
-9. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
-   offset during a glide, instead of the smooth fractional one.
-10. **More class abilities** — pull a few real ones out of the "Future
+8. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -387,6 +383,31 @@ tracking, its own shop map/UI.
 - **A permanent class-survivability simulation** (`screens/battle.rs`'s
   `class_survivability_report`, `#[ignore]`d) - see "Dungeon Crawl
   economy" above.
+- **Shared shop-room building, deduplicated across all three callers** —
+  `start_arena`'s very first Arena shop, `arena_advance_to_next_shop`'s
+  later ones, and Dungeon Crawl's own `dungeon_shop_transition` had all
+  accumulated their own copy of the same "build the room, reveal it,
+  freeze FOV, spawn the Shopkeeper, stock it, set the Exit tile" logic.
+  Extracted into one `build_shop_room` helper; each caller now only
+  handles its own TurnState/Battle/ArenaRun/Gold/Stats specifics
+  afterward, which differ too much between a fresh-world bootstrap and
+  an in-run transition for the helper to guess. Verified all three still
+  produce a correct shop world with a real test before removing it.
+- **`tooltips.rs` now uses the smooth fractional camera offset during a
+  glide** (`components::camera_render_offset`), the same one
+  `map_render`/`entity_render` already used for actual drawing, instead
+  of the stale integer `Camera::left_x`/`top_y` - hovering an entity
+  while the camera was visibly panning could point at the wrong tile (or
+  none) for the ~150ms glide window. Needed a new
+  `#[read_component(MovingAnimation)]` declaration too, since
+  `camera_render_offset` reads that internally - verified this doesn't
+  panic while a glide is genuinely in progress, though notably (unlike
+  an earlier legion-access bug this project hit) it turns out NOT to
+  panic without that declaration either in this schedule's own
+  read-only batch - legion's single-entity `entry_ref` lookups aren't
+  access-checked as strictly as bulk queries are. Kept the declaration
+  anyway since it's correct and matches `entity_render.rs`/
+  `map_render.rs`'s own convention for this exact same helper call.
 
 ## Stats tracking
 - Games played/won, enemies killed, deepest level reached, per-ability
