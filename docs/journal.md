@@ -3585,18 +3585,3 @@ Got a clean second version of the same trophy art - no watermark this time. Squa
 
 ---
 
-## A Windows build, a friend who can't run it, and two real bugs to know about
-Not code changes - the user's friend tried running a shared Windows build and hit two separate failures, worth remembering for future distribution:
-<br />
-
-**First symptom ("black screen, then nothing") traced to this project's own asset loading**, before even confirming that's what was wrong: `Templates::load()` (and every other resource loader) uses `File::open("resources/...").expect(...)` - a relative path from the CURRENT WORKING DIRECTORY, not from wherever the .exe itself lives, and it panics outright if missing. Since `main()` builds the window/GL context FIRST then constructs `State::new()` (which loads templates immediately, for the title screen's own decorative background), a missing `resources/` folder next to the .exe produces exactly this symptom: window opens (black, nothing drawn yet) → panic during state setup → window closes. Never actually confirmed this was the real cause here, since a different, more specific error showed up once the friend tried again properly.
-<br />
-
-**The real error turned out to be `NoAvailablePixelFormat`** - traced this to `bracket-terminal` (not this project's own code): its window-init code hardcodes `.with_hardware_acceleration(Some(true))` when building the GL context via glutin, with no software-rendering fallback and nothing this project's own `BTermBuilder` calls can override. The friend was running the build inside a VirtualBox VM - VirtualBox's default virtual display adapter doesn't expose real hardware-accelerated OpenGL to the guest at all unless 3D Acceleration is explicitly turned on AND Guest Additions are installed, and even then its GL support is historically limited/flaky for anything beyond basic desktop compositing. Gave the VM-settings fix to try, but flagged honestly that it might not fully work - the reliable answer is running on real hardware, not a VM, since this is a hard requirement baked into the pinned bracket-terminal dependency, not something fixable from this project's side.
-<br />
-
-Also came up: what it'd actually take to code-sign a Windows build so SmartScreen stops flagging it (a real cost/identity-verification process, not a code change) - mentioned SignPath.io's free program for legitimate open-source projects as worth checking first, given this repo is already public, before paying for a certificate just to fix one friend's install.
-
-
-
-

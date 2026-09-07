@@ -216,6 +216,20 @@ mod prelude {
     /// drawn), same as ABILITY_BAR_CONSOLE - only a few cells in the
     /// whole grid are ever used.
     pub const BUFF_BADGE_CONSOLE: usize = 13;
+    /// Console 14: same HUD_COLS x HUD_ROWS grid/terminal8x8 font as
+    /// HUD_CONSOLE (so it can reuse HUD_CONSOLE's own pixel-ratio math),
+    /// but registered LAST of all - the Ability/Item/Battle Bar's
+    /// stack-count badges (systems/hud.rs, e.g. "x2" for two Freeze
+    /// Traps). Those bar icons are opaque, full-bleed sprite art on
+    /// ABILITY_BAR_CONSOLE (registered well before this one), so a badge
+    /// drawn straight onto HUD_CONSOLE would sit BELOW the icon in
+    /// z-order and never actually show - the exact same reasoning
+    /// BUFF_BADGE_CONSOLE's own doc comment already gives, just with
+    /// terminal8x8 text instead of dungeonfont sprite icons, to match the
+    /// shop's own existing "Healing Potion x5" quantity convention. No
+    /// background (transparent everywhere except wherever a badge is
+    /// actually drawn), same as the two consoles above it.
+    pub const ABILITY_BAR_BADGE_CONSOLE: usize = 14;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -1202,6 +1216,8 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(BUFF_BADGE_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(ABILITY_BAR_BADGE_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1385,6 +1401,12 @@ fn main() -> BError {
         // beneath it. See BUFF_BADGE_CONSOLE's own doc comment for why
         // this grid (32px cells) rather than reusing ABILITY_BAR_CONSOLE.
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
+        // Console 14 (ABILITY_BAR_BADGE_CONSOLE): a plain console,
+        // registered last of all so a stack-count badge always paints
+        // over the bar icons beneath it. See its own doc comment for why
+        // this needs to be separate from HUD_CONSOLE despite sharing its
+        // exact grid/font.
+        .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 

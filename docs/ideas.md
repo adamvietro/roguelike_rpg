@@ -41,38 +41,7 @@ Roughly in the order they've come up:
    cramming more cells into the one shared `dungeonfont.png`.
 5. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
-6. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
-   small "x2" for two Freeze Traps. Design agreed, not yet built: bottom-
-   right corner of the icon (hotkey number stays top-left, unchanged -
-   opposite corners so the two numbers are never ambiguous), `x2` format
-   matching the shop's own existing quantity convention ("Healing Potion
-   x5"), plain white text (never yellow - that's the hotkey's color), and
-   only rendered at all when count > 1 so a lone item stays exactly as
-   clean as it already looks today. Not fully sold this is even needed
-   (the Item Menu already shows exact counts) - trying it since it's easy
-   to revert if it doesn't earn its keep.
-7. ~~Visual confirmation pass on the Ability Bar/Battle Bar~~ — **done**,
-   confirmed via a real screenshot: label positioning, box borders, and
-   spacing all read cleanly with real ability counts. No changes needed.
-8. ~~**Icons still needed**~~ — **all done.**
-   - ~~AOE techniques~~ — **done.** Whirlwind (`≤`, Barbarian), Blizzard
-     (`÷`, Mage), Flurry (`≥`, Rogue), Javelin Volley (`√`, Amazon),
-     Arrow Volley (`■`, Hunter) all got real art from user-supplied
-     references - see `Dungeon_Font_Glyph_to_Cell_Map.md`'s notes.
-   - ~~Debug class~~ — **done.** The real collision (Debug's own
-     player-portrait glyph was `D`, the same codepoint as Deathblow's
-     already-finalized icon) is fixed - Debug's portrait is now `N`,
-     with real art (a robot). Defeat (`M`) also got real art, rendered
-     from a black-and-white pixel-pattern chart reference rather than
-     painted art. Next Level ended up not needing a new icon at all -
-     re-pointed at the plain `>` the dungeon's own `TileType::Exit`
-     stairs tile already renders as. Victory (`L`) took two tries - the
-     first trophy reference had a visible tiled watermark and was
-     declined; a clean second version of the same art was supplied and
-     used. Since Debug is a hidden test-only class none of this was ever
-     a priority beyond the original collision fix, but all four ended up
-     finalized anyway.
-9. **More class abilities** — pull a few real ones out of the "Future
+6. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -182,6 +151,11 @@ done this session - these are the ones that were left behind).
 - **More winnable item variety** — right now a chest/shop can only ever
   contain Gold, a Dungeon Map, or a Healing Potion. Not scoped - could be
   equipment, trinkets, or anything else worth finding.
+- **Quest system** — not scoped at all yet: no design conversation has
+  happened on objectives, tracking/UI, rewards, or whatever NPC/dialogue
+  hook would hand them out. Worth a real design discussion (per
+  CLAUDE.md's convention for architectural-sized changes) before any code
+  gets written.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -424,6 +398,18 @@ placeholder/test tool.
   lookup `buy_nearby_item` uses, so it can never show something
   different from what Enter would actually buy), anchored to the
   player's own on-screen position so it travels with them.
+- **Visual confirmation pass** — checked the whole out-of-combat bar
+  layout (label positioning, box borders, spacing) against a real
+  screenshot with real ability counts. Read cleanly; no changes needed.
+- **Stack-count badge** — a small "x2"-style badge (matching the shop's
+  own existing quantity convention) on the Item/Ability/Battle Bar icons
+  whenever a stack holds more than one copy, opposite the hotkey number's
+  corner so the two are never confused. Needed a new console
+  (`ABILITY_BAR_BADGE_CONSOLE`, registered after the bars themselves) -
+  these bar icons are opaque full-bleed sprite art, so a badge drawn
+  directly on HUD_CONSOLE would just get painted over and never show.
+  Confirmed via screenshot. Not fully sold this earns its keep long-term
+  (the Item Menu already shows exact counts) - easy to revert if not.
 
 ## Battle screen / UI
 - Bordered actions box, Battle Victory screen, floating damage numbers,
@@ -460,6 +446,21 @@ tracking, its own shop map/UI.
 - Full character portraits and all 18 ability icons across all 5
   classes, plus the Battle Arena Shopkeeper and the dungeon Treasure
   Chest (`c` glyph) — see `Dungeon_Font_Glyph_to_Cell_Map.md`.
+- **AOE technique icons** — Whirlwind (`≤`, Barbarian), Blizzard (`÷`,
+  Mage), Flurry (`≥`, Rogue), Javelin Volley (`√`, Amazon), Arrow Volley
+  (`■`, Hunter) all got real art from user-supplied references.
+- **Debug class icons** — fixed a real glyph collision (Debug's own
+  player-portrait glyph was `D`, the same codepoint as Deathblow's
+  already-finalized icon); Debug's portrait is now `N`, with real art (a
+  robot). Defeat (`M`) also got real art, rendered from a black-and-white
+  pixel-pattern chart reference rather than painted art. Next Level ended
+  up not needing a new icon at all - re-pointed at the plain `>` the
+  dungeon's own `TileType::Exit` stairs tile already renders as. Victory
+  (`L`) took two tries - the first trophy reference had a visible tiled
+  watermark and was declined; a clean second version of the same art was
+  supplied and used. Since Debug is a hidden test-only class none of this
+  was ever a priority beyond the original collision fix, but all four
+  ended up finalized anyway.
 
 ## Documentation
 - **README.md pass** — controls table, combat system section, and
