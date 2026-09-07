@@ -14,6 +14,8 @@ impl MapArchitect for CellularAutomataArchitect {
             theme: super::themes::DungeonTheme::new(),
             prefab_enemy_spawns: Vec::new(),
             prefab_weapon_spawn: None,
+            prefab_chest_spawn: None,
+            prefab_chest_guard_spawns: Vec::new(),
         };
         self.random_noise_map(rng, &mut mb.map);
         for _ in 0..10 {

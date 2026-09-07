@@ -3427,5 +3427,46 @@ For the icon I want to use the ability's own real icon art, not a placeholder. G
 <br />
 
 Multiple badges can show at once (queued left to right), in case more than one of these is ever active at the same time.
+<br />
+
+---
+
+# 9/07/26
+<br />
+
+---
+
+## Dungeon Crawl Store and Chest Spawns
+There were way too many Potions and Maps just scattered around the dungeon floors - basically free loot. I want monsters to drop gold instead, and that gold to actually go somewhere: a shop between dungeon floors (mirroring the Battle Arena's own shop), plus a guaranteed chest per floor so there's still something to physically find.
+<br />
+
+### Implementation
+`Gold` used to be a Battle Arena-only component - a Dungeon Crawl player never got one at all, and every gold codepath (traps, ranged strikes, the arena shop's buy handler) used that component's presence as the actual signal for "does this kill/purchase involve gold." Dungeon Crawl players now start with `Gold(0)` too, so those same codepaths started paying out for free on the Dungeon Crawl side - no per-mode branching needed.
+<br />
+
+Healing Potion and Dungeon Map are pulled out of the ambient floor-loot pool entirely - a new `shop_only` template flag, the same idea as the existing `prefab_only`/`boss_only` flags. They're still real, grantable items (a chest, and eventually the shop), just no longer something you stumble onto scattered across a floor.
+<br />
+
+In their place, every dungeon floor now always gets one guaranteed loot chest, guarded by 1-2 copies of that floor's single toughest non-boss enemy (Goblin/Orc/Ogre/Ettin's own natural per-level ordering, not a random pick). It's a new prefab room, always attempted rather than the random one-of-three Fortress/Turret/Bunker roll the other prefabs use. Walking onto it grants 30-50 gold, a Dungeon Map, and 1-3 Healing Potions in one lump, then shows a new full-screen loot overlay (`TurnState::ChestOpened`) styled exactly like the Paused screen - it reuses Paused's own scheduler outright (just redraws the map tiles, nothing else), so the frozen dungeon stays visible underneath while every enemy/item sprite drawn on it a frame ago simply isn't redrawn again.
+<br />
+
+Got a real icon drawn for the chest too (`c` glyph, row 6 col 3) from a reference image - the background got flood-filled to true transparency from its outer edge inward, rather than a flat color-distance threshold, so the interior white highlights on the chest survived instead of getting punched out along with the background.
+<br />
+
+### A real bug, found by just asking
+Giving Dungeon Crawl players a `Gold` component broke something non-obvious: `record_enemy_kill`'s "roll random ability loot vs. grant Arena-only gold" branch, and the Victory screen's "show loot vs. show gold" branch, both used Gold's presence as their arena-check. Once Dungeon Crawl also had Gold, both silently started treating every Dungeon Crawl fight as if it were an Arena one - ability loot stopped dropping from real battles entirely, with no error or warning anywhere. Fixed by switching both checks to `Option<ArenaRun>`, which is actually Arena-exclusive; Battle Arena's own behavior didn't change at all, since Gold and ArenaRun were already perfectly correlated there. Also had to fix a startup panic from the same root cause - `movement_system` (which now reads the new chest-loot resource) is shared by the title screen's decorative background, so that resource needed inserting at `State::new()`/`return_to_title()` too, not just the two run-start functions - CLAUDE.md already had this exact gotcha documented from an earlier session, I just didn't check it at first.
+<br />
+
+### The shop between floors
+Built as a follow-up in this same session. A dungeon floor's own stairs tile now leads into a shop room first, not straight to the next floor - reached via a new `TurnState::DungeonShopTransition`. `systems/end_turn.rs`'s Exit-tile check is a 3-way split now instead of two: Arena's own `ArenaTransition`, this new state, or - once `ShoppingActive` is already Some, meaning you're standing on the SHOP's own stairs, not the floor's - `NextLevel` again, which is what actually generates the next floor.
+<br />
+
+Reused `MapBuilder::new_arena_shop`/`arena_rebuild_keep_player`/`spawn_arena_shop_items`/`buy_nearby_item` completely unmodified - all four turned out to be exactly as mode-agnostic as they looked going in. The only genuinely new code is `State::dungeon_shop_transition` itself, which stocks a fixed Healing Potion (x5) + Dungeon Map (x2) pair instead of Arena's class-rolled weapon/ability list, since the dungeon shop doesn't vary by class or level.
+<br />
+
+One thing that would've been an easy miss: `advance_level` is now ALSO how leaving the shop actually happens, but it never touched `ShoppingActive`/`ShopMessage` at all before (never needed to, since dungeon crawl floors never used to reset those). Without clearing them there, a freshly generated floor would've silently inherited the shop's auto-pickup suppression and frozen field of view forever. Caught before it shipped, not after.
+<br />
+
+Also noticed the HUD's top-right corner only ever showed Gold during a whole Arena run (`arena_run.is_some()`), never for Dungeon Crawl - meaning there was no way to actually see your gold total while standing in the new shop deciding what to buy. Now shows Gold whenever `shopping.is_some()` too, on top of the existing Arena case.
 
 

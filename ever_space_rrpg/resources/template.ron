@@ -5,6 +5,7 @@ Templates(
             name : "Healing Potion", glyph : '!', levels : [ 0, 1, 2 ],
             effect: Some(Healing(6)),
             frequency: 2,
+            shop_only: true,
             description: Some("Restores 6 HP when used.")
         ),
         Template(
@@ -12,6 +13,7 @@ Templates(
             name : "Dungeon Map", glyph : '{', levels : [ 0, 1, 2 ],
             effect: Some(MagicMap),
             frequency: 1,
+            shop_only: true,
             description: Some("Reveals the full layout of the current dungeon level.")
         ),
         Template(
@@ -187,10 +189,10 @@ Templates(
             // easy to retune here with no code change.
             entity_type: Item,
             name : "Ice Armor", glyph: 'A', levels: [ ],
-            effect: Some(IceArmor(defense_bonus: 2, attacks: 10)),
+            effect: Some(IceArmor(defense_bonus: 2, attacks: 30)),
             frequency: 0,
             class: Some("Mage"),
-            description: Some("Encases you in ice, adding 2 Defense for your next 10 hits taken. Use it before you walk into a fight.")
+            description: Some("Encases you in ice, adding 2 Defense for your next 30 hits taken. Use it before you walk into a fight.")
         ),
         Template(
             // Battle loot only (levels:[]/frequency:0) - NOT an ambient

@@ -170,6 +170,31 @@ pub fn spawn_prefab_enemies(
     template.spawn_prefab_enemies(ecs, rng, level, spawn_points);
 }
 
+/// Spawns the toughest non-boss enemy for `level` at each of a chest's
+/// guard positions - see Templates::spawn_prefab_chest_guards.
+pub fn spawn_prefab_chest_guards(ecs: &mut World, level: usize, spawn_points: &[Point]) {
+    let template = Templates::load();
+    template.spawn_prefab_chest_guards(ecs, level, spawn_points);
+}
+
+/// Spawns a guaranteed loot chest entity at `pos` - see components::Chest
+/// and systems/movement.rs, which handles the player walking onto it.
+/// Not a template-driven Item (a chest isn't usable/carryable, just an
+/// interactive prop), so this pushes its components directly, the same
+/// way spawn_amulet_of_yala below does for the other non-template special
+/// entity in this game.
+pub fn spawn_chest(ecs: &mut World, pos: Point) {
+    ecs.push((
+        Chest,
+        pos,
+        Render {
+            color: ColorPair::new(WHITE, BLACK),
+            glyph: to_cp437('c'),
+        },
+        Name("Treasure Chest".to_string()),
+    ));
+}
+
 /// Spawns a guaranteed weapon at a prefab's treasure position, if one
 /// placed this level - see Templates::spawn_prefab_weapon. Filtered to
 /// `player_class` (or unrestricted), so a Mage never finds a Sword here.

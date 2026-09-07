@@ -50,6 +50,16 @@ pub struct Template {
     /// position on level 2). Missing from template.ron defaults to false.
     #[serde(default)]
     pub boss_only: bool,
+    /// If true, this template never appears in the general ambient spawn
+    /// pool (spawn_entities) - it's only ever granted directly by name
+    /// (a shop counter via spawn_shop_stock_at/spawn_named_item_via_commands,
+    /// or a dungeon chest's loot - see systems/movement.rs). Set on
+    /// Healing Potion/Dungeon Map so the dungeon shop and the guaranteed
+    /// per-floor chest are the only ways to find them now, instead of
+    /// scattered ambient floor loot. Missing from template.ron defaults
+    /// to false via serde, same as prefab_only/boss_only above.
+    #[serde(default)]
+    pub shop_only: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -76,7 +86,7 @@ impl Templates {
         let mut available_entities = Vec::new();
         self.entities
             .iter()
-            .filter(|e| e.levels.contains(&level) && !e.prefab_only && !e.boss_only)
+            .filter(|e| e.levels.contains(&level) && !e.prefab_only && !e.boss_only && !e.shop_only)
             .for_each(|t| {
                 for _ in 0..t.frequency {
                     available_entities.push(t);
@@ -124,6 +134,39 @@ impl Templates {
             if let Some(entity) = rng.random_slice_entry(&available_enemies) {
                 self.spawn_entity(pt, entity, &mut commands);
             }
+        });
+        commands.flush(ecs);
+    }
+
+    /// Spawns the single toughest (highest hp) non-boss Enemy template
+    /// eligible for `level` at each of `spawn_points` - see
+    /// map_builder/prefab.rs's chest room, whose 1-2 guard slots ('M'
+    /// markers) always get deliberately picked from this dungeon's
+    /// hardest ordinary monster, unlike spawn_prefab_enemies' weighted
+    /// pool above (which could just as easily hand a Fortress/Turret/
+    /// Bunker guard slot something trivial). Deterministic by design - no
+    /// `rng` needed, unlike every other spawn_prefab_* here - a chest is
+    /// meant to always be guarded by the same tier of threat, not
+    /// sometimes trivially so. Silently does nothing if no non-boss Enemy
+    /// template is defined for this level (shouldn't happen for any real
+    /// level, but matches spawn_boss's "no candidates, no spawn" spirit).
+    pub fn spawn_prefab_chest_guards(&self, ecs: &mut World, level: usize, spawn_points: &[Point]) {
+        let toughest = self
+            .entities
+            .iter()
+            .filter(|t| {
+                t.entity_type == EntityType::Enemy && t.levels.contains(&level) && !t.boss_only
+            })
+            .max_by_key(|t| t.hp.unwrap_or(0));
+
+        let template = match toughest {
+            Some(t) => t,
+            None => return,
+        };
+
+        let mut commands = legion::systems::CommandBuffer::new(ecs);
+        spawn_points.iter().for_each(|pt| {
+            self.spawn_entity(pt, template, &mut commands);
         });
         commands.flush(ecs);
     }

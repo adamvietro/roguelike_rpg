@@ -14,6 +14,8 @@ impl MapArchitect for RoomsArchitect {
             theme: super::themes::DungeonTheme::new(),
             prefab_enemy_spawns: Vec::new(),
             prefab_weapon_spawn: None,
+            prefab_chest_spawn: None,
+            prefab_chest_guard_spawns: Vec::new(),
         };
 
         mb.fill(TileType::Wall);

@@ -325,7 +325,12 @@ pub fn hud(
     // map_level is a dungeon-crawl-only concept Arena code never touches
     // (it stays stuck at whatever it was spawned with), so showing it
     // during an Arena run would just be a stale, meaningless number.
-    if arena_run.is_some() {
+    // Dungeon Crawl now shows Gold here too, but only while actually
+    // browsing its own between-floor shop (shopping.is_some()) - that's
+    // the one moment Gold matters more than which floor you're on;
+    // everywhere else in Dungeon Crawl this stays Dungeon Level, unlike
+    // Arena where it's Gold for the entire run.
+    if arena_run.is_some() || shopping.is_some() {
         let gold = <&Gold>::query()
             .filter(component::<Player>())
             .iter(ecs)

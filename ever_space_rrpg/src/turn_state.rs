@@ -52,4 +52,22 @@ pub enum TurnState {
     GameOver,
     Victory,
     NextLevel,
+    /// Reached by stepping on a dungeon floor's stairs tile in Dungeon
+    /// Crawl mode (ArenaRun is None) while NOT already browsing the shop
+    /// this leads to (ShoppingActive is None too) - see
+    /// systems/end_turn.rs's Exit-tile check, which is a 3-way split now:
+    /// ArenaTransition (ArenaRun present), NextLevel (ArenaRun absent but
+    /// ShoppingActive present - leaving the shop this state itself
+    /// built), or this. One-shot, like NextLevel/ArenaTransition -
+    /// State::dungeon_shop_transition builds the shop room once then
+    /// moves straight to AwaitingInput with ShoppingActive set.
+    DungeonShopTransition,
+    /// Reached when the player walks onto a dungeon chest (see
+    /// components::Chest / systems/movement.rs) - a full-screen overlay
+    /// styled exactly like Paused (see State::build_pause_scheduler's
+    /// map-only redraw and State::chest_loot_tick), listing what the
+    /// chest granted (Option<ChestLoot>) until dismissed with Enter, then
+    /// back to AwaitingInput. Dungeon Crawl only - Battle Arena has no
+    /// chests.
+    ChestOpened,
 }

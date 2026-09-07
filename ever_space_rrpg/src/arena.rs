@@ -37,6 +37,20 @@ pub const ARENA_STARTING_GOLD: i32 = 25;
 /// Flat gold cost of one Healing Potion.
 pub const HEALING_POTION_PRICE: i32 = 5;
 
+/// Flat gold cost of one Dungeon Map, in the Dungeon Crawl shop between
+/// floors (see State::dungeon_shop_transition) - Battle Arena's own shop
+/// never sells this (a Dungeon Crawl-only item), but it lives here next
+/// to HEALING_POTION_PRICE since this is already this project's one
+/// "shop pricing constants" location regardless of which mode's shop
+/// reads them.
+pub const DUNGEON_MAP_PRICE: i32 = 8;
+
+/// How many of each item the Dungeon Crawl shop stocks per visit - fixed,
+/// unlike Arena's roll_arena_shop_items (no class/weapon-tier variance to
+/// account for, just these two universal items).
+pub const DUNGEON_SHOP_POTION_STOCK: i32 = 5;
+pub const DUNGEON_SHOP_MAP_STOCK: i32 = 2;
+
 /// Flat gold cost of one charge of ANY ability (Technique or Effect,
 /// regardless of class) - deliberately not split by class or by
 /// Technique-vs-Effect, matching how the shop's own roll doesn't weight

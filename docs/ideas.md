@@ -85,10 +85,13 @@ Roughly in the order they've come up:
    `use_ability` the number keys already use, so clicking slot `n` and
    pressing the key for slot `n` queue the identical `ActivateItem`.
    Coexists with the hotkeys rather than replacing them, same as the Item
-   Bar's click sits alongside the Item Menu. **Battle Bar still open** -
-   it's reference-only outside a fight by design, so click support there
-   still needs its own discussion about what it should even do; hovering
-   already shows a description on it.
+   Bar's click sits alongside the Item Menu. **Battle Bar click support
+   closed, not just deferred** - there is no action bar of any kind in
+   the actual battle screen (`screens/battle.rs`'s combat menu is a
+   separate keyboard-only Actions list; see the Battle Bar's own entry
+   above), so "click support in battle" was never a real option to begin
+   with. The dungeon-HUD Battle Bar stays hover-only reference, same as
+   today.
    - This closed a real bug, not just a feature gap: one of the Pause
      screen's rotating hints already claimed "Dungeon Abilities can be
      clicked, or used with their hotkey" - true now, but it wasn't when
@@ -114,10 +117,60 @@ Roughly in the order they've come up:
 10. **Standing "fix issues with the battle system" bucket** — not a fixed
     list, just wherever ATB/multi-enemy/the cursor system turns up real
     bugs as they get more play.
-11. **A shop for Potions/Maps in Dungeon Crawl mode** — pull them out of
-    floor loot entirely, likely reusing a good chunk of the Battle Arena
-    shop's pricing/stock/purchase code. More natural now that a real
-    "universal item" pool already exists behind the Item Menu.
+11. ~~A shop for Potions/Maps in Dungeon Crawl mode~~ — **done**, across
+    two sessions:
+    - ~~Pull Healing Potion/Dungeon Map out of ambient floor loot~~ —
+      **done.** New `Template::shop_only` flag (same pattern as
+      `prefab_only`/`boss_only`), set on both in `template.ron`, excluded
+      from `spawn_entities`' ambient pool. They're still grantable by
+      name (a chest, a future shop) via `spawn_named_item_via_commands` -
+      this only closes the AMBIENT floor-spawn path.
+    - ~~Dungeon Crawl players can now hold gold at all~~ — **done.**
+      `Gold` was Arena-only before this session (see its own doc comment
+      in `components.rs`); Dungeon Crawl players now get `Gold(0)` at
+      `start_game` (vs. Arena's pre-funded `ARENA_STARTING_GOLD`, since
+      Dungeon Crawl's first payout comes from a whole floor of kills plus
+      a guaranteed chest, not an empty first shop). Every existing gold
+      codepath (`use_items.rs`, `traps.rs`, `battle::finish_battle_victory`,
+      `buy_nearby_item`) already gated purely on "does the player have a
+      `Gold` component", not a mode check - so battle/trap/ranged-strike
+      kills started paying Dungeon Crawl gold for free, no per-mode
+      branching needed.
+    - ~~A guaranteed per-floor loot chest~~ — **done.** A new,
+      always-attempted (not random-one-of-three like the Fortress/Turret/
+      Bunker prefabs) chest room (`map_builder/prefab.rs`'s `apply_chest`),
+      guarded by 1-2 copies of that dungeon level's single toughest
+      non-boss enemy (`spawner::spawn_prefab_chest_guards` - Goblin/Orc/
+      Ogre/Ettin's own natural per-level ordering, not a random pick).
+      Walking onto it (same auto-interact convention as a normal Item)
+      grants 30-50 gold, a Dungeon Map, and 1-3 Healing Potions, then
+      shows a new full-screen `TurnState::ChestOpened` overlay
+      (`screens/chest.rs`) styled exactly like Paused per the user's
+      request - it reuses `pause_systems` outright (just `map_render`, no
+      entity/HUD redraw) so the frozen dungeon tiles stay visible while
+      every sprite drawn on them the frame before simply isn't redrawn,
+      rather than building a second identical scheduler. New `c` glyph
+      (row 6, col 3) drawn for this from a user-supplied reference image.
+    - ~~The actual shop between floors~~ — **done.** New
+      `TurnState::DungeonShopTransition`, reached by stepping on a
+      floor's own stairs tile while NOT already browsing the shop it
+      leads to (`systems/end_turn.rs`'s Exit-tile check is a 3-way split
+      now: Arena's own `ArenaTransition`, this, or - once `ShoppingActive`
+      is already Some, meaning you're standing on the SHOP's own stairs -
+      `NextLevel` again, which is what actually generates the next
+      floor). `State::dungeon_shop_transition` reuses
+      `MapBuilder::new_arena_shop`/`arena_rebuild_keep_player`/
+      `spawn_arena_shop_items`/`buy_nearby_item` completely unmodified,
+      just with a fixed Healing Potion (x5, same `HEALING_POTION_PRICE`)
+      + Dungeon Map (x2, new `DUNGEON_MAP_PRICE`) stock instead of
+      Arena's class-rolled weapon/ability list. `advance_level` (now also
+      reached by leaving the shop) clears `ShoppingActive`/`ShopMessage`
+      on its way out, or a freshly generated floor would silently inherit
+      the shop's auto-pickup suppression and frozen FOV forever. The HUD's
+      top-right corner now also shows Gold instead of Dungeon Level while
+      `shopping.is_some()`, not just during a whole Arena run - previously
+      there was no way to see your gold total while actually standing in
+      the Dungeon Crawl shop deciding what to buy.
 12. **Idle walk-in-place animation art** — the cycling infrastructure
     (`IdleAnimation` component) is built and genuinely cycling; every
     frame just points at the same placeholder glyph. Needs real distinct
@@ -165,12 +218,17 @@ Roughly in the order they've come up:
 ## Content / world
 
 - **Dungeon Shop** — replace most dungeon floor items with a shop at the
-  end of each floor. Needs mobs to drop gold first (Battle Arena already
-  has a gold economy to borrow patterns from). See item 11 above — the
-  Item Menu's universal-item pool makes this a more natural fit now.
-- **Chests** — findable in the dungeon, holding items; a way to keep some
-  of the "find an item" feeling once floor-item drops move to the shop.
-  Chests should be defended by enemies, not free loot.
+  end of each floor. The gold economy this needed is now in place (see
+  item 11 above - Dungeon Crawl players earn gold the same way Arena
+  does), but the actual shop screen itself is still the open part of
+  item 11.
+- ~~**Chests**~~ — **done** (this session). Findable in the dungeon,
+  holding gold/items, defended by enemies rather than free loot, exactly
+  as originally scoped here - see item 11 above for the implementation
+  details.
+- **More winnable item variety** — right now a chest/shop can only ever
+  contain Gold, a Dungeon Map, or a Healing Potion. Not scoped - could be
+  equipment, trinkets, or anything else worth finding.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -306,9 +364,14 @@ placeholder/test tool.
   border, number labels matching the real hotkeys, greyed out if
   unowned, hover for a full description.
 - **Battle Bar** — a second row next to the Ability Bar for in-battle
-  Techniques (reference only, not directly usable outside a fight) —
-  same icon size, green box, no number labels, same greyed-out-when-
-  unowned and hover-for-description behavior.
+  Techniques. Dungeon-HUD-only: it never renders during the actual
+  battle screen (`TurnState::InBattle` routes to a completely separate
+  `battle_tick`/`screens/battle.rs` menu, keyboard-only - number keys or
+  cursor+Enter against an in-panel Actions list, no icon bar at all).
+  Outside a fight it's pure reference (same icon size, green box, no
+  number labels, greyed-out-when-unowned, hover-for-description) - there
+  is no in-battle action bar for it to mirror, so it has nothing to be
+  "usable" as.
 - **The dungeon-exploration HUD is now minimal** — health bar, hint
   text, dungeon level/gold, shop stock while shopping, and the two icon
   bars. The old on-screen "Battle Attacks"/"Weapons" text panels are

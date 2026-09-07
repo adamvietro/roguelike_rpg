@@ -309,21 +309,47 @@ pub struct ChasingPlayer;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DecorativeOnly;
 
-/// How much gold the player currently holds. Attached ONLY at Battle
-/// Arena start (see State::start_arena) - a Dungeon Crawl player never
-/// gets this component at all, which every gold-granting/spending
-/// codepath (systems/use_items.rs, systems/traps.rs, battle::finish_battle_victory,
-/// player_input.rs's buy_nearby_item) relies on directly: checking for
-/// this component's PRESENCE is what decides "does this kill/purchase
-/// even involve gold", not a separate Option<ArenaRun> check - simpler,
-/// and it can't drift out of sync with which mode actually granted it.
-/// Lives directly on the player entity, so it automatically survives
-/// every Arena world-rebuild that preserves the player (wave transitions,
-/// shop transitions - see State::arena_rebuild_keep_player) with no
-/// separate carry-over logic needed, the same way Health/Carried items
-/// already survive those rebuilds for free.
+/// How much gold the player currently holds. Attached at the start of
+/// EVERY run now - Battle Arena grants ARENA_STARTING_GOLD (see
+/// State::start_arena), Dungeon Crawl starts at 0 (see State::start_game)
+/// since its first shop only comes after a whole floor's worth of kills
+/// and a guaranteed chest, unlike Arena's very first shop which has no
+/// prior kills to draw on. Every gold-granting/spending codepath
+/// (systems/use_items.rs, systems/traps.rs, battle::finish_battle_victory,
+/// player_input.rs's buy_nearby_item) still relies on checking this
+/// component's PRESENCE, not a mode/resource check, to decide "does this
+/// kill/purchase even involve gold" - simpler, and it can't drift out of
+/// sync with which mode actually granted it; that check just now always
+/// passes, in both modes. Lives directly on the player entity, so it
+/// automatically survives every world-rebuild that preserves the player
+/// (Arena's wave/shop transitions - see State::arena_rebuild_keep_player -
+/// and Dungeon Crawl's own advance_level) with no separate carry-over
+/// logic needed, the same way Health/Carried items already survive those
+/// rebuilds for free.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Gold(pub i32);
+
+/// Marks a guaranteed dungeon-floor loot chest entity - see
+/// map_builder/prefab.rs's chest room (guarded by
+/// spawner::spawn_prefab_chest_guards) and systems/movement.rs, which
+/// grants its contents and removes it the moment the player walks onto
+/// its tile - the same "auto" convention floor Items already use, not a
+/// separate open keypress. Not a template-driven Item itself (see
+/// spawner::spawn_chest) since a chest isn't usable/carryable on its own,
+/// just an interactive prop.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Chest;
+
+/// What a chest just granted - gold plus a display name per item granted
+/// (e.g. `["Dungeon Map", "Healing Potion", "Healing Potion"]`), shown by
+/// the ChestOpened screen (screens/chest.rs) then reset to `None` on
+/// dismiss, mirroring `Option<BattleVictory>`'s own dismiss-to-None
+/// convention exactly (see screens/battle.rs's battle_victory_tick).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChestLoot {
+    pub gold: i32,
+    pub items: Vec<String>,
+}
 
 /// The gold cost to buy ONE unit of a shop counter item - a companion
 /// component on the same ShopStock counter-marker entity (see

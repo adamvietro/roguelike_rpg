@@ -43,6 +43,7 @@ The glyph order matches the **CP437 0–255 ordering** used by the original dung
 | `V`   | Ettin Overlord (boss)                                         |    5 |    6 | (192,160)–(223,191) |
 | `T`   | Trap                                                          |    5 |    4 | (128,160)–(159,191) |
 | `W`   | Battle Arena Shopkeeper (finalized, transparent background)   |    5 |    7 | (224,160)–(255,191) |
+| `c`   | Treasure Chest (dungeon loot chest, finalized)                |    6 |    3 | (96,192)–(127,223)  |
  
 ## Battle Arena — icon reservations (this session)
  
@@ -356,7 +357,7 @@ in the Complete 256-cell map below, marked Unused.
 |   96 | ```     |    6 |    0 | (0,192)–(31,223)    | standard glyph                                                                      |                     |
 |   97 | `a`     |    6 |    1 | (32,192)–(63,223)   | Amazon (finalized)                                                                  |                     |
 |   98 | `b`     |    6 |    2 | (64,192)–(95,223)   | Burn (Mage) (finalized)                                                             |                     |
-|   99 | `c`     |    6 |    3 | (96,192)–(127,223)  | standard glyph                                                                      |                     |
+|   99 | `c`     |    6 |    3 | (96,192)–(127,223)  | Treasure Chest (dungeon loot chest, finalized)                                      |                     |
 |  100 | `d`     |    6 |    4 | (128,192)–(159,223) | Dodge (Rogue) (finalized)                                                           |                     |
 |  101 | `e`     |    6 |    5 | (160,192)–(191,223) | standard glyph                                                                      |                     |
 |  102 | `f`     |    6 |    6 | (192,192)–(223,223) | Feint (Hunter) (finalized)                                                          |                     |

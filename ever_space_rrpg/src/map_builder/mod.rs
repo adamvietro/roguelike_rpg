@@ -7,7 +7,7 @@ use automata::CellularAutomataArchitect;
 mod drunkard;
 use drunkard::DrunkardsWalkArchitect;
 mod prefab;
-use prefab::apply_prefab;
+use prefab::{apply_chest, apply_prefab};
 mod themes;
 pub use themes::*;
 
@@ -64,6 +64,19 @@ pub struct MapBuilder {
     /// gets one or the other here, not both. Neither family spawns in the
     /// general ambient pool at all - see Template::prefab_only.
     pub prefab_weapon_spawn: Option<Point>,
+    /// Guaranteed loot-chest spawn point from the chest room's 'C'
+    /// marker, if it placed successfully this level (see
+    /// map_builder::prefab::apply_chest - placement can fail, same
+    /// best-effort attempt loop as apply_prefab). Unlike the
+    /// Fortress/Turret/Bunker roll above, the chest room is always
+    /// attempted, not one-of-three-random - see MapBuilder::new.
+    pub prefab_chest_spawn: Option<Point>,
+    /// Guard spawn points from the chest room's 'M' markers (1 or 2,
+    /// decided at placement time) - see
+    /// spawner::spawn_prefab_chest_guards, which always picks this
+    /// dungeon level's single toughest non-boss enemy for these, unlike
+    /// prefab_enemy_spawns' weighted pool above.
+    pub prefab_chest_guard_spawns: Vec<Point>,
 }
 
 impl MapBuilder {
@@ -75,6 +88,7 @@ impl MapBuilder {
         };
         let mut mb = architect.new(rng);
         apply_prefab(&mut mb, rng);
+        apply_chest(&mut mb, rng);
 
         mb.theme = match rng.range(0, 2) {
             0 => DungeonTheme::new(),
@@ -155,6 +169,8 @@ impl MapBuilder {
             theme: ForestTheme::new(),
             prefab_enemy_spawns: Vec::new(),
             prefab_weapon_spawn: None,
+            prefab_chest_spawn: None,
+            prefab_chest_guard_spawns: Vec::new(),
         };
         mb.fill(TileType::Wall);
         for y in (room_y0 + 1)..(room_y0 + ROOM_H - 1) {
@@ -244,6 +260,8 @@ impl MapBuilder {
             theme: ForestTheme::new(),
             prefab_enemy_spawns: Vec::new(),
             prefab_weapon_spawn: None,
+            prefab_chest_spawn: None,
+            prefab_chest_guard_spawns: Vec::new(),
         };
         mb.fill(TileType::Wall);
         // A circular clearing, not a rectangular room - there's no

@@ -9,6 +9,8 @@ use crate::prelude::*;
 #[read_component(Carried)]
 #[read_component(AmuletOfYala)]
 #[read_component(DecorativeOnly)]
+#[read_component(Chest)]
+#[read_component(Gold)]
 pub fn movement(
     entity: &Entity,
     want_move: &WantsToMove,
@@ -16,6 +18,8 @@ pub fn movement(
     #[resource] camera: &mut Camera,
     #[resource] shopping: &Option<ShoppingActive>,
     #[resource] arena_run: &Option<ArenaRun>,
+    #[resource] chest_loot: &mut Option<ChestLoot>,
+    #[resource] turn_state: &mut TurnState,
     ecs: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -158,6 +162,55 @@ pub fn movement(
                                         });
                                 }
                             }
+                        }
+
+                        // A guaranteed loot chest (see components::Chest)
+                        // works like an Item pickup that grants several
+                        // things at once and shows a Pause-styled overlay
+                        // (TurnState::ChestOpened - see screens/chest.rs)
+                        // instead of silently joining the inventory list.
+                        // Gated behind the same ShoppingActive check as
+                        // the Item loop above purely for consistency -
+                        // chests never actually spawn during a Battle
+                        // Arena shop, this just avoids a special case.
+                        let chest_here: Option<Entity> = <(Entity, &Chest, &Point)>::query()
+                            .iter(ecs)
+                            .find(|(_, _, &pos)| pos == want_move.destination)
+                            .map(|(e, _, _)| *e);
+                        if let Some(chest_entity) = chest_here {
+                            let mut rng = RandomNumberGenerator::new();
+                            let gold_found = rng.range(30, 51);
+                            let potion_count = rng.range(1, 4);
+
+                            let current_gold = ecs
+                                .entry_ref(want_move.entity)
+                                .ok()
+                                .and_then(|e| e.get_component::<Gold>().ok().copied())
+                                .map_or(0, |g| g.0);
+                            commands
+                                .add_component(want_move.entity, Gold(current_gold + gold_found));
+
+                            let mut items_granted = vec!["Dungeon Map".to_string()];
+                            spawn_named_item_via_commands(
+                                "Dungeon Map",
+                                want_move.entity,
+                                commands,
+                            );
+                            for _ in 0..potion_count {
+                                spawn_named_item_via_commands(
+                                    "Healing Potion",
+                                    want_move.entity,
+                                    commands,
+                                );
+                                items_granted.push("Healing Potion".to_string());
+                            }
+
+                            commands.remove(chest_entity);
+                            *chest_loot = Some(ChestLoot {
+                                gold: gold_found,
+                                items: items_granted,
+                            });
+                            *turn_state = TurnState::ChestOpened;
                         }
                     }
                 }

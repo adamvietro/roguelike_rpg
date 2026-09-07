@@ -49,6 +49,23 @@ const BUNKER: (&str, i32, i32) = (
     10,
 );
 
+// The door sits on the GUARDS' row, not the chest's - the chest's own
+// row stays fully walled in on the entrance side, so the only path in is
+// past the guards first, not a straight line to the chest that happens
+// to have a guard standing nearby. See apply_chest's own doc comment.
+const CHEST_ROOM: (&str, i32, i32) = (
+    "
+--------
+--####--
+--#MM---
+--#-C#--
+--####--
+--------
+",
+    8,
+    6,
+);
+
 pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
     let mut placement = None;
 
@@ -137,6 +154,99 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                 }
                 i += 1;
             }
+        }
+    }
+}
+
+/// Always-attempted (not a one-of-three random pick like apply_prefab
+/// above) placement of a single guaranteed loot chest, guarded by 1-2 of
+/// this dungeon level's toughest ordinary enemy - see
+/// spawner::spawn_prefab_chest_guards. Reuses the exact same Dijkstra-
+/// distance placement-attempt loop as apply_prefab (reachable from the
+/// player's start, far enough away to not trivially stumble onto it,
+/// never on top of the amulet/exit point), just against a single fixed
+/// room instead of a random pick of three. "Always place a chest" only
+/// means "always attempt it, don't roll whether to" - placement can still
+/// rarely fail to find room on a very cramped map, the same best-effort
+/// guarantee apply_prefab's own weapon/guard markers already have.
+pub fn apply_chest(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
+    let mut placement = None;
+
+    let dijkstra_map = DijkstraMap::new(
+        SCREEN_WIDTH,
+        SCREEN_HEIGHT,
+        &vec![mb.map.point2d_to_index(mb.player_start)],
+        &mb.map,
+        1024.0,
+    );
+
+    let template = CHEST_ROOM;
+
+    let mut attempts = 0;
+    while placement.is_none() && attempts < 10 {
+        let dimensions = Rect::with_size(
+            rng.range(0, SCREEN_WIDTH - template.1),
+            rng.range(0, SCREEN_HEIGHT - template.2),
+            template.1,
+            template.2,
+        );
+
+        let mut can_place = false;
+        dimensions.for_each(|pt| {
+            let idx = mb.map.point2d_to_index(pt);
+            let distance = dijkstra_map.map[idx];
+            if distance < 2000.0 && distance > 20.0 && mb.amulet_start != pt {
+                can_place = true;
+            }
+        });
+
+        if can_place {
+            placement = Some(Point::new(dimensions.x1, dimensions.y1));
+            let points = dimensions.point_set();
+            mb.monster_spawns.retain(|pt| !points.contains(pt));
+        }
+        attempts += 1;
+    }
+
+    if let Some(placement) = placement {
+        let string_vec: Vec<char> = template
+            .0
+            .chars()
+            .filter(|a| *a != '\r' && *a != '\n')
+            .collect();
+        let mut guard_slots: Vec<Point> = Vec::new();
+        let mut i = 0;
+        for ty in placement.y..placement.y + template.2 {
+            for tx in placement.x..placement.x + template.1 {
+                let idx = map_idx(tx, ty);
+                let c = string_vec[i];
+                match c {
+                    'M' => {
+                        mb.map.tiles[idx] = TileType::Floor;
+                        guard_slots.push(Point::new(tx, ty));
+                    }
+                    'C' => {
+                        mb.map.tiles[idx] = TileType::Floor;
+                        mb.prefab_chest_spawn = Some(Point::new(tx, ty));
+                    }
+                    '-' => mb.map.tiles[idx] = TileType::Floor,
+                    '#' => mb.map.tiles[idx] = TileType::Wall,
+                    _ => println!("No idea what to do with [{}]", c),
+                }
+                i += 1;
+            }
+        }
+
+        // 1 or 2 guards, picked from the room's two 'M' slots - the
+        // guard TYPE is deliberately NOT randomized (see
+        // spawn_prefab_chest_guards), just how many of the two slots
+        // actually get filled.
+        let guard_count = rng.range(1, 3) as usize;
+        if guard_count >= guard_slots.len() {
+            mb.prefab_chest_guard_spawns = guard_slots;
+        } else {
+            let idx = rng.random_slice_index(&guard_slots).unwrap();
+            mb.prefab_chest_guard_spawns = vec![guard_slots[idx]];
         }
     }
 }

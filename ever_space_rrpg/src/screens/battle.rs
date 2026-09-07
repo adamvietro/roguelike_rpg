@@ -307,10 +307,13 @@ impl State {
 
         // In the Battle Arena, a kill's reward is gold ONLY - the old
         // random ability-drop loot is deliberately not granted alongside
-        // it. A Dungeon Crawl kill (no Gold component at all) keeps the
-        // original loot roll exactly as before.
+        // it. A Dungeon Crawl kill still rolls for loot exactly as
+        // before - checked via Option<ArenaRun>, NOT Gold presence, since
+        // Dungeon Crawl players now carry a Gold component too (see its
+        // own doc comment) and would otherwise always skip this roll.
+        let is_arena_run = self.resources.get::<Option<ArenaRun>>().unwrap().is_some();
         let mut rng = RandomNumberGenerator::new();
-        let loot = if current_gold.is_some() {
+        let loot = if is_arena_run {
             None
         } else {
             grant_random_battle_loot(&mut self.ecs, &mut rng, battle.player, target)
@@ -352,13 +355,13 @@ impl State {
         // Battle Arena fight that somehow ended with 0 net gold (it
         // shouldn't - every kill grants at least a few) still correctly
         // shows "0 gold" rather than being mistaken for a Dungeon Crawl
-        // fight with no loot.
-        let is_arena = self
-            .ecs
-            .entry_ref(battle.player)
-            .ok()
-            .and_then(|e| e.get_component::<Gold>().ok().copied())
-            .is_some();
+        // fight with no loot. Uses Option<ArenaRun>, NOT Gold presence -
+        // Dungeon Crawl players carry Gold too now (see its own doc
+        // comment), so that check would otherwise always read "arena"
+        // and hide this fight's real ability-loot find behind a
+        // "gold_earned" the Victory screen never announces for Dungeon
+        // Crawl anyway (see match arm below).
+        let is_arena = self.resources.get::<Option<ArenaRun>>().unwrap().is_some();
 
         self.resources.insert(Some(BattleVictory {
             player: battle.player,

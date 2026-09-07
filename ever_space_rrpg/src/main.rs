@@ -434,6 +434,16 @@ impl State {
         // RESOURCE SLOT ITSELF has to exist, or the fetch panics
         // outright, even though the type being fetched is an Option.
         resources.insert(None::<ArenaRun>);
+        // Same reasoning again - movement_system also reads
+        // Option<ChestLoot> now (see the chest-opening branch in
+        // systems/movement.rs), so it too must exist before the first
+        // background_movement_systems.execute() call. This is the exact
+        // "forgot one reset point" panic the comment above already warns
+        // about, hit for real once already for ShoppingActive/ArenaRun -
+        // see CLAUDE.md's own standing gotcha about title-background
+        // schedulers needing every #[resource] they touch inserted in
+        // BOTH State::new() and State::return_to_title().
+        resources.insert(None::<ChestLoot>);
         // player_input_system and hud_system (both part of
         // build_input_scheduler, run during TurnState::AwaitingInput) now
         // read Option<ShopMessage> - unlike Option<Battle>/ArenaRun/
@@ -500,6 +510,13 @@ impl State {
         let mut map_builder = MapBuilder::new(&mut rng);
         let player = spawn_player(&mut self.ecs, map_builder.player_start, class);
         grant_starting_items(&mut self.ecs, player, class);
+        // Dungeon Crawl now earns gold too (enemy kills, a guaranteed
+        // per-floor chest) toward a shop between floors - see Gold's own
+        // doc comment for why this starts at 0 rather than Arena's
+        // ARENA_STARTING_GOLD.
+        let mut commands = legion::systems::CommandBuffer::new(&self.ecs);
+        commands.add_component(player, Gold(0));
+        commands.flush(&mut self.ecs);
         let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
         map_builder.map.tiles[exit_idx] = TileType::Exit;
         spawn_level(&mut self.ecs, &mut rng, 0, &map_builder.monster_spawns);
@@ -512,6 +529,10 @@ impl State {
             class,
         );
         spawn_boss(&mut self.ecs, &mut rng, 0, map_builder.amulet_start);
+        if let Some(chest_pt) = map_builder.prefab_chest_spawn {
+            spawn_chest(&mut self.ecs, chest_pt);
+            spawn_prefab_chest_guards(&mut self.ecs, 0, &map_builder.prefab_chest_guard_spawns);
+        }
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
@@ -529,6 +550,7 @@ impl State {
         self.resources.insert(None::<ArenaRun>);
         self.resources.insert(None::<ShoppingActive>);
         self.resources.insert(None::<ShopMessage>);
+        self.resources.insert(None::<ChestLoot>);
 
         // Counts as "this class was chosen" the instant a run actually
         // begins, regardless of how it later ends (won, lost, or
@@ -646,6 +668,11 @@ impl State {
         self.resources.insert(Some(arena_run));
         self.resources.insert(Some(ShoppingActive));
         self.resources.insert(None::<ShopMessage>);
+        // Battle Arena never spawns a Chest, but movement_system's
+        // #[resource] fetch for this is unconditional (shared by both
+        // modes) - missing it here would panic the moment any Arena
+        // enemy movement runs, not just a real chest interaction.
+        self.resources.insert(None::<ChestLoot>);
 
         let mut stats = Stats::load();
         stats.record_game_started(class, AdventureMode::BattleArena);
@@ -897,6 +924,93 @@ impl State {
         self.resources.insert(None::<ShopMessage>);
     }
 
+    /// Reached by stepping on a dungeon floor's own stairs tile in
+    /// Dungeon Crawl mode (see TurnState::DungeonShopTransition /
+    /// systems/end_turn.rs's 3-way Exit-tile split). Builds a small shop
+    /// room - the exact same layout/reveal-rectangle trick as
+    /// MapBuilder::new_arena_shop, just stocked with the fixed Healing
+    /// Potion/Dungeon Map pair instead of a class-rolled weapon/ability
+    /// list, since Dungeon Crawl's shop doesn't vary by class or level -
+    /// while keeping the same player entity/inventory (see
+    /// arena_rebuild_keep_player, despite the name not Arena-specific).
+    /// One-shot, like advance_level: runs once, changes TurnState away
+    /// from DungeonShopTransition so it doesn't repeat next frame.
+    /// Leaving via this shop's own stairs tile routes back through
+    /// end_turn's Exit-tile check, which - now that ShoppingActive is
+    /// Some - resolves to TurnState::NextLevel and actually generates the
+    /// next floor (see advance_level, which clears ShoppingActive/
+    /// ShopMessage again on the way out, since it doesn't otherwise touch
+    /// either).
+    fn dungeon_shop_transition(&mut self) {
+        let player_entity = self.arena_rebuild_keep_player();
+
+        let items: Vec<(String, i32, i32)> = vec![
+            (
+                "Healing Potion".to_string(),
+                DUNGEON_SHOP_POTION_STOCK,
+                HEALING_POTION_PRICE,
+            ),
+            (
+                "Dungeon Map".to_string(),
+                DUNGEON_SHOP_MAP_STOCK,
+                DUNGEON_MAP_PRICE,
+            ),
+        ];
+        let mut rng = RandomNumberGenerator::new();
+        let (
+            mut map_builder,
+            item_points,
+            shopkeeper_point,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ) = MapBuilder::new_arena_shop(&mut rng, items.len());
+
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, map_builder.player_start);
+        cb.flush(&mut self.ecs);
+
+        // No fog of war inside the reveal rectangle - same reasoning as
+        // start_arena/arena_advance_to_next_shop's own identical block.
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
+            }
+        }
+        let mut full_fov = FieldOfView::new(8);
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, full_fov);
+        cb.flush(&mut self.ecs);
+
+        self.ecs.push((
+            Name("Shopkeeper".to_string()),
+            shopkeeper_point,
+            Render {
+                color: ColorPair::new(YELLOW, BLACK),
+                glyph: to_cp437('W'),
+            },
+        ));
+
+        self.spawn_arena_shop_items(&items, &item_points);
+
+        let exit_idx = map_builder.map.point2d_to_index(map_builder.amulet_start);
+        map_builder.map.tiles[exit_idx] = TileType::Exit;
+
+        self.resources.insert(map_builder.map);
+        self.resources.insert(Camera::new(map_builder.player_start));
+        self.resources.insert(map_builder.theme);
+        self.resources.insert(TurnState::AwaitingInput);
+        self.resources.insert(Some(ShoppingActive));
+        self.resources.insert(None::<ShopMessage>);
+    }
+
     /// The single decision point for what happens after an Arena kill -
     /// called from battle.rs's battle_victory_tick when ArenaRun is
     /// active, once the player dismisses the "You defeated X!" screen.
@@ -982,6 +1096,10 @@ impl State {
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<ShoppingActive>);
         self.resources.insert(None::<ArenaRun>);
+        // Same reasoning as Option<Battle>/ShoppingActive/ArenaRun above -
+        // movement_system now reads Option<ChestLoot> too (see
+        // State::new()'s own comment on this exact resource).
+        self.resources.insert(None::<ChestLoot>);
         self.resources.insert(None::<ShopMessage>);
         self.resources.insert(Keymap::load());
         self.resources.insert(BattleSpeed::load());
@@ -1102,10 +1220,26 @@ impl State {
             map_level as usize,
             map_builder.amulet_start,
         );
+        if let Some(chest_pt) = map_builder.prefab_chest_spawn {
+            spawn_chest(&mut self.ecs, chest_pt);
+            spawn_prefab_chest_guards(
+                &mut self.ecs,
+                map_level as usize,
+                &map_builder.prefab_chest_guard_spawns,
+            );
+        }
         self.resources.insert(map_builder.map);
         self.resources.insert(Camera::new(map_builder.player_start));
         self.resources.insert(TurnState::AwaitingInput);
         self.resources.insert(map_builder.theme);
+        // This is now also reached by leaving the between-floor shop
+        // (see TurnState::DungeonShopTransition / systems/end_turn.rs's
+        // 3-way Exit-tile split), which sets both of these - clear them
+        // here or a freshly generated floor would silently inherit
+        // ShoppingActive's auto-pickup suppression and frozen FOV
+        // forever, since nothing else on this path ever resets them.
+        self.resources.insert(None::<ShoppingActive>);
+        self.resources.insert(None::<ShopMessage>);
     }
 }
 
@@ -1220,6 +1354,12 @@ impl GameState for State {
             }
             TurnState::NextLevel => {
                 self.advance_level();
+            }
+            TurnState::ChestOpened => {
+                self.chest_loot_tick(ctx);
+            }
+            TurnState::DungeonShopTransition => {
+                self.dungeon_shop_transition();
             }
         }
         render_draw_buffer(ctx).expect("Render error");

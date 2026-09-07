@@ -93,10 +93,19 @@ pub fn end_turn(
         }
         let idx = map.point2d_to_index(*pos);
         if map.tiles[idx] == TileType::Exit {
+            // Three-way split, not two: a Dungeon Crawl floor's OWN
+            // stairs (ArenaRun absent, not yet ShoppingActive) leads into
+            // the between-floor shop; that shop's own stairs (ArenaRun
+            // still absent, but ShoppingActive is now Some - see
+            // State::dungeon_shop_transition) is what actually generates
+            // the next floor. Arena's stairs (inside its own shop) still
+            // always mean "begin wave 1", same as before.
             new_state = if arena_run.is_some() {
                 TurnState::ArenaTransition
-            } else {
+            } else if shopping.is_some() {
                 TurnState::NextLevel
+            } else {
+                TurnState::DungeonShopTransition
             };
         }
     });
