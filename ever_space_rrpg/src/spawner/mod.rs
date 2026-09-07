@@ -80,7 +80,12 @@ fn class_base_stats(class: &str) -> ClassBaseStats {
             speed: 10,
             defense: 0,
             evasion: 50,
-            glyph: 'D',
+            // Was 'D' - collided with Deathblow's own already-finalized
+            // icon (Barbarian), so playing Debug rendered the player's
+            // own map/portrait sprite as Deathblow's icon instead of a
+            // distinct look. Moved to a genuinely free codepoint - see
+            // Dungeon_Font_Glyph_to_Cell_Map.md.
+            glyph: 'N',
         },
         // Safe fallback for any unrecognized class name.
         _ => ClassBaseStats {

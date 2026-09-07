@@ -155,6 +155,48 @@ fn ability_bar_label_position(col: i32) -> (i32, i32) {
     (label_col, label_row)
 }
 
+/// The stack-count badge's (col, row) position on
+/// ABILITY_BAR_BADGE_CONSOLE for the icon at Ability/Item/Battle Bar
+/// column `col`, row `bar_row` - the bottom-right corner of the icon's own
+/// pixel footprint, the opposite corner from the hotkey label's top-left
+/// position (see ability_bar_label_position) so the two numbers are never
+/// ambiguous. Uses ABILITY_BAR_BADGE_CONSOLE's own doc comment's reasoning
+/// for why this can't just be HUD_CONSOLE. Both edges land on the LAST
+/// HUD-grid row/col whose pixels still fall inside the icon's footprint
+/// (the "-1 before converting" trick ability_bar_box_bounds' doc comment
+/// already explains) rather than the row/col just past it.
+fn ability_bar_count_position(col: i32, bar_row: i32) -> (i32, i32) {
+    let icon_right_px = (col + 1) * (1280 / ABILITY_BAR_COLS);
+    let icon_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
+
+    let bottom_row = ((icon_bottom_px - 1) * HUD_ROWS) / 800;
+    let right_col = ((icon_right_px - 1) * HUD_COLS) / 1280;
+
+    // "x{n}" is at least 2 characters - start 2 cols left of the
+    // rightmost one so it ends there, with one more col of margin so it
+    // doesn't sit flush against the icon's true right edge.
+    (right_col - 2, bottom_row)
+}
+
+/// Draws the "x{count}" stack-count badge for one Item/Ability/Battle Bar
+/// icon - see docs/ideas.md's "Stack-count badge" entry for the agreed
+/// design: bottom-right corner, matching the shop's own existing
+/// "Healing Potion x5" quantity convention, plain white (never yellow -
+/// that's the hotkey label's color, and using it here would blur the two
+/// together). Does nothing for `count <= 1` so a lone item stays exactly
+/// as clean as it already looks.
+fn draw_stack_count_badge(batch: &mut DrawBatch, col: i32, bar_row: i32, count: i32) {
+    if count <= 1 {
+        return;
+    }
+    let (label_col, label_row) = ability_bar_count_position(col, bar_row);
+    batch.print_color(
+        Point::new(label_col, label_row),
+        &format!("x{}", count),
+        ColorPair::new(WHITE, BLACK),
+    );
+}
+
 /// The (x, y, width, height) box - in HUD_CONSOLE cell terms, for
 /// render_helpers::draw_ascii_box, the same ASCII box style the battle
 /// menu already uses - that should enclose one bar's icons (and, if
@@ -431,6 +473,8 @@ pub fn hud(
         bar_batch.target(ABILITY_BAR_CONSOLE);
         let mut label_batch = DrawBatch::new();
         label_batch.target(HUD_CONSOLE);
+        let mut badge_batch = DrawBatch::new();
+        badge_batch.target(ABILITY_BAR_BADGE_CONSOLE);
         // (name, description-lookup key, box_y for the tooltip anchor) -
         // whichever bar's icon the mouse is currently over, checked
         // across BOTH bars so hovering either one shows its description.
@@ -521,6 +565,9 @@ pub fn hud(
                 let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, item_n, false);
                 hovered = Some((slot.name.clone(), box_y));
             }
+            if let Some((count, _)) = slot.owned {
+                draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
+            }
         }
         if item_n > 0 {
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
@@ -550,6 +597,9 @@ pub fn hud(
             if bar_mouse.y == bar_row && bar_mouse.x == col {
                 let (_, box_y, _, _) = ability_bar_box_bounds(ability_start_col, ability_n, true);
                 hovered = Some((slot.name.clone(), box_y));
+            }
+            if let Some((count, _)) = slot.owned {
+                draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
             }
 
             let (label_col, label_row) = ability_bar_label_position(col);
@@ -600,6 +650,9 @@ pub fn hud(
                 let (_, box_y, _, _) = ability_bar_box_bounds(battle_start_col, battle_n, false);
                 hovered = Some((slot.name.clone(), box_y));
             }
+            if let Some((count, _)) = slot.owned {
+                draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
+            }
         }
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
@@ -616,6 +669,7 @@ pub fn hud(
 
         bar_batch.submit(10001).expect("Batch error");
         label_batch.submit(10002).expect("Batch error");
+        badge_batch.submit(10004).expect("Batch error");
 
         // The hovered slot's tooltip (from either bar) - drawn on
         // HUD_CONSOLE (fine text) rather than either bar's own coarse

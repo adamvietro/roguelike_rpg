@@ -41,21 +41,7 @@ Roughly in the order they've come up:
    cramming more cells into the one shared `dungeonfont.png`.
 5. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
-6. **Stack-count badge on the Ability Bar/Battle Bar icons** — e.g. a
-   small "x2" for two Freeze Traps, simplified away to actually finish
-   the bars in one session. Hovering already reveals ownership, just not
-   the exact count at a glance.
-7. **Visual confirmation pass on the Ability Bar/Battle Bar** — the box-
-   overlap bug is fixed and tested, but the exact label/tooltip
-   positioning was computed via pixel-ratio math without a full round of
-   "here's a screenshot, nudge this" the way most of this project's
-   visual work gets. Worth a dedicated look with a few different ability
-   counts.
-8. Cleanup: `arena_advance_to_next_shop` duplicates a chunk of
-   `start_arena`'s shop-building code — not urgent, just flagged.
-9. Minor/cosmetic: `tooltips.rs` still reads the old integer camera
-   offset during a glide, instead of the smooth fractional one.
-10. **More class abilities** — pull a few real ones out of the "Future
+6. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -73,11 +59,103 @@ Roughly in the order they've come up:
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
 
+## Refactoring opportunities
+
+A read-through of the codebase looking specifically for what a refactor
+could improve, not a bug hunt - nothing here is a correctness problem,
+and nothing here has been touched. Pull individual items into a real
+session when ready; several are natural pairings (e.g. the two
+duplication items below rhyme with the shop-room/tooltip cleanup already
+done this session - these are the ones that were left behind).
+
+- **`arena_begin_wave` still duplicates the reveal-rectangle/frozen-FOV
+  block** that `build_shop_room` just got extracted from. It builds a
+  wave map, not a shop, so it was out of scope for that specific helper
+  - but the "move the player, reveal a no-fog-of-war rectangle, freeze
+  their FieldOfView" logic itself is identical code in both places.
+  Worth pulling into its own smaller helper (e.g.
+  `reveal_and_freeze_fov(&mut self, player, reveal_x, reveal_y, reveal_w,
+  reveal_h)`) shared by `build_shop_room` and `arena_begin_wave` both.
+- **`apply_prefab` and `apply_chest` (`map_builder/prefab.rs`) share the
+  same Dijkstra-based random-placement-attempt loop** (10 attempts, the
+  same 20.0/2000.0 distance thresholds, the same
+  `monster_spawns.retain`) - `apply_chest`'s own doc comment already
+  says outright that it "reuses the exact same...loop as apply_prefab."
+  Only the part that actually stamps a template's characters onto the
+  map differs between them (guard/weapon markers vs. guard/chest
+  markers). A shared `find_prefab_placement(mb, rng, width, height) ->
+  Option<Point>` helper would leave each function with just its own
+  stamping logic.
+- **`main.rs` doesn't follow its own established convention for where
+  `State`'s methods live.** Every dungeon/menu screen (`screens/pause.rs`,
+  `screens/battle.rs`, `screens/item_menu.rs`, `screens/chest.rs`, ...)
+  already adds its own methods to `State` from its own file - Rust
+  privacy lets a descendant module see an ancestor's private fields, so
+  this works with no `pub` needed. Battle Arena's own orchestration
+  (`start_arena`, `arena_begin_wave`, `arena_advance_to_next_shop`,
+  `arena_spawn_boss_on_current_map`, `handle_arena_kill`,
+  `arena_transition_tick`, `arena_wave_cleared_tick`,
+  `boost_arena_enemy_fov`, `arena_rebuild_keep_player` - nine methods)
+  never got the same treatment and still lives directly in `main.rs`,
+  which is now 1392 lines partly because of it. Moving these into their
+  own file (an `arena_state.rs`, say) would cut main.rs down to general
+  State bootstrap/dispatch plus Dungeon Crawl's own two methods
+  (`advance_level`, `dungeon_shop_transition`) - a much smaller, more
+  focused file.
+- **`screens/battle.rs`'s `battle_tick` is about 735 lines** - by a wide
+  margin the single largest function in the codebase - handling both
+  rendering AND input for every `BattleTurn` state (`PlayerMenu`,
+  `Filling`, `ActionResult` for both the player and each enemy) in one
+  function. Worth splitting into one handler per state.
+- **Pure battle-resolution logic and battle rendering share one file**
+  (`screens/battle.rs`). `resolve_player_action`/`trigger_enemy_action`/
+  `dismiss_action_result`/`record_enemy_kill`/`finish_battle` never touch
+  `ctx` at all - they're plain logic - while `battle_tick`/
+  `draw_battle_arena`/`battle_victory_tick` are rendering-heavy. This
+  session's own headless class-survivability simulation needed exactly
+  this split to exist (it calls the logic functions directly and can
+  never call the rendering ones, which need a real window's console
+  registry) - formalizing it into two files (e.g. a `battle/resolve.rs`
+  for the logic half) would make that reuse pattern the obvious one
+  instead of something that only worked because both happened to live in
+  the same module.
+- **`components.rs` (1066 lines) is a grab-bag of several unrelated
+  domains**, not really "components" in a narrow sense: plain data
+  components (`Health`, `Gold`, `Speed`, ...), a genuine UI subsystem
+  (`ability_bar_slots`/`battle_bar_slots`/`item_bar_slots`/
+  `usable_menu_items`/`group_items`/`build_roster_slots` and friends -
+  real algorithmic logic, not data), animation/camera math
+  (`gliding_position`, `camera_render_offset`), and tile-rendering
+  helpers (`tile_render_at`). Splitting by domain (e.g. a
+  `components/bars.rs` for the UI-bar-slot logic alone) would make each
+  piece easier to find and reason about independently.
+- **`battle/mod.rs` (1085 lines) has similarly distinguishable groups**
+  worth splitting: entity-stat accessors (`entity_damage`/`entity_speed`/
+  `entity_evasion`/`entity_health`/`carried_weapon_damage`/...), core
+  combat resolution (`resolve_enemy_attack`/`apply_damage`/
+  `apply_player_technique`/`tick_dot`/`heal_entity`), and menu/display
+  concerns (`available_actions`/`action_name`/`MenuCursor`/
+  `hp_bar_string`) all currently live in the one file.
+- **No shared "find the player" helper exists**, despite the same query
+  shape (something like `<(Entity, &Point)>::query().filter(component::
+  <Player>())`) being hand-rolled at 8+ call sites across systems/*.rs
+  and main.rs. This session's real `buy_nearby_item` bug was exactly a
+  missing `.filter(component::<Player>())` on one such hand-rolled query
+  - a single shared `find_player(ecs) -> Option<(Entity, Point)>` (or
+  similar) helper would make that whole class of mistake structurally
+  impossible in new code, not just fixed in the one place it was
+  actually found.
+
 ## Content / world
 
 - **More winnable item variety** — right now a chest/shop can only ever
   contain Gold, a Dungeon Map, or a Healing Potion. Not scoped - could be
   equipment, trinkets, or anything else worth finding.
+- **Quest system** — not scoped at all yet: no design conversation has
+  happened on objectives, tracking/UI, rewards, or whatever NPC/dialogue
+  hook would hand them out. Worth a real design discussion (per
+  CLAUDE.md's convention for architectural-sized changes) before any code
+  gets written.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -320,6 +398,18 @@ placeholder/test tool.
   lookup `buy_nearby_item` uses, so it can never show something
   different from what Enter would actually buy), anchored to the
   player's own on-screen position so it travels with them.
+- **Visual confirmation pass** — checked the whole out-of-combat bar
+  layout (label positioning, box borders, spacing) against a real
+  screenshot with real ability counts. Read cleanly; no changes needed.
+- **Stack-count badge** — a small "x2"-style badge (matching the shop's
+  own existing quantity convention) on the Item/Ability/Battle Bar icons
+  whenever a stack holds more than one copy, opposite the hotkey number's
+  corner so the two are never confused. Needed a new console
+  (`ABILITY_BAR_BADGE_CONSOLE`, registered after the bars themselves) -
+  these bar icons are opaque full-bleed sprite art, so a badge drawn
+  directly on HUD_CONSOLE would just get painted over and never show.
+  Confirmed via screenshot. Not fully sold this earns its keep long-term
+  (the Item Menu already shows exact counts) - easy to revert if not.
 
 ## Battle screen / UI
 - Bordered actions box, Battle Victory screen, floating damage numbers,
@@ -356,6 +446,21 @@ tracking, its own shop map/UI.
 - Full character portraits and all 18 ability icons across all 5
   classes, plus the Battle Arena Shopkeeper and the dungeon Treasure
   Chest (`c` glyph) — see `Dungeon_Font_Glyph_to_Cell_Map.md`.
+- **AOE technique icons** — Whirlwind (`≤`, Barbarian), Blizzard (`÷`,
+  Mage), Flurry (`≥`, Rogue), Javelin Volley (`√`, Amazon), Arrow Volley
+  (`■`, Hunter) all got real art from user-supplied references.
+- **Debug class icons** — fixed a real glyph collision (Debug's own
+  player-portrait glyph was `D`, the same codepoint as Deathblow's
+  already-finalized icon); Debug's portrait is now `N`, with real art (a
+  robot). Defeat (`M`) also got real art, rendered from a black-and-white
+  pixel-pattern chart reference rather than painted art. Next Level ended
+  up not needing a new icon at all - re-pointed at the plain `>` the
+  dungeon's own `TileType::Exit` stairs tile already renders as. Victory
+  (`L`) took two tries - the first trophy reference had a visible tiled
+  watermark and was declined; a clean second version of the same art was
+  supplied and used. Since Debug is a hidden test-only class none of this
+  was ever a priority beyond the original collision fix, but all four
+  ended up finalized anyway.
 
 ## Documentation
 - **README.md pass** — controls table, combat system section, and
@@ -387,6 +492,31 @@ tracking, its own shop map/UI.
 - **A permanent class-survivability simulation** (`screens/battle.rs`'s
   `class_survivability_report`, `#[ignore]`d) - see "Dungeon Crawl
   economy" above.
+- **Shared shop-room building, deduplicated across all three callers** —
+  `start_arena`'s very first Arena shop, `arena_advance_to_next_shop`'s
+  later ones, and Dungeon Crawl's own `dungeon_shop_transition` had all
+  accumulated their own copy of the same "build the room, reveal it,
+  freeze FOV, spawn the Shopkeeper, stock it, set the Exit tile" logic.
+  Extracted into one `build_shop_room` helper; each caller now only
+  handles its own TurnState/Battle/ArenaRun/Gold/Stats specifics
+  afterward, which differ too much between a fresh-world bootstrap and
+  an in-run transition for the helper to guess. Verified all three still
+  produce a correct shop world with a real test before removing it.
+- **`tooltips.rs` now uses the smooth fractional camera offset during a
+  glide** (`components::camera_render_offset`), the same one
+  `map_render`/`entity_render` already used for actual drawing, instead
+  of the stale integer `Camera::left_x`/`top_y` - hovering an entity
+  while the camera was visibly panning could point at the wrong tile (or
+  none) for the ~150ms glide window. Needed a new
+  `#[read_component(MovingAnimation)]` declaration too, since
+  `camera_render_offset` reads that internally - verified this doesn't
+  panic while a glide is genuinely in progress, though notably (unlike
+  an earlier legion-access bug this project hit) it turns out NOT to
+  panic without that declaration either in this schedule's own
+  read-only batch - legion's single-entity `entry_ref` lookups aren't
+  access-checked as strictly as bulk queries are. Kept the declaration
+  anyway since it's correct and matches `entity_render.rs`/
+  `map_render.rs`'s own convention for this exact same helper call.
 
 ## Stats tracking
 - Games played/won, enemies killed, deepest level reached, per-ability

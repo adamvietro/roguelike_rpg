@@ -44,6 +44,14 @@ The glyph order matches the **CP437 0–255 ordering** used by the original dung
 | `T`   | Trap                                                          |    5 |    4 | (128,160)–(159,191) |
 | `W`   | Battle Arena Shopkeeper (finalized, transparent background)   |    5 |    7 | (224,160)–(255,191) |
 | `c`   | Treasure Chest (dungeon loot chest, finalized)                |    6 |    3 | (96,192)–(127,223)  |
+| `≤`   | Whirlwind (Barbarian AOE technique, finalized)                |   15 |    3 | (96,480)–(127,511)  |
+| `≥`   | Flurry (Rogue AOE technique, finalized)                       |   15 |    2 | (64,480)–(95,511)   |
+| `÷`   | Blizzard (Mage AOE technique, finalized)                      |   15 |    6 | (192,480)–(223,511) |
+| `√`   | Javelin Volley (Amazon AOE technique, finalized)              |   15 |   11 | (352,480)–(383,511) |
+| `■`   | Arrow Volley (Hunter AOE technique, finalized)                |   15 |   14 | (448,480)–(479,511) |
+| `N`   | Debug class portrait (finalized, transparent background)     |    4 |   14 | (448,128)–(479,159) |
+| `M`   | Defeat (Debug, finalized)                                     |    4 |   13 | (416,128)–(447,159) |
+| `L`   | Victory (Debug, finalized)                                    |    4 |   12 | (384,128)–(415,159) |
  
 ## Battle Arena — icon reservations (this session)
  
@@ -320,7 +328,7 @@ in the Complete 256-cell map below, marked Unused.
 |   59 | `;`     |    3 |   11 | (352,96)–(383,127)  | standard glyph                                                                      |                     |
 |   60 | `<`     |    3 |   12 | (384,96)–(415,127)  | standard glyph                                                                      |                     |
 |   61 | `=`     |    3 |   13 | (416,96)–(447,127)  | standard glyph                                                                      |                     |
-|   62 | `>`     |    3 |   14 | (448,96)–(479,127)  | standard glyph                                                                      |                     |
+|   62 | `>`     |    3 |   14 | (448,96)–(479,127)  | standard glyph - also reused as-is for Next Level (Debug), same glyph the TileType::Exit dungeon stairs tile already renders with |                     |
 |   63 | `?`     |    3 |   15 | (480,96)–(511,127)  | standard glyph (shared placeholder for un-iconed items - see Complete Ability list) |                     |
 |   64 | `@`     |    4 |    0 | (0,128)–(31,159)    | @ — current blue-armored knight/soldier sprite                                      |                     |
 |   65 | `A`     |    4 |    1 | (32,128)–(63,159)   | Ice Armor (Mage) (finalized)                                                        |                     |
@@ -334,9 +342,9 @@ in the Complete 256-cell map below, marked Unused.
 |   73 | `I`     |    4 |    9 | (288,128)–(319,159) | Invisible Cloak (Mage) (finalized)                                                  |                     |
 |   74 | `J`     |    4 |   10 | (320,128)–(351,159) | Throw Spear (Amazon) (finalized)                                                    |                     |
 |   75 | `K`     |    4 |   11 | (352,128)–(383,159) | Assigned: Orc Warlord boss (custom art pending)                                     |                     |
-|   76 | `L`     |    4 |   12 | (384,128)–(415,159) | standard glyph                                                                      |                     |
-|   77 | `M`     |    4 |   13 | (416,128)–(447,159) | standard glyph                                                                      |                     |
-|   78 | `N`     |    4 |   14 | (448,128)–(479,159) | standard glyph                                                                      |                     |
+|   76 | `L`     |    4 |   12 | (384,128)–(415,159) | Victory (Debug) (finalized)                                                         |                     |
+|   77 | `M`     |    4 |   13 | (416,128)–(447,159) | Defeat (Debug) (finalized)                                                          |                     |
+|   78 | `N`     |    4 |   14 | (448,128)–(479,159) | Debug class portrait (finalized)                                                    |                     |
 |   79 | `O`     |    4 |   15 | (480,128)–(511,159) | O — current stone/golem-like monster sprite                                         |                     |
 |   80 | `P`     |    5 |    0 | (0,160)–(31,191)    | Poison Spear (Amazon) (finalized)                                                   |                     |
 |   81 | `Q`     |    5 |    1 | (32,160)–(63,191)   | Quick Attack (Barbarian) (finalized)                                                |                     |
@@ -359,7 +367,7 @@ in the Complete 256-cell map below, marked Unused.
 |   98 | `b`     |    6 |    2 | (64,192)–(95,223)   | Burn (Mage) (finalized)                                                             |                     |
 |   99 | `c`     |    6 |    3 | (96,192)–(127,223)  | Treasure Chest (dungeon loot chest, finalized)                                      |                     |
 |  100 | `d`     |    6 |    4 | (128,192)–(159,223) | Dodge (Rogue) (finalized)                                                           |                     |
-|  101 | `e`     |    6 |    5 | (160,192)–(191,223) | standard glyph                                                                      |                     |
+|  101 | `e`     |    6 |    5 | (160,192)–(191,223) | standard glyph - freed again, Next Level ended up reusing `>` instead (see that glyph's own row) |                     |
 |  102 | `f`     |    6 |    6 | (192,192)–(223,223) | Feint (Hunter) (finalized)                                                          |                     |
 |  103 | `g`     |    6 |    7 | (224,192)–(255,223) | g — current Goblin sprite                                                           |                     |
 |  104 | `h`     |    6 |    8 | (256,192)–(287,223) | standard glyph                                                                      |                     |
@@ -500,19 +508,19 @@ in the Complete 256-cell map below, marked Unused.
 |  239 | `∩`     |   14 |   15 | (480,448)–(511,479) | standard glyph                                                                      |                     |
 |  240 | `≡`     |   15 |    0 | (0,480)–(31,511)    | Garrote (Rogue) (finalized)                                                         |                     |
 |  241 | `±`     |   15 |    1 | (32,480)–(63,511)   | Stun (Hunter) (finalized)                                                           |                     |
-|  242 | `≥`     |   15 |    2 | (64,480)–(95,511)   | standard glyph                                                                      |                     |
-|  243 | `≤`     |   15 |    3 | (96,480)–(127,511)  | standard glyph                                                                      |                     |
+|  242 | `≥`     |   15 |    2 | (64,480)–(95,511)   | Flurry (Rogue) (finalized)                                                          |                     |
+|  243 | `≤`     |   15 |    3 | (96,480)–(127,511)  | Whirlwind (Barbarian) (finalized)                                                   |                     |
 |  244 | `⌠`     |   15 |    4 | (128,480)–(159,511) | standard glyph                                                                      |                     |
 |  245 | `⌡`     |   15 |    5 | (160,480)–(191,511) | standard glyph                                                                      |                     |
-|  246 | `÷`     |   15 |    6 | (192,480)–(223,511) | standard glyph                                                                      |                     |
+|  246 | `÷`     |   15 |    6 | (192,480)–(223,511) | Blizzard (Mage) (finalized)                                                         |                     |
 |  247 | `≈`     |   15 |    7 | (224,480)–(255,511) | standard glyph                                                                      |                     |
 |  248 | `°`     |   15 |    8 | (256,480)–(287,511) | standard glyph                                                                      |                     |
 |  249 | `∙`     |   15 |    9 | (288,480)–(319,511) | standard glyph                                                                      |                     |
 |  250 | `·`     |   15 |   10 | (320,480)–(351,511) | Stealth (Rogue) (finalized)                                                         |                     |
-|  251 | `√`     |   15 |   11 | (352,480)–(383,511) | standard glyph                                                                      |                     |
+|  251 | `√`     |   15 |   11 | (352,480)–(383,511) | Javelin Volley (Amazon) (finalized)                                                 |                     |
 |  252 | `ⁿ`     |   15 |   12 | (384,480)–(415,511) | standard glyph                                                                      |                     |
 |  253 | `²`     |   15 |   13 | (416,480)–(447,511) | standard glyph                                                                      |                     |
-|  254 | `■`     |   15 |   14 | (448,480)–(479,511) | standard glyph                                                                      |                     |
+|  254 | `■`     |   15 |   14 | (448,480)–(479,511) | Arrow Volley (Hunter) (finalized)                                                   |                     |
 |  255 | ` `     |   15 |   15 | (480,480)–(511,511) | standard glyph                                                                      |                     |
  
 ## Boss glyph status
@@ -556,6 +564,74 @@ the project instructions doc's Section 1 for confirmation. Unlike the
 spear follow-up above, there's no known lag between doc and code for this
 pass.
  
+## AOE techniques + Debug class (all finalized)
+
+A read-through looking for un-iconed content turned up two groups (see
+`docs/ideas.md`'s "Icons still needed" item for the tracked backlog
+entry) - both fully wrapped up the same session they were found.
+
+- ~~The five AOE techniques already had their own reserved codepoints
+  from an earlier session, but none of them ever got real art~~ —
+  **finalized, same session as this note**: Whirlwind (`≤`, Barbarian),
+  Blizzard (`÷`, Mage), Flurry (`≥`, Rogue), Javelin Volley (`√`,
+  Amazon), Arrow Volley (`■`, Hunter). All five references were soft
+  glow/motion-blur art (swirls, ice shards, streaking blades) rather
+  than crisp linework, so - unlike the chest icon earlier this session,
+  which needed a hand-redraw to survive downscaling - a direct
+  high-quality (LANCZOS) resize straight to 32x32 held up well and
+  stayed clearly readable. Each reference was already close to square;
+  center-cropped to an exact square first, then resized. Filled the
+  full cell edge-to-edge with the reference's own dark background
+  (opaque, matching every other finalized ability icon's convention -
+  the character portraits are the ones that use true transparency, not
+  these), with near-black pixels floored to RGB 10 per the standing
+  bracket-lib culling gotcha. Verified with a pixel diff against the
+  pre-batch sheet - confirmed only these 5 cells changed, nothing else.
+- **The Debug class had a real collision, not just missing art**: its
+  own player-portrait glyph (`spawner::class_base_stats`) was `D` - the
+  same codepoint already finalized for Deathblow (Barbarian). Playing
+  Debug, the player's own map/portrait sprite rendered as Deathblow's
+  icon instead of anything distinct. Reserved four genuinely free
+  codepoints in an earlier pass this same session (`N`/`L`/`M`/`e`),
+  applied directly in `spawner/mod.rs` and `template.ron` at the time,
+  verified with a real test (loaded the RON, confirmed all four glyphs
+  were distinct from each other and from every other template) before
+  removing that test.
+  - **`N` (Debug class portrait) - finalized.** Full character sprite
+    (a robot), same convention as every other class portrait: true
+    transparency background (flood-filled from the reference's own flat
+    pale background), top-anchored square crop so the antenna at the
+    very top edge wasn't cropped, near-black pixels floored to RGB 10.
+  - **`M` (Defeat) - finalized, but the reference itself needed a
+    different process.** The supplied image wasn't rendered art - it was
+    a black-and-white graph-paper style pixel-pattern chart (a skull and
+    crossbones drawn as filled/empty grid squares). Detected the actual
+    grid spacing programmatically, sampled each cell to build a boolean
+    mask, then rendered a real icon FROM that mask (dark red "danger"
+    background, bone-white fill, black outline via simple erosion) -
+    the shape is faithful to the reference, but the coloring was an
+    original choice since the source had none.
+  - **`e` (Next Level) - reservation dropped, not used.** Was about to
+    get a hand-drawn staircase (no reference was supplied for this one),
+    but the dungeon already has an established stairs glyph - the
+    `TileType::Exit` tile itself renders as plain `>`
+    (`map_builder/themes.rs`). Re-pointed `template.ron`'s Next Level
+    entry at `>` directly instead of drawing new art or keeping the `e`
+    reservation - more consistent (the debug item now visually matches
+    the exact tile it simulates reaching) and one fewer custom icon to
+    maintain. `e` itself was reverted back to a plain free standard
+    glyph.
+  - **`L` (Victory) - finalized.** The first supplied trophy reference
+    had a visible tiled watermark (repeated diagonal text,
+    stock-marketplace style) and was declined; a clean second version of
+    the same artwork (no watermark) was supplied afterward and used.
+    Square-cropped, resized to 32x32, near-black pixels floored to RGB
+    10 - kept the reference's own plain white background rather than
+    inventing a themed fill, matching how e.g. Fireball's background
+    also just came from its own reference. All four Debug glyphs (`N`/
+    `M`/`L`, `>` reused for Next Level) are now finalized - none left
+    open.
+
 ## Editing rule reminder
  
 Every future sprite replacement must use the original PNG, clear the complete target 32×32 cell, place the replacement inside that same cell, and verify by pixel diff that no pixels outside the requested cells changed.

@@ -284,7 +284,7 @@ Templates(
             // instant it's used - see components::ProvidesEffect::DebugWin
             // / systems/use_items.rs.
             entity_type: Item,
-            name : "Victory", glyph: '?', levels: [ ],
+            name : "Victory", glyph: 'L', levels: [ ],
             effect: Some(DebugWin),
             frequency: 0,
             class: Some("Debug"),
@@ -294,7 +294,7 @@ Templates(
             // Sets TurnState::GameOver - see
             // components::ProvidesEffect::DebugLose.
             entity_type: Item,
-            name : "Defeat", glyph: '?', levels: [ ],
+            name : "Defeat", glyph: 'M', levels: [ ],
             effect: Some(DebugLose),
             frequency: 0,
             class: Some("Debug"),
@@ -307,7 +307,7 @@ Templates(
             // default kit alone can reach the deepest normal dungeon
             // level (0 -> 1 -> 2) without any real exploration.
             entity_type: Item,
-            name : "Next Level", glyph: '?', levels: [ ],
+            name : "Next Level", glyph: '>', levels: [ ],
             effect: Some(DebugNextLevel),
             frequency: 0,
             class: Some("Debug"),
