@@ -3520,7 +3520,7 @@ But almost everyone times out instead of finishing now (43/50) - and I think tha
 
 ---
 
-# 9/07/26 (continued) - two small backlog cleanups
+# Two Small Backlog Cleanups
 
 Cleaned up docs/ideas.md properly this time - moved everything actually finished (this session's work, plus a couple of already-done items that were sitting unmarked) out of the numbered Working list and into real categorized Done sections, instead of leaving `~~strikethrough~~` items mixed into the numbered list. Committed the whole night's work as one commit, then started a real feature branch (`cleanup-arena-shop-dedup-and-tooltip-offset`) for what came next, rather than continuing to commit straight to master.
 <br />
@@ -3539,5 +3539,64 @@ This one turned out more interesting than "swap one line for another." `tooltips
 <br />
 
 `camera_render_offset` reads a `MovingAnimation` component internally, which tooltips_system hadn't declared access to - added `#[read_component(MovingAnimation)]` to be safe, matching `entity_render.rs`/`map_render.rs`'s own convention for this exact same call. Went to verify it the usual way (build a Schedule, force a real glide, confirm no AccessDenied panic without the declaration) - and it turns out this one genuinely doesn't panic without the declaration in this particular schedule. Single-entity `entry_ref().get_component()` lookups apparently aren't checked against the declared access list as strictly as bulk `::query()` calls are, and the one system that actually WRITES MovingAnimation (`tick_animations`) is already `.flush()`-separated from this whole read-only batch, so there's no live conflict to race against either. Kept the declaration anyway - it's still the correct, honest description of what this system reads, and matches its siblings - but worth remembering this isn't a universal safety net the way the hud.rs regression test's own bug was: query access is real access control, a lone `entry_ref` read apparently isn't enforced the same way.
+
+---
+
+## Sprite sheet architecture question - and a real finding
+Talked through whether per-class/per-enemy sprite sheets are possible, since I'm worried about running out of room in one shared atlas once battle animations, idle animations, more ability icons, and more dungeon tile variety all want space. Turns out this project is ALREADY running two sheets side by side (`dungeonfont.png` at 32x32 and `terminal8x8.png` at 8x8, both loaded via separate `.with_font` calls) - so multiple sheets are clearly possible, just not free: the current rendering pipeline draws every visible entity in ONE pass through ONE shared console, looking up glyphs as indices into ONE atlas. Per-class sheets would mean sorting entities by sheet every frame and drawing multiple batches into multiple consoles, plus a lot more console registrations to keep z-ordered correctly (already a documented gotcha here).
+<br />
+
+The actual useful discovery: checked bracket-lib's own source and the 256-cell ceiling isn't a real limit at all - `FontCharType` is a `u16` (up to 65,536), and `Font::load` computes the glyph grid straight from the image's own pixel dimensions divided by cell size, not a hardcoded 16x16. The 256 cap is purely this project's OWN convention (`to_cp437(char)`, which maps through CP437's 256-value codepage). So the actual fix for "not enough room" is just a bigger single PNG - 1024x1024 or 2048x2048 gets 1,024 or 4,096 cells respectively, comfortably covering every animation/icon/tile-variant need with zero rendering-architecture changes. The one real cost is authoring: a much bigger canvas is harder to navigate by hand, which is where "author each class/theme in its own file, composite into the one shipped sheet" earns its keep - not as a workaround for an engine limit, since there isn't one, but as a workflow choice once the canvas gets big.
+<br />
+
+---
+
+## AOE technique icons + Debug class glyphs
+Went looking for exactly what still needed icons before doing any actual art. Two things fell out:
+<br />
+
+**A real glyph collision, not just missing art.** Debug's own player-portrait glyph (`class_base_stats`'s `glyph: 'D'`) was the same codepoint as Deathblow's already-finalized icon (Barbarian) - playing Debug, the player's own map/portrait sprite rendered as Deathblow's icon instead of anything distinct. Fixed by moving Debug's portrait to `N`, and giving Victory/Defeat/Next Level (previously all three sharing the generic `?` placeholder) their own distinct `L`/`M`/`e`. Verified with a real test - loaded the RON, confirmed all four new glyphs are genuinely distinct from each other and from every other template - before removing it. No pixel art yet for any of these four; Debug is hidden/test-only so real art here is a nice-to-have, not a priority - the collision was the part worth fixing on its own.
+<br />
+
+**The five AOE techniques** (one per class - Whirlwind, Blizzard, Flurry, Javelin Volley, Arrow Volley) already had their own reserved codepoints from an earlier session, just never got real art. Got reference images for all five and finalized them the same session. These turned out much easier than the chest icon from earlier - all five references were soft glow/motion-blur art (swirls, ice shards, streaking blades), not crisp linework, so a direct high-quality resize straight to 32x32 held up well without needing a hand-redraw. Filled each cell edge-to-edge with the reference's own dark background (opaque, matching every other finalized ability icon), floored near-black pixels per the standing bracket-lib culling gotcha, and verified with a pixel diff that only those 5 cells changed on the whole sheet.
+
+---
+
+## Debug class icons - three references, three different outcomes
+Got three images for the Debug class's remaining glyphs, one per open slot, plus "use the staircase" for Next Level with no reference at all. Each one ended up needing something different.
+<br />
+
+**The trophy (Victory) had a watermark.** A tiled, repeated diagonal text pattern across the whole image - stock-marketplace style, the same class of problem this project's own docs already warned about from an earlier session (Invisible Cloak's reference got blocked the same way once). Declined it and told the user directly rather than trying to work around it or crop it out - `L` stays a reservation only.
+<br />
+
+**The robot (Debug portrait) was straightforward** - treated it exactly like the other class portraits: flood-filled the flat pale background to true transparency, cropped to the character's own bounding box, top-anchored onto a square canvas (the antenna touches the very top edge, same reasoning as the Shopkeeper's own top-anchor from an earlier session), floored near-black pixels. Reads clearly as a distinct robot at 32x32.
+<br />
+
+**The skull (Defeat) reference wasn't actually art** - it was a black-and-white graph-paper pixel-pattern chart, the kind of thing you'd use to plan a cross-stitch or bead pattern, not a rendered icon. Detected the grid spacing programmatically (found the periodic dark grid lines, computed cell size), sampled each cell to build a boolean mask, and rendered a REAL icon from that mask myself - dark red background, bone-white fill for the interior, black outline computed via simple erosion (filled cells with all 4 neighbors also filled = interior; everything else on the boundary = outline). The shape is faithful to the reference; the actual coloring was my own choice, since the source had none to copy.
+<br />
+
+**Next Level didn't need new art at all.** Drew a hand-made staircase first (dark blue background, 4 ascending stone steps with lighter tread highlights) since no reference was given - looked clean on its own, but the user caught something better: the dungeon already has an established stairs glyph. `TileType::Exit` itself renders as plain `>` (`map_builder/themes.rs`). Reverted my custom icon back out of the sheet entirely and just re-pointed `template.ron`'s Next Level entry at `>` directly - more consistent (the debug item now looks exactly like the real tile it simulates reaching) and one less custom icon to ever maintain. Worth remembering for next time: check for an already-established in-game symbol before inventing new art for something that's essentially a shortcut TO that exact thing.
+
+---
+
+## Victory, take two
+Got a clean second version of the same trophy art - no watermark this time. Square-cropped, resized straight to 32x32, floored the near-black outline pixels. Kept its own plain white background rather than inventing a themed fill (unlike Defeat, which had no color to copy from its source). All four Debug glyphs are finalized now - nothing left open on the icon backlog.
+<br />
+
+---
+
+## A Windows build, a friend who can't run it, and two real bugs to know about
+Not code changes - the user's friend tried running a shared Windows build and hit two separate failures, worth remembering for future distribution:
+<br />
+
+**First symptom ("black screen, then nothing") traced to this project's own asset loading**, before even confirming that's what was wrong: `Templates::load()` (and every other resource loader) uses `File::open("resources/...").expect(...)` - a relative path from the CURRENT WORKING DIRECTORY, not from wherever the .exe itself lives, and it panics outright if missing. Since `main()` builds the window/GL context FIRST then constructs `State::new()` (which loads templates immediately, for the title screen's own decorative background), a missing `resources/` folder next to the .exe produces exactly this symptom: window opens (black, nothing drawn yet) → panic during state setup → window closes. Never actually confirmed this was the real cause here, since a different, more specific error showed up once the friend tried again properly.
+<br />
+
+**The real error turned out to be `NoAvailablePixelFormat`** - traced this to `bracket-terminal` (not this project's own code): its window-init code hardcodes `.with_hardware_acceleration(Some(true))` when building the GL context via glutin, with no software-rendering fallback and nothing this project's own `BTermBuilder` calls can override. The friend was running the build inside a VirtualBox VM - VirtualBox's default virtual display adapter doesn't expose real hardware-accelerated OpenGL to the guest at all unless 3D Acceleration is explicitly turned on AND Guest Additions are installed, and even then its GL support is historically limited/flaky for anything beyond basic desktop compositing. Gave the VM-settings fix to try, but flagged honestly that it might not fully work - the reliable answer is running on real hardware, not a VM, since this is a hard requirement baked into the pinned bracket-terminal dependency, not something fixable from this project's side.
+<br />
+
+Also came up: what it'd actually take to code-sign a Windows build so SmartScreen stops flagging it (a real cost/identity-verification process, not a code change) - mentioned SignPath.io's free program for legitimate open-source projects as worth checking first, given this repo is already public, before paying for a certificate just to fix one friend's install.
+
+
 
 
