@@ -3520,7 +3520,7 @@ But almost everyone times out instead of finishing now (43/50) - and I think tha
 
 ---
 
-# Two Small Backlog Cleanups
+## Two Small Backlog Cleanups
 
 Cleaned up docs/ideas.md properly this time - moved everything actually finished (this session's work, plus a couple of already-done items that were sitting unmarked) out of the numbered Working list and into real categorized Done sections, instead of leaving `~~strikethrough~~` items mixed into the numbered list. Committed the whole night's work as one commit, then started a real feature branch (`cleanup-arena-shop-dedup-and-tooltip-offset`) for what came next, rather than continuing to commit straight to master.
 <br />
@@ -3754,6 +3754,49 @@ Building all 7 sheets at once and eyeballing every row before wiring anything in
 <br />
 
 Verified two of the six new enemies live end-to-end (Orc's walk animation and battle portrait, same as Goblin's original check) - the rest use the identical code path with no new logic branches, so they were checked pixel-by-pixel on the sheets themselves (a checkerboard-background preview per row) rather than each individually fought in a live battle.
+
+---
+
+## Real map tiles - from colored ASCII to actual pixel-art themes
+New branch (`map-tile-themes`) for a genuinely different system: the dungeon map itself has only ever been a single colored glyph per `TileType` (`.`/`#` for Dungeon, `;`/`"` for Forest) - real per-tile textures, the same "give it real art" upgrade characters/enemies already got. Talked through the design before touching code, per the usual convention for something this size.
+<br />
+
+### The 16-cell template and the numbering convention
+Landed on a fixed 4x4 grid per theme - row 1 floor, row 2 wall, row 3 "themed floor" (decorative variety), row 4 "special wall" (impassable features, placement deferred). Every theme's 16 ideas get communicated as one flat numbered list, 1-16, row-major - documented in a new `docs/Map_Tile_Theme_Guide.md`, the map-rendering counterpart to the glyph-map doc. One rule that turned out to matter a lot later: cell #1 (floor) and #5 (wall) have to be the theme's plainest, most generic look, since the whole map starts as 100% those two before anything else gets layered on.
+<br />
+
+### Forest, the first real theme - and three generator lessons
+Built `resources/map_tiles.png` from the user's Forest tileset, discovering along the way that the generator bakes real 1-3px black grid-line borders INTO the image itself (not a preview artifact) - always crop those out before compositing, or every tile boundary bakes in a visible seam. Also confirmed something worth checking for every future tileset by actually tiling candidates 4x4 before shipping anything: noise/texture tiles (grass, a repeating tree canopy) read fine repeated in bulk, but a "single centered object" tile (one big boulder) produces an obvious clone-stamp grid instead - matters for rows 1-2 specifically, since those are the ones that actually repeat. Forest's own thicket/briar-patch cells also came back nearly indistinguishable from each other despite different prompts - not broken, just a reminder to push for more visual separation between similarly-themed cells next time.
+<br />
+
+### Wiring it in - a new console pair, and a real crash from the classic glyph-32 gotcha
+One shared `map_tiles.png` atlas, one console pair (not one per theme - that would've repeated the "one sheet per character" mistake this project already learned from). Rendering only replaces Floor/Wall - Exit/Counter/Water still fall through to the old dungeonfont path, the same "no row yet" shape every other migrated sheet already uses. First real launch crashed immediately with "attempt to subtract with overflow" - the exact glyph-32 panic CLAUDE.md already documents, just newly relevant because a fresh 4-row tile sheet doesn't even contain index 32 at this column count. Padded the sheet and flagged row 8 as this sheet's own permanently-forbidden row.
+<br />
+
+### The generation algorithm - patches vs. noise, then patches vs. scatter
+First pass rolled a fully independent random variant per tile - confirmed too noisy in real play, floor and wall became hard to tell apart at a glance. Replaced with: every tile starts on its plain default (cell #1/#5), then wall tiles get a scattered MINORITY of individual accent swaps (no blocks - a wall's too thin for a block to read differently from a scatter), and floor tiles get a handful of contiguous randomly-sized patches of ONE alternate variant each - actual "blocks of leaves, blocks of moss" instead of pixel noise.
+<br />
+
+That wasn't the end of it, though. Once Dungeon and Sewer were live, a real screenshot showed Dungeon's torchlight-glow cell patched as a whole region - a literal wall of individual torch-light pools, which no real dungeon would have. Turned out "every non-default variant gets the same treatment" was itself wrong: some cells (a torch, a grate, a bone pile) are discrete point fixtures that should scatter, not patch, while others (moss, a puddle, an algae bloom) genuinely are spreadable ground cover. Added `MapTheme::floor_variant_style(variant) -> Patch | Scatter`, defaulting to Patch, overridden per-theme only where a cell actually needs the other treatment - direct answer to "how easy is it to have special settings for each theme": very, since `MapTheme` was already the right per-theme (here, per-variant) extension point.
+<br />
+
+### Dungeon and Sewer - and a real framework for "a few more themes"
+Two more full tilesets, both clean on the first try (no defects, no near-duplicate cells this time, both tileability-checked wall candidates held up). Since the user wants to keep adding themes, replaced the old `rng.range(0, 2)` + match theme picker with `dungeon_theme_pool()` - one vec literal every theme lives in - so adding number four is one line, not a hand-counted range bump. Sewer's own second row landed on this sheet's forbidden row 8 by the naive math (theme 3 = rows 8-11) - skipped to 9-12 instead, row 8 stays permanently blank.
+<br />
+
+### Two real regressions, caught in actual play, not by the build
+The first: the Shopkeeper vanished on any Floor/Wall tile, and Orc Warlord visibly popped in and out of existence while walking around. Root cause was the same for both - `MAP_TILE_CONSOLE` sat at registration index 6, ABOVE the old, foundational, never-named "console 1" that any dungeon-view entity with no real idle-frame art renders on (the Shopkeeper, floor items, any not-yet-migrated enemy). Real tile textures were painting right over that whole entity layer. The "below the HUD" rule every earlier console addition cared about turned out necessary but not sufficient - this console also had to sit below literally the oldest, most foundational entity console, which had no room before it without moving something. Fixed by swapping `MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE` into slots 1/5 and finally promoting that unnamed literal "console 1" to a real constant, `ENTITY_CONSOLE`, moved to slot 6.
+<br />
+
+The second: Sewer's walls read as too visually flat - not enough inherent contrast between wall and floor art at the same brightness. Fixed with a flat darkening multiply on real-texture wall tiles specifically (`WALL_TEXTURE_SHADE`), a code-side fix that benefits every theme uniformly instead of needing new art or a per-theme special case.
+<br />
+
+### A "bug" that wasn't
+A screenshot showed "Gold: [something unreadable]" looking cut off at the top of the shop screen. Audited the code first rather than guessing at a fix - both "Gold:" and "Dungeon Level:" use the literal same print call/position/console, and the format string can never produce a letter, so there was no code path that could produce what looked like a stray "W." Asked for a tighter screenshot instead of patching something that might not be broken; the follow-up showed "Gold: 25" rendering perfectly cleanly - just a compression artifact on an 8px font in the original image, not a real bug. Worth remembering as its own lesson: audit before you fix, especially when a report doesn't match anything the code could actually produce.
+<br />
+
+### Input-automation notes for next time
+The ad hoc python-xlib/XTEST driver from the enemy-art session got noticeably less reliable this session - focus/pointer state seemed to decay after the first one or two synthetic key events per window lifetime, sometimes recovering after a full relaunch-and-immediate-input sequence, sometimes not. Real screenshots were still obtained for the most load-bearing checks (Sewer's live render, the title-screen background, "Gold: 25"), but several follow-up checks (Dungeon's own live render, the torch-scatter fix, the shop specifically) had to fall back to code-level reasoning instead of a fresh screenshot. Confirmed worth turning into a real `/run-skill-generator` skill rather than reinventing this driver each session - the flakiness itself might also be worth a closer look next time, rather than working around it again.
 
 ---
 

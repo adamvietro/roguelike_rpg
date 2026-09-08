@@ -108,6 +108,10 @@ Roughly in the order they've come up:
    - Redo Amazon's Walk animation specifically - flagged as needing a
      fresh PixelLab pass, independent of the canvas-size/leftover-art
      bugs already fixed for it this session.
+   - **Redo the enemy battle sprites** (`enemy_battle.png`, all 7
+     rows) - a quality/style call, not a bug like Orc Warlord's or
+     Amazon's own redo above; the user isn't happy with how they look
+     and wants another pass once there's time.
    - Add more animations per class/enemy (Breathing_Idle, directional
      rotations - needs the facing-architecture conversation above first
      for anything beyond `south`).
@@ -130,23 +134,6 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
-7. **More dungeon tile sets** (added 2026-09-08) — right now every
-   dungeon level renders with the same tile graphics regardless of theme/
-   depth. Not scoped yet: how many tile sets, which biomes/areas they'd
-   cover, how a level picks which one applies. Explicitly a DIFFERENT
-   kind of problem from the character/enemy/NPC sprite-sheet work above -
-   this is about the *map* console's tile graphics, not an animated
-   actor's sprite - so it needs its own design conversation before
-   starting, not an extension of the sheet-naming convention above.
-8. **A refactor for how maps get made and tiles are set** (added
-   2026-09-08, follows directly from #7 above) — supporting more than one
-   tile set will likely require rethinking how map generation and tile
-   assignment currently work (today, `map_builder`'s architects and
-   `MapTheme` bake in a single tile graphics assumption per call). Not
-   scoped yet either - do the tile-set design conversation (#7) first,
-   since what that system needs to support will drive what this refactor
-   actually has to change.
-
 ## Refactoring opportunities
 
 A read-through of the codebase looking specifically for what a refactor
@@ -549,6 +536,41 @@ tracking, its own shop map/UI.
   supplied and used. Since Debug is a hidden test-only class none of this
   was ever a priority beyond the original collision fix, but all four
   ended up finalized anyway.
+
+## Map tile themes — real per-tile textures, Forest/Dungeon/Sewer, and an easy-to-extend theme pool
+The old single-colored-glyph-per-`TileType` map rendering (`.`/`#` for
+Dungeon, `;`/`"` for Forest) is gone for three themes so far - real
+32x32 pixel-art tiles, randomly picked per generated level via
+`map_builder::dungeon_theme_pool()` (adding a fourth theme is one line
+there, not a hand-counted range). Full template/row-mapping reference,
+every generator gotcha, and the generation algorithm's own reasoning
+live in `docs/Map_Tile_Theme_Guide.md` - the map-rendering counterpart
+to `Dungeon_Font_Glyph_to_Cell_Map.md`.
+- **Generation algorithm**: every tile starts on its theme's plain
+  default (the whole point of requiring cell #1/#5 to be the plainest
+  look in a theme's 16-cell set), then wall tiles get a scattered
+  minority of individual accent swaps and floor tiles get a handful of
+  contiguous randomly-sized patches of one alternate variant -
+  confirmed necessary after a uniform per-tile random pick made floor
+  and wall hard to tell apart at a glance. A further per-variant
+  `Patch`/`Scatter` style (`MapTheme::floor_variant_style`) followed
+  once Dungeon's torchlight-glow cell, patched as a whole region, came
+  back looking like a literal wall of torches - discrete point fixtures
+  (a torch, a grate, a bone pile) scatter; spreadable ground cover
+  (moss, a puddle, algae) still patches.
+- **Two real regressions caught in actual play**: the Shopkeeper
+  vanished on any Floor/Wall tile and Orc Warlord visibly popped in and
+  out while walking, both from the same root cause - the new tile
+  console sat above the dungeon's oldest, most foundational entity
+  console (a bare literal "console 1" before this session, now a real
+  named `ENTITY_CONSOLE`) instead of below it. Sewer's walls also read
+  as too visually flat - fixed with a flat darkening multiply on
+  real-texture wall tiles, benefiting every theme at once rather than
+  needing new art.
+- **`TileType::Water`** exists in the data model, impassable and opaque
+  with zero extra logic (same free ride `Counter` already got), but
+  isn't placed by any generator yet - deliberate, targeted placement (a
+  river, a lone obstacle) is its own deferred design pass.
 
 ## Documentation
 - **README.md pass** — controls table, combat system section, and

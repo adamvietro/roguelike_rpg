@@ -39,7 +39,95 @@ pub trait MapTheme: Sync + Send {
     fn wall_color(&self) -> RGB;
     /// Which battle arena scenery this theme uses.
     fn battle_scenery(&self) -> BattleScenery;
+    /// This theme's starting row on the shared `resources/map_tiles.png`
+    /// atlas - `None` for a theme still on the old single-glyph
+    /// `tile_to_render` rendering (see docs/Map_Tile_Theme_Guide.md).
+    /// Every migrated theme owns a fixed 4-row block there (floor/wall/
+    /// themed-floor/special-wall, MAP_TILE_COLS columns each) - the same
+    /// "one shared sheet, more rows" shape CHARACTER_IDLE_CONSOLE/
+    /// ENEMY_IDLE_CONSOLE already use, just keyed by theme instead of by
+    /// class/enemy name. Defaults to `None` so a brand new MapTheme impl
+    /// doesn't have to know about this system until it actually gets
+    /// real tile art.
+    fn tile_row(&self) -> Option<u16> {
+        None
+    }
+    /// Which placement style floor variant `variant` (1..FLOOR_VARIANT_
+    /// COUNT - variant 0 is always the plain default, never patched or
+    /// scattered) should use - see `VariantStyle`. Defaults to `Patch`
+    /// for every variant, matching the original "blocks of leaves,
+    /// blocks of moss" design. Override per-variant for anything that
+    /// reads as a discrete point fixture rather than a spreadable ground
+    /// cover - confirmed needed in real play (2026-09-08): Dungeon's
+    /// "torchlight glow" patched as a whole region looked like a wall of
+    /// torches, which no real dungeon would have. See
+    /// docs/Map_Tile_Theme_Guide.md for the full row-9-12 breakdown of
+    /// which cells need which style, theme by theme.
+    fn floor_variant_style(&self, _variant: u8) -> VariantStyle {
+        VariantStyle::Patch
+    }
 }
+
+/// How a non-default floor variant gets placed on the map - see
+/// `MapTheme::floor_variant_style` and `MapBuilder::assign_tile_variants`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VariantStyle {
+    /// A contiguous, randomly-placed, randomly-sized region gets stamped
+    /// with this variant - natural for anything that reads as a
+    /// spreadable ground cover (a dirt patch, moss, a puddle, an algae
+    /// bloom).
+    Patch,
+    /// Individual tiles scattered sparsely, one at a time, never as a
+    /// contiguous block - natural for a discrete point fixture that
+    /// would look absurd repeated in bulk right next to itself (a torch,
+    /// a drain grate, a pile of bones, a pillar base).
+    Scatter,
+}
+
+/// Every dungeon-crawl `MapTheme`, in one place - `MapBuilder::new` picks
+/// one at random from exactly this list. Add a new theme here (plus its
+/// own `MapTheme` impl in `themes.rs`) and it's automatically in the
+/// random pool - no range/match bookkeeping needed anywhere else, unlike
+/// the old `rng.range(0, 2)` + match this replaced (2026-09-08, when
+/// Sewer became the third theme and hand-updating a hardcoded range for
+/// every new one stopped being worth it).
+fn dungeon_theme_pool() -> Vec<Box<dyn MapTheme>> {
+    vec![DungeonTheme::new(), ForestTheme::new(), SewerTheme::new()]
+}
+
+/// Columns on `resources/map_tiles.png` - every theme's 4-row block uses
+/// this many columns per row, matching the 16-cell (4x4) template in
+/// docs/Map_Tile_Theme_Guide.md.
+pub const MAP_TILE_COLS: u16 = 4;
+/// How many distinct floor textures a migrated theme's FLOOR pool has -
+/// row 0 (basic floor) and row 2 (themed floor) combined, MAP_TILE_COLS
+/// each, picked randomly from either (see docs/Map_Tile_Theme_Guide.md's
+/// confirmed row semantics).
+pub const FLOOR_VARIANT_COUNT: u8 = MAP_TILE_COLS as u8 * 2;
+/// How many distinct wall textures a migrated theme's WALL pool has -
+/// row 1 (basic wall) only for now; row 3 (special wall) joins this pool
+/// once its placement logic exists (deferred - see the guide doc).
+pub const WALL_VARIANT_COUNT: u8 = MAP_TILE_COLS as u8;
+/// Percent chance (0-99) an individual Wall tile swaps from the theme's
+/// default wall texture (variant 0) to a random accent variant - see
+/// MapBuilder::assign_tile_variants. Deliberately a MINORITY so the
+/// default stays the dominant wall texture.
+const WALL_ACCENT_CHANCE_PCT: i32 = 30;
+/// How many floor texture patches get stamped per generated map - see
+/// MapBuilder::assign_tile_variants.
+const FLOOR_PATCH_COUNT_MIN: i32 = 6;
+const FLOOR_PATCH_COUNT_MAX: i32 = 12;
+/// Radius (tiles) of one floor texture patch - see
+/// MapBuilder::assign_tile_variants.
+const FLOOR_PATCH_RADIUS_MIN: i32 = 2;
+const FLOOR_PATCH_RADIUS_MAX: i32 = 4;
+/// Percent chance (0-99) an individual Floor tile swaps to a random
+/// Scatter-style variant (see `MapTheme::floor_variant_style`) - much
+/// lower than WALL_ACCENT_CHANCE_PCT on purpose: these are meant to be
+/// rare, discrete highlights (a torch, a grate) across a whole floor
+/// area, not a dense accent the way wall rubble/rock can be along a
+/// boundary.
+const FLOOR_SCATTER_CHANCE_PCT: i32 = 6;
 
 const NUM_ROOMS: usize = 20;
 pub struct MapBuilder {
@@ -90,12 +178,130 @@ impl MapBuilder {
         apply_prefab(&mut mb, rng);
         apply_chest(&mut mb, rng);
 
-        mb.theme = match rng.range(0, 2) {
-            0 => DungeonTheme::new(),
-            _ => ForestTheme::new(),
-        };
+        let mut pool = dungeon_theme_pool();
+        let pick = rng.random_slice_index(&pool).unwrap();
+        mb.theme = pool.swap_remove(pick);
+        mb.assign_tile_variants(rng);
 
         mb
+    }
+
+    /// Assigns a texture variant to every Floor/Wall tile on the map,
+    /// once, and stores it in `map.tile_variant` - see that field's own
+    /// doc comment for why this is done once at generation time rather
+    /// than picked fresh on every draw. A no-op if the active theme has
+    /// no real tile art yet (`theme.tile_row()` is `None`) -
+    /// `tile_variant` just stays at its default 0 for every tile, which
+    /// is harmless since nothing reads it in that case anyway (see
+    /// components::tile_render_at). Must be called AFTER every tile is
+    /// in its final TileType for this map/theme - anything that changes
+    /// a tile's TileType afterward (there isn't any today) would leave
+    /// that tile with a stale variant rolled for its old type.
+    ///
+    /// Deliberately NOT a uniform per-tile random pick across the whole
+    /// variant pool - confirmed too noisy in practice (floor and wall
+    /// became hard to tell apart at a glance, since a per-tile roll has
+    /// no larger-scale pattern for the eye to key off). Instead: every
+    /// tile starts on its theme's plain default look (variant 0 - tile
+    /// #1/#5 in the theme's own 16-cell template, see
+    /// docs/Map_Tile_Theme_Guide.md, which is why those two specifically
+    /// have to be the theme's plain/unremarkable texture), then two
+    /// different rules layer real variety on top of that base:
+    fn assign_tile_variants(&mut self, rng: &mut RandomNumberGenerator) {
+        if self.theme.tile_row().is_none() {
+            return;
+        }
+        for variant in self.map.tile_variant.iter_mut() {
+            *variant = 0;
+        }
+
+        // Wall accents: a scattered MINORITY of individual wall tiles
+        // swap to a different wall variant - deliberately per-tile, not
+        // a patch, since a wall is usually only one tile thick and has
+        // no width for a "block" to read differently from a scatter
+        // anyway. Trees (or whatever variant 0 is) stay the dominant
+        // wall texture; rock/rubble/thicket read as occasional accents.
+        for idx in 0..self.map.tiles.len() {
+            if self.map.tiles[idx] == TileType::Wall
+                && rng.range(0, 100) < WALL_ACCENT_CHANCE_PCT
+            {
+                self.map.tile_variant[idx] = rng.range(1, WALL_VARIANT_COUNT);
+            }
+        }
+
+        // Non-default floor variants split into two placement styles per
+        // MapTheme::floor_variant_style - see VariantStyle's own doc
+        // comment for why one style doesn't fit every kind of variant
+        // (confirmed in real play, 2026-09-08: Dungeon's "torchlight
+        // glow" patched as a whole region looked like a wall of torches).
+        let patch_variants: Vec<u8> = (1..FLOOR_VARIANT_COUNT)
+            .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Patch)
+            .collect();
+        let scatter_variants: Vec<u8> = (1..FLOOR_VARIANT_COUNT)
+            .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Scatter)
+            .collect();
+
+        // Floor patches: a handful of contiguous, randomly-placed,
+        // randomly-sized blobs, each stamped with a single Patch-style
+        // floor variant - "blocks of leaves, blocks of moss" rather than
+        // noise. The opposite shape from the wall accents above: floors
+        // are big open areas where a whole natural-looking REGION of one
+        // texture reads right, the way real terrain has patches of
+        // different ground cover rather than pixel-scattered variety.
+        let floor_tiles: Vec<usize> = self
+            .map
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| **t == TileType::Floor)
+            .map(|(i, _)| i)
+            .collect();
+        if floor_tiles.is_empty() {
+            return;
+        }
+        if !patch_variants.is_empty() {
+            let patch_count = rng.range(FLOOR_PATCH_COUNT_MIN, FLOOR_PATCH_COUNT_MAX + 1);
+            for _ in 0..patch_count {
+                let seed_idx = floor_tiles[rng.random_slice_index(&floor_tiles).unwrap()];
+                let seed = self.map.index_to_point2d(seed_idx);
+                let variant = patch_variants[rng.random_slice_index(&patch_variants).unwrap()];
+                let radius = rng.range(FLOOR_PATCH_RADIUS_MIN, FLOOR_PATCH_RADIUS_MAX + 1);
+                for y in (seed.y - radius)..=(seed.y + radius) {
+                    for x in (seed.x - radius)..=(seed.x + radius) {
+                        let pt = Point::new(x, y);
+                        if !self.map.in_bounds(pt) {
+                            continue;
+                        }
+                        let dx = (x - seed.x) as f32;
+                        let dy = (y - seed.y) as f32;
+                        if (dx * dx + dy * dy).sqrt() > radius as f32 {
+                            continue;
+                        }
+                        let idx = map_idx(x, y);
+                        if self.map.tiles[idx] == TileType::Floor {
+                            self.map.tile_variant[idx] = variant;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Floor scatter: individual, sparse tiles for Scatter-style
+        // variants (a torch, a grate, a bone pile) - same shape as the
+        // wall accents above, just floor-side and much rarer
+        // (FLOOR_SCATTER_CHANCE_PCT), since these are discrete highlights
+        // across a whole floor area rather than a dense boundary accent.
+        // Runs after patches, so a scattered accent can still land on top
+        // of a patch (a torch on a mossy patch of floor is perfectly
+        // plausible).
+        if !scatter_variants.is_empty() {
+            for &idx in &floor_tiles {
+                if rng.range(0, 100) < FLOOR_SCATTER_CHANCE_PCT {
+                    self.map.tile_variant[idx] =
+                        scatter_variants[rng.random_slice_index(&scatter_variants).unwrap()];
+                }
+            }
+        }
     }
 
     fn fill(&mut self, tile: TileType) {
@@ -134,7 +340,7 @@ impl MapBuilder {
     /// this (row 2, directly below the row-1 item at the same column) and
     /// the stairs sit at the bottom (row 5).
     pub fn new_arena_shop(
-        _rng: &mut RandomNumberGenerator,
+        rng: &mut RandomNumberGenerator,
         item_count: usize,
     ) -> (Self, Vec<Point>, Point, i32, i32, i32, i32) {
         const INTERIOR_W: i32 = 10;
@@ -207,6 +413,8 @@ impl MapBuilder {
         let item_points: Vec<Point> = (0..item_count as i32)
             .map(|i| Point::new(interior_x(items_start_col + i), interior_y(1)))
             .collect();
+
+        mb.assign_tile_variants(rng);
 
         (
             mb,
@@ -313,6 +521,7 @@ impl MapBuilder {
         }
 
         let boss_spawn = mb.find_most_distant();
+        mb.assign_tile_variants(rng);
 
         (
             mb,

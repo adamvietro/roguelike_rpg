@@ -43,14 +43,14 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             // GLIDE_CONSOLE (a monster taking its own step while the
             // player stands still - the only way to reach this branch
             // with anything actually gliding) or the plain integer
-            // console 1 (everything else). The player is never
+            // ENTITY_CONSOLE (everything else). The player is never
             // mid-glide whenever this branch runs - see
             // camera_render_offset's doc comment - so it always lands
             // in the plain-console case here, with no special-casing
             // needed for it.
             let offset = Point::new(camera.left_x, camera.top_y);
             let mut draw_batch = DrawBatch::new();
-            draw_batch.target(1);
+            draw_batch.target(ENTITY_CONSOLE);
             let mut character_batch = DrawBatch::new();
             character_batch.target(CHARACTER_IDLE_CONSOLE);
             let mut enemy_batch = DrawBatch::new();
