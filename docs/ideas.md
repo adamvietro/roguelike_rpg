@@ -106,7 +106,7 @@ Roughly in the order they've come up:
      architecture change (the game has no concept of entity facing at
      all today) - worth a design conversation before starting.
    - **Played-once Death/Victory/technique animations (2026-09-08,
-     branch `expand-character-animations`, not yet merged).** A new
+     merged into `master` the same day).** A new
      `OneShotAnimation` type (components.rs) - plays through its frames
      once and holds the last one (or loops, for a multi-hit/AOE
      technique - see below) - on three more sheets, each still just

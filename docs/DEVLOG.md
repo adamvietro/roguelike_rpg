@@ -9,9 +9,76 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
+Same day (9/8/26), a fourth session: one real bug fix, then the full
+merge of both outstanding branches into `master`.
+
+**Bug fix**: Class Select's hidden 'D' (Debug) shortcut
+(`screens/title.rs`) always called `start_game` (Dungeon Crawl)
+regardless of `self.adventure_mode`, predating Battle Arena mode -
+pressing D from the Arena's own Class Select silently dropped into a
+Dungeon Crawl run instead. Found by the user trying to reach Debug in
+the Arena to go find the freshly-fixed Orc Warlord. Now mirrors the same
+`match self.adventure_mode` branch the normal roster selection already
+uses.
+
+**Merge**: `expand-character-animations` (Death/Victory/Technique
+framework, all 6 classes/enemies) and `map-tile-themes` (real per-tile
+Forest/Dungeon/Sewer rendering) were merged together, then that combined
+branch was merged into `master` - explicit user request ("we should be
+able to merge everything to the master"). Order: committed the
+outstanding animation-branch work first (git refuses a merge that would
+clobber uncommitted changes to files the merge also touches), merged
+`map-tile-themes` into `expand-character-animations` (two real
+conflicts, both from console-registration numbering - see below), then
+merged that combined branch into `master`, which fast-forwarded cleanly
+(master had no divergent commits of its own since the branch point back
+at the original class-art migration - it had never been updated with
+ANY of this work until now).
+
+**The two real conflicts**, both already anticipated (see the
+[[project_branch_merge_plan]] note from the previous session):
+- `docs/ideas.md`: both branches' own backlog updates, combined rather
+  than one replacing the other; the map-themes backlog item was marked
+  done and its full write-up moved into the Done section instead of
+  staying in Working.
+- `main.rs`: `map-tile-themes` had independently inserted 2 new
+  dungeon-view consoles earlier in the registration list
+  (`MAP_TILE_CONSOLE`, `MAP_TILE_SCROLL_CONSOLE`), shifting everything
+  after them by +2 - `CHARACTER_DEATH_CONSOLE`/`CHARACTER_VICTORY_
+  CONSOLE`/`CHARACTER_TECHNIQUE_CONSOLE` landed at 31/32/33 instead of
+  the 29/30/31 they'd been given on `expand-character-animations` alone.
+  Resolved by taking `map-tile-themes`' renumbering as the base and
+  re-numbering the three animation consoles on top of it. Also fixed
+  along the way (pre-existing on `map-tile-themes`, not introduced by
+  this merge, but directly adjacent to what it touched): the top-of-file
+  console-index summary comment had drifted out of sync with the real
+  registration order (`MAP_TILE_CONSOLE`/`ENTITY_CONSOLE` were listed
+  swapped, a leftover from before `MAP_TILE_CONSOLE`'s own z-order fix)
+  and was missing everything from `CHARACTER_DEATH_CONSOLE` on; several
+  inline builder-chain comments for the tail-end consoles had the same
+  kind of staleness. Re-derived the whole list from the actual builder
+  chain rather than assumed correct.
+
+**Verification**: the full 0-33 console `cls()` sweep and the builder
+chain's actual registration order were checked by hand against the real
+`pub const` declarations (not just assumed correct post-merge) - all 34
+consoles present exactly once, in the right order. `cargo check`/
+`build`/`test` all clean at every step (after the branch-combining
+merge, and again after the fast-forward into `master`) - only the
+pre-existing `EmptyArchitect` warning plus a new expected one
+(`TileType::Water` unused, from the newly-merged map-themes work; a
+known, already-documented deferred placement pass, not a regression).
+
+User will push to the remote themselves (see [[feedback_git_push_ownership]]) -
+this session did not push.
+
+---
+
+## Previous session (9/8/26) — Two rounds of feedback/content on the animation framework
+
 Same day (9/8/26), a third session: two rounds of feedback/content on
 top of the Death/Victory/Technique framework below, still on
-`expand-character-animations` (not yet merged).
+`expand-character-animations` (not yet merged, at the time).
 
 **Round 1 - feedback on Rogue's own Flurry animation after seeing it in
 a real fight**, all in `OneShotAnimation`/`components.rs`:
