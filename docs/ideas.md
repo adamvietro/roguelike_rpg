@@ -78,16 +78,39 @@ Roughly in the order they've come up:
      class). Directional facing (8-way rotations) is a real, unscoped
      architecture change (the game has no concept of entity facing at
      all today) - worth a design conversation before starting.
-   - **Next session (per 2026-09-08 planning):**
-     - Redo Amazon's Walk animation specifically - flagged as needing a
-       fresh PixelLab pass, independent of the canvas-size/leftover-art
-       bugs already fixed for it this session.
-     - Add the rest of the enemies as new PixelLab artwork (currently
-       only playable classes have real art; every enemy still uses the
-       old dungeonfont portrait).
-     - Add more animations per class (Breathing_Idle, directional
-       rotations - needs the facing-architecture conversation above
-       first for anything beyond `south`).
+   - **Enemy art (2026-09-08): 6 of 7 enemies done, plus a new boss.**
+     Enemies get their own dedicated sheets (`resources/enemy_idle.png`,
+     `resources/enemy_battle.png`, both now 9 rows) rather than more rows
+     on the character sheets above - see the design conversation and full
+     row-mapping in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Enemy
+     sheets" section. Done: Goblin, Orc, Ogre, Ettin, Goblin Chieftain,
+     Ogre Warlord, Ettin Overlord. Verified end-to-end with real
+     screenshots (Goblin and Orc both checked live) in the dungeon walk
+     loop and in real fights - clean, no bleed, no leftover placeholder
+     art.
+     - **"Ogre Warlord" is a brand-new enemy**, not a reused name - a
+       second possible boss for BOTH Level 1 (alongside Orc Warlord) and
+       Level 2 (alongside Ettin Overlord), per a design conversation
+       (`Templates::spawn_boss` already supported multiple `boss_only`
+       templates per level with zero code changes needed). Placeholder
+       stats (hp 13/dmg 3/speed 4) deliberately sit between its two
+       fellow bosses. Not yet playtested live for balance - same
+       "placeholder, real balance pass later" status as the original 3
+       bosses.
+     - **Orc Warlord's own art is held back, not shipped** - its
+       2026-09-08 zip's Walk AND Fight_Stance_Idle animations both came
+       back as a genuine PixelLab defect (a thin off-model sliver, not a
+       full character), even though its static portrait pose looked
+       fine. Still on its old dungeonfont glyph (`K`) meanwhile - no
+       regression, just not upgraded yet. Needs a regenerated animation
+       batch from PixelLab, same as Amazon's Walk redo below - row 6 is
+       reserved for it on both sheets once that arrives.
+   - Redo Amazon's Walk animation specifically - flagged as needing a
+     fresh PixelLab pass, independent of the canvas-size/leftover-art
+     bugs already fixed for it this session.
+   - Add more animations per class/enemy (Breathing_Idle, directional
+     rotations - needs the facing-architecture conversation above first
+     for anything beyond `south`).
 5. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
 6. **More class abilities** — pull a few real ones out of the "Future
@@ -107,6 +130,22 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
+7. **More dungeon tile sets** (added 2026-09-08) — right now every
+   dungeon level renders with the same tile graphics regardless of theme/
+   depth. Not scoped yet: how many tile sets, which biomes/areas they'd
+   cover, how a level picks which one applies. Explicitly a DIFFERENT
+   kind of problem from the character/enemy/NPC sprite-sheet work above -
+   this is about the *map* console's tile graphics, not an animated
+   actor's sprite - so it needs its own design conversation before
+   starting, not an extension of the sheet-naming convention above.
+8. **A refactor for how maps get made and tiles are set** (added
+   2026-09-08, follows directly from #7 above) — supporting more than one
+   tile set will likely require rethinking how map generation and tile
+   assignment currently work (today, `map_builder`'s architects and
+   `MapTheme` bake in a single tile graphics assumption per call). Not
+   scoped yet either - do the tile-set design conversation (#7) first,
+   since what that system needs to support will drive what this refactor
+   actually has to change.
 
 ## Refactoring opportunities
 

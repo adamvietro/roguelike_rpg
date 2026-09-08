@@ -92,6 +92,124 @@ it became clear the bot doesn't use any class abilities at all, only
 basic attacks/items: "the bot is not using all that it could lets put a
 pin in this." Numbers are a real lower bound, not a verdict.
 
+**Enemy art started (same day, follow-on session): Goblin migrated,
+enemies get their own dedicated sheets.** A design conversation preceded
+the code (per CLAUDE.md's convention for architectural changes): enemies
+get their own `resources/enemy_idle.png`/`resources/enemy_battle.png`
+rather than more rows on the character sheets above, both because those
+only had one free row left each (nowhere near enough for the 7-enemy
+roster) and because enemies are a different lookup domain - keyed by
+`Name`, not class. Full row-mapping now lives in `docs/
+Dungeon_Font_Glyph_to_Cell_Map.md`'s new "Enemy sheets" section.
+
+Wiring this in touched more of the codebase than the class-art session
+did, because enemies are dungeon-view entities that also appear in
+multi-enemy battles - both paths the player's own art didn't need to
+share:
+- `components.rs`: a new `IdleSpriteSheet::EnemyIdle` variant,
+  `enemy_idle_row`/`idle_frames_for_enemy` and `enemy_battle_row`/
+  `enemy_battle_glyph` (own dedicated row functions, per the standing
+  "every sheet needs its own" rule - each independently re-derived its
+  own forbidden row rather than assuming safety from character_idle_row/
+  character_battle_row's matching column counts).
+- `spawner/template.rs`: enemy spawn now calls `idle_frames_for_enemy`
+  (name-keyed) instead of the old class-blind `idle_frames_for`.
+- `systems/entity_render.rs`: all three IdleSpriteSheet match sites
+  (camera-at-rest plain/glide, camera-panning scroll) gained an
+  `EnemyIdle` arm - Rust's exhaustiveness check caught every one that
+  would otherwise have been missed.
+- `main.rs`: a THIRD "insert early, renumber everything after" console
+  move (same pattern CHARACTER_IDLE_* used twice before) - the new
+  ENEMY_IDLE_CONSOLE/ENEMY_IDLE_SCROLL_CONSOLE/ENEMY_IDLE_GLIDE_CONSOLE
+  trio needed to land BELOW the HUD/Ability Bar layer like every other
+  dungeon-view console, pushing HUD_CONSOLE through
+  END_SCREEN_FALLEN_PORTRAIT_CONSOLE up by 3 (12→26). ENEMY_BATTLE_CONSOLE/
+  ENEMY_BATTLE_WIGGLE_CONSOLE (27, 28) had no such constraint - the
+  battle screen has no dungeon HUD to stay under - so those were simply
+  appended, matching CHARACTER_BATTLE_CONSOLE's own precedent.
+- `battle/mod.rs`/`screens/battle.rs`: `EnemyCombatant` gained its own
+  `battle_idle_frame`/`battle_idle_elapsed_ms` (each enemy in a fight
+  needs an independent counter, same reason gauge/flash/statuses already
+  are per-enemy); `draw_battle_arena`'s per-enemy portrait loop gained a
+  two-tier fallback (enemy_battle_glyph when the enemy has a row, else
+  the old dungeonfont glyph) mirroring the player's own longer three-tier
+  one.
+
+One real, deliberate rotation difference from the class-art convention:
+enemies' battle stance uses PixelLab's `south-west` rotation, not `east`
+like every class - correct, not a bug, since the battle screen's layout
+puts the player bottom-left and enemies upper-center/right facing off,
+so an enemy facing toward the player (south-west) reads right where
+`east` (matching the player's own rightward-facing stance) would not.
+
+Verified end-to-end with a real screenshot (per CLAUDE.md's bracket-lib
+rendering rule - a clean build proves nothing about actual pixels): a
+live Battle Arena run showed the Goblin's new walk animation correctly
+scaled and composited in the dungeon/wave view, then its new animated
+battle-idle portrait rendering cleanly (no bleed, no leftover placeholder
+art, transparent background against the arena backdrop) through a real
+fight. Used a small ad hoc python-xlib + XTEST driver (no project skill
+existed yet for driving this GUI app) to launch the game, send real
+keypresses, and capture window screenshots.
+
+Also added two backlog items per user request: more dungeon tile sets,
+and a follow-on refactor of how maps get generated and tiles get
+assigned (`docs/ideas.md`, items 7-8) - explicitly flagged as a
+DIFFERENT kind of problem from the character/enemy/NPC sheet work above
+(map-console tile graphics, not an animated actor's sprite), needing its
+own design conversation before starting.
+
+Remaining enemy rows still to do: Orc, Ogre, Ettin, Goblin Chieftain, Orc
+Warlord, Ettin Overlord (6 more, one row each, same pipeline).
+
+**Second follow-on session, same day: 6 of those 7 done, plus one real
+art defect caught and held back.** User sent all 7 remaining zips at
+once (asked "how many can I send at the same time" - answer: exactly 6
+fit the sheets' free rows, but sending all 7 including the not-yet-
+existing "Ogre Warlord" was fine too, since sheets just grow taller).
+Both sheets resized 8→9 rows in one pass to fit the full roster.
+
+**A design conversation happened before any of the 7 got processed**:
+the zip list included an "Ogre Boss" with no matching `template.ron`
+entry (only Goblin Chieftain/Orc Warlord/Ettin Overlord exist as
+bosses) - asked the user directly rather than guessing. Turned out to be
+a genuinely new enemy, "Ogre Warlord," and a second question (which
+level(s) should it guard) revealed something worth knowing generally:
+`Templates::spawn_boss` (`spawner/template.rs`) already picks randomly,
+weighted by `frequency`, among EVERY `boss_only` template matching the
+target level - so it already supported more than one possible boss per
+level with zero code changes. User chose "both levels 1 and 2" - Ogre
+Warlord is now a second possible pick alongside Orc Warlord (level 1)
+and Ettin Overlord (level 2), placeholder stats (hp13/dmg3/speed4)
+deliberately between its two level-mates. Glyph `e` (confirmed free in
+the glyph-map doc) - `F` was tried first and rejected, already claimed
+by Fireball's technique icon; `W`'s own "no longer free" precedent in
+that doc is exactly the kind of check that caught this.
+
+**One real, confirmed art defect: Orc Warlord's own zip.** Both its
+`Walk` and `Fight_Stance_Idle` animations came back as a thin,
+~9px-wide off-model sliver in a 44×44 canvas, not a full character -
+confirmed genuinely broken (not a cropping bug on this project's side)
+by inspecting the RAW un-cropped source frames directly, and confirmed
+isolated to just the animations (its own static `rotations/south.png`
+pose looked completely correct). Held back rather than shipped, the
+same call made for Amazon's Walk earlier - `enemy_idle_row`/
+`enemy_battle_row` have no "Orc Warlord" entry, so it still renders on
+its old dungeonfont glyph (`K`), no regression. Row 6 (this sheet's
+otherwise-next-free row) is left deliberately blank on both sheets,
+reserved for it once a redone batch arrives - checked by rebuilding both
+sheets from the RAW source zips a second time (not patching the
+already-saved file) once this was caught, so the shipped sheets never
+contained the broken frames at all.
+
+Verified two of the six new enemies live (not just the sheet pixels) -
+Orc's walk animation and battle portrait both confirmed via real
+screenshots mid-fight, same clean result as Goblin's original
+verification; the remaining four use the identical code path with no
+new logic branches, so weren't each individually screenshot-checked
+in-game (their sheet rows were still checked pixel-by-pixel via a
+checkerboard-background preview before wiring anything in).
+
 ---
 
 ## Previous session (9/7/26) — Dungeon Crawl economy

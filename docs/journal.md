@@ -3716,3 +3716,44 @@ The user reported Mage's Class Select row "still has the original icon below the
 
 ---
 
+# 9/8/26
+<br />
+
+---
+
+## Enemies get their own sprite sheets
+Moved on from classes to enemies today. First question worth settling before touching any art: do enemies go on the same `character_idle.png`/`character_battle.png` sheets the classes just finished, or somewhere else? Talked it through rather than just picking - those two sheets only had one free row left each, nowhere near enough for the enemy roster (Goblin, Orc, Ogre, Ettin, plus three bosses), and enemies are looked up by `Name`, a genuinely different key space from the class-keyed row functions. New sheets instead: `enemy_idle.png` and `enemy_battle.png`, same per-row-per-thing convention, own dedicated `enemy_idle_row`/`enemy_battle_row` functions in `components.rs`.
+<br />
+
+One deliberate difference from the class convention: the battle-idle stance uses PixelLab's `south-west` rotation for enemies, not `east` like every class. Not a mismatch - the battle screen puts the player bottom-left and enemies upper-center/right, facing off, so an enemy facing toward the player reads right where the player's own rightward `east` stance wouldn't.
+<br />
+
+### Wiring it in touched more than a class sheet did
+Enemies are dungeon-view entities that also show up in multi-enemy battles - two things a single player never needs at once. `components.rs` needed a new `IdleSpriteSheet::EnemyIdle` variant (Rust's own exhaustiveness check then flagged every render match site that needed a matching arm). `main.rs` needed a third "insert early, renumber everything after" console move - same pattern `CHARACTER_IDLE_*` used twice before - since the new `ENEMY_IDLE_CONSOLE` trio has to sit below the HUD/Ability Bar layer like every other dungeon-view console; everything from `HUD_CONSOLE` on got bumped by 3. `ENEMY_BATTLE_CONSOLE`/`ENEMY_BATTLE_WIGGLE_CONSOLE` had no such constraint (no dungeon HUD during a battle) and just got appended at the end. `EnemyCombatant` (`battle/mod.rs`) picked up its own `battle_idle_frame`/`battle_idle_elapsed_ms` - each enemy in a fight needs its own independent animation counter, same reason gauge/flash/statuses already are per-enemy there.
+<br />
+
+### First one through the pipeline: Goblin
+Built `enemy_idle.png`/`enemy_battle.png` from scratch with just Goblin's zip, verified with a real screenshot rather than trusting the build - no project skill existed yet for actually driving this bracket-lib GUI app, so put together a small ad hoc driver instead: `pip install --user python-xlib`, then XTEST (`fake_input`) for real keypresses and `get_image` for window screenshots. Worked cleanly on this WSLg/X11 setup. Walked a Goblin around the title-screen background and fought one in a live Battle Arena wave - both the walk animation and the new battle-idle portrait rendered cleanly, no bleed, no leftover placeholder art. Worth turning into a real skill (`/run-skill-generator`) next time this comes up instead of rebuilding the driver from scratch.
+<br />
+
+---
+
+## The rest of the roster, sent all at once
+Asked how many enemies could be sent at the same time - answer: all 6 remaining regular enemies/bosses fit exactly into the 6 free rows left on each sheet after Goblin, so sending all of them in one batch meant building both sheets once instead of six separate times. The zip list also included an "Ogre Boss" with no matching entry anywhere in `template.ron` - asked directly rather than guessing what that meant.
+<br />
+
+### Ogre Warlord is a genuinely new enemy
+Turned out "Ogre Boss" wasn't a re-skin of anything - "Boss" was just the working label used while generating the art in PixelLab, and the actual ask was a new fourth boss following the game's existing Chieftain/Warlord/Overlord naming. That raised a real design question: the dungeon only has one boss slot per level today (Goblin Chieftain/level 0, Orc Warlord/level 1, Ettin Overlord/level 2) - where does a fourth one go? Turned out `Templates::spawn_boss` (`spawner/template.rs`) already picks randomly, weighted by `frequency`, among EVERY `boss_only` template matching the target level - it already supported more than one possible boss per level with zero code changes needed. Asked which level(s) Ogre Warlord should be eligible for; the answer was both 1 and 2, so it's now a second possible pick alongside Orc Warlord and Ettin Overlord respectively. Placeholder stats (13 HP / 3 dmg / 4 speed, same "not really balanced yet" status the original three bosses carry) sit deliberately between its two level-mates rather than favoring either slot.
+<br />
+
+Picking its glyph turned into its own small lesson. `F` looked free, wasn't - a `template.ron` grep caught that Fireball's technique icon already owns it. `e` (confirmed genuinely free in the glyph-map doc's own master table) is what it actually got. Worth remembering: a `template.ron` grep alone won't catch every claimed codepoint, since some glyphs (ability icons, UI elements) live outside Enemy/Item entries entirely - check the glyph-map doc's table too, not just the RON file.
+<br />
+
+### Orc Warlord's own art: a real defect, caught before it shipped
+Building all 7 sheets at once and eyeballing every row before wiring anything in paid off immediately - Orc Warlord's row came out as a thin, ~9px-wide off-model sliver instead of a full character, on BOTH its `Walk` and `Fight_Stance_Idle` animations. Checked the raw, un-cropped source frames directly to rule out a cropping bug on this end first - genuinely broken at the source, not a processing mistake, confirmed further by its own static `rotations/south.png` pose looking completely correct (so whatever went wrong was specific to the animation generation, not the character design itself). Held it back rather than shipping it, the same call made for Amazon's Walk earlier this same day - rebuilt both sheets a second time straight from the raw zips with Orc Warlord left out, so the shipped files never contained the broken frames at all. It still renders on its old dungeonfont glyph (`K`) for now, no regression, just not upgraded yet - row 6 is reserved for it on both sheets once a redone batch comes back from PixelLab.
+<br />
+
+Verified two of the six new enemies live end-to-end (Orc's walk animation and battle portrait, same as Goblin's original check) - the rest use the identical code path with no new logic branches, so they were checked pixel-by-pixel on the sheets themselves (a checkerboard-background preview per row) rather than each individually fought in a live battle.
+
+---
+

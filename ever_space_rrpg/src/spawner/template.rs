@@ -630,10 +630,15 @@ impl Templates {
                         elapsed_ms: MOVE_ANIM_DURATION_MS,
                     },
                 );
-                // See IdleAnimation's own doc comment - same placeholder
-                // (all frames = the base glyph) as the player gets in
-                // spawner/mod.rs's spawn_player.
-                commands.add_component(entity, idle_frames_for(to_cp437(template.glyph)));
+                // See idle_frames_for_enemy's own doc comment - pulls
+                // real walk-cycle frames from resources/enemy_idle.png
+                // for any enemy with a row there (currently just Goblin),
+                // falling back to the same dungeonfont placeholder as
+                // before for everything else.
+                commands.add_component(
+                    entity,
+                    idle_frames_for_enemy(&template.name, to_cp437(template.glyph)),
+                );
             }
         }
         Self::apply_effect(template, entity, commands);

@@ -17,6 +17,13 @@ enum ResultOutcome {
 struct EnemyPortrait {
     render: Render,
     flash: Option<(FlashKind, f32)>,
+    /// This enemy's own name (for enemy_battle_glyph's row lookup) and
+    /// current battle-idle frame (EnemyCombatant::battle_idle_frame) -
+    /// the enemy equivalent of draw_battle_arena's player_class/
+    /// player_idle_frame parameters, bundled per-portrait here since
+    /// there can be more than one enemy at once.
+    name: String,
+    battle_idle_frame: usize,
 }
 
 /// Fractional (col, row) position, in the coarse BATTLE_PORTRAIT_COLS x
@@ -246,24 +253,52 @@ impl State {
         portraits.target(3);
         let mut wiggle = DrawBatch::new();
         wiggle.target(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
+        // Two-tier fallback for each enemy's own portrait, mirroring the
+        // player's own tiered lookup below: enemy_battle.png's animated
+        // Fight_Stance loop (see components::enemy_battle_glyph) when
+        // this enemy's name has a row there, else the old plain
+        // dungeonfont Render glyph - an enemy with no row there still
+        // gets something reasonable rather than nothing.
+        let mut enemy_battle_idle = DrawBatch::new();
+        enemy_battle_idle.target(ENEMY_BATTLE_CONSOLE);
+        let mut enemy_battle_wiggle = DrawBatch::new();
+        enemy_battle_wiggle.target(ENEMY_BATTLE_WIGGLE_CONSOLE);
         let enemy_count = enemies.len();
         for (index, enemy) in enemies.iter().enumerate() {
             let (col, row) = enemy_portrait_position(enemy_count, index);
-            let tinted = Render {
-                color: flash_tint(enemy.render.color, enemy.flash),
-                glyph: enemy.render.glyph,
-            };
-            if !draw_wiggling_portrait(&mut wiggle, col, row, tinted, enemy.flash) {
-                if enemy_count <= 1 {
-                    // Single enemy - the exact original whole-cell draw,
-                    // unchanged, on console 3 like it always has been.
-                    draw_portrait(&mut portraits, col as i32, row as i32, tinted);
-                } else {
-                    // 2+ enemies - fractional position (see
-                    // enemy_portrait_position), which the whole-cell-only
-                    // draw_portrait can't express, so this goes through
-                    // the fancy console instead even while idle.
-                    draw_portrait_fancy(&mut wiggle, col, row, tinted);
+            let color = flash_tint(enemy.render.color, enemy.flash);
+            match enemy_battle_glyph(&enemy.name, enemy.battle_idle_frame) {
+                Some(glyph) => {
+                    let tinted = Render { color, glyph };
+                    if !draw_wiggling_portrait(&mut enemy_battle_wiggle, col, row, tinted, enemy.flash)
+                    {
+                        if enemy_count <= 1 {
+                            draw_portrait(&mut enemy_battle_idle, col as i32, row as i32, tinted);
+                        } else {
+                            draw_portrait_fancy(&mut enemy_battle_wiggle, col, row, tinted);
+                        }
+                    }
+                }
+                None => {
+                    let tinted = Render {
+                        color,
+                        glyph: enemy.render.glyph,
+                    };
+                    if !draw_wiggling_portrait(&mut wiggle, col, row, tinted, enemy.flash) {
+                        if enemy_count <= 1 {
+                            // Single enemy - the exact original whole-cell
+                            // draw, unchanged, on console 3 like it always
+                            // has been.
+                            draw_portrait(&mut portraits, col as i32, row as i32, tinted);
+                        } else {
+                            // 2+ enemies - fractional position (see
+                            // enemy_portrait_position), which the
+                            // whole-cell-only draw_portrait can't express,
+                            // so this goes through the fancy console
+                            // instead even while idle.
+                            draw_portrait_fancy(&mut wiggle, col, row, tinted);
+                        }
+                    }
                 }
             }
         }
@@ -313,6 +348,8 @@ impl State {
         battle_idle.submit(2).expect("Batch error");
         battle_idle_wiggle.submit(3).expect("Batch error");
         still_portrait.submit(4).expect("Batch error");
+        enemy_battle_idle.submit(5).expect("Batch error");
+        enemy_battle_wiggle.submit(6).expect("Batch error");
     }
 
     /// Records one enemy's death: stats, loot/gold (accumulated onto
@@ -687,6 +724,13 @@ impl State {
                     enemy.damage_popup = None;
                 }
             }
+            // This enemy's own battle-idle portrait loop - see
+            // EnemyCombatant::battle_idle_frame's own doc comment.
+            enemy.battle_idle_elapsed_ms += ctx.frame_time_ms;
+            if enemy.battle_idle_elapsed_ms >= IDLE_FRAME_DURATION_MS {
+                enemy.battle_idle_elapsed_ms -= IDLE_FRAME_DURATION_MS;
+                enemy.battle_idle_frame += 1;
+            }
         }
 
         // A multi-hit technique (MultiHit/AoeMultiHit) still has hits
@@ -792,6 +836,8 @@ impl State {
                 entity_render_component(&self.ecs, e.entity).map(|render| EnemyPortrait {
                     render,
                     flash: e.flash,
+                    name: e.name.clone(),
+                    battle_idle_frame: e.battle_idle_frame,
                 })
             })
             .collect();

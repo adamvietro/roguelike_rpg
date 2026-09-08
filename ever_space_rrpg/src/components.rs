@@ -834,7 +834,8 @@ pub const IDLE_FRAME_DURATION_MS: f32 = 350.0;
 /// Which sprite sheet/console an IdleAnimation's `frames` glyphs are cells
 /// in - see systems/entity_render.rs, which needs this to route each
 /// entity's draw call to the matching console (CHARACTER_IDLE_CONSOLE's
-/// trio for `CharacterIdle`, the plain dungeonfont ones for `Dungeon`).
+/// trio for `CharacterIdle`, ENEMY_IDLE_CONSOLE's trio for `EnemyIdle`,
+/// the plain dungeonfont ones for `Dungeon`).
 /// Deliberately a field on the existing IdleAnimation component rather
 /// than a new separate marker component - a new component would need its
 /// own `#[read_component]` declaration added everywhere IdleAnimation is
@@ -845,6 +846,7 @@ pub const IDLE_FRAME_DURATION_MS: f32 = 350.0;
 pub enum IdleSpriteSheet {
     Dungeon,
     CharacterIdle,
+    EnemyIdle,
 }
 
 /// The "walking in place" idle loop: a small set of glyphs a stationary
@@ -1053,6 +1055,112 @@ pub fn idle_frames_for_class(class: &str, base_glyph: FontCharType) -> IdleAnima
         frame_index: 0,
         elapsed_ms: 0.0,
         sheet: IdleSpriteSheet::CharacterIdle,
+    }
+}
+
+/// How many idle-loop frame columns `resources/enemy_idle.png` has per
+/// enemy row - see CHARACTER_IDLE_COLS's own doc comment; this sheet
+/// follows the identical "one row per <thing>, MAX_IDLE_FRAMES columns"
+/// convention, just for enemies on their own dedicated sheet instead of
+/// playable classes (see docs/ideas.md's "Add PixelLab art for enemies"
+/// backlog item, and the design conversation that preceded it: enemies
+/// get their own sheets rather than more rows on the class sheets, since
+/// those only have one free row left and enemies are a different lookup
+/// domain entirely - keyed by name, not class).
+pub const ENEMY_IDLE_COLS: u16 = MAX_IDLE_FRAMES as u16;
+
+/// Which row an enemy occupies on `resources/enemy_idle.png`
+/// SPECIFICALLY - its own dedicated mapping, not shared with
+/// character_idle_row, for the identical reason every per-sheet row
+/// function in this file is its own: a plain console's `cls()` fills
+/// every never-drawn-this-frame cell with glyph 32 by default, and which
+/// (row, col) that lands on depends on THIS sheet's own column count.
+/// enemy_idle.png happens to share character_idle.png's 6-column layout,
+/// so the forbidden row is the same number (32 / 6 == 5) - a coincidence
+/// of matching column counts, not a reason to ever look this up via
+/// character_idle_row instead.
+fn enemy_idle_row(name: &str) -> Option<u16> {
+    match name {
+        "Goblin" => Some(0),
+        "Orc" => Some(1),
+        "Ogre" => Some(2),
+        "Ettin" => Some(3),
+        "Goblin Chieftain" => Some(4),
+        // Row 5 deliberately skipped - see this fn's own doc comment.
+        // Row 6 deliberately unassigned for now, NOT a forbidden row -
+        // reserved for "Orc Warlord" once its animation batch gets a
+        // PixelLab redo (2026-09-08's batch was a genuine generation
+        // defect: a thin off-model sliver instead of a full character,
+        // on both Walk and Fight_Stance_Idle, even though its static
+        // `south` rotation looked correct - held back rather than
+        // shipped, the same call made for Amazon's own Walk animation
+        // earlier). "Orc Warlord" falls through to the dungeonfont
+        // placeholder (see idle_frames_for_enemy) until then.
+        "Ogre Warlord" => Some(7),
+        "Ettin Overlord" => Some(8),
+        _ => None,
+    }
+}
+
+/// How many battle-idle frame columns `resources/enemy_battle.png` has
+/// per enemy row - see CHARACTER_BATTLE_COLS's own doc comment; same
+/// convention, enemy-specific sheet.
+pub const ENEMY_BATTLE_COLS: u16 = 8;
+
+/// Which row an enemy occupies on `resources/enemy_battle.png`
+/// SPECIFICALLY - see character_battle_row's own doc comment for why this
+/// needs its own mapping, never shared across sheets. This sheet also
+/// happens to share character_battle.png's 8-column layout, so its own
+/// forbidden row is also 4 (32 / 8 == 4) - independently re-derived here,
+/// not assumed safe from that coincidence.
+fn enemy_battle_row(name: &str) -> Option<u16> {
+    match name {
+        "Goblin" => Some(0),
+        "Orc" => Some(1),
+        "Ogre" => Some(2),
+        "Ettin" => Some(3),
+        // Row 4 deliberately skipped - see this fn's own doc comment.
+        "Goblin Chieftain" => Some(5),
+        // Row 6 deliberately unassigned for now - see enemy_idle_row's
+        // own doc comment (same "Orc Warlord" art defect, same reserved
+        // row number on this sheet too, purely for bookkeeping symmetry -
+        // the two sheets don't need matching row numbers per enemy, they
+        // just happen to here).
+        "Ogre Warlord" => Some(7),
+        "Ettin Overlord" => Some(8),
+        _ => None,
+    }
+}
+
+/// The exact `resources/enemy_battle.png` glyph for enemy `name`'s
+/// battle-idle frame `frame_index` (wrapped modulo ENEMY_BATTLE_COLS) -
+/// `None` if `name` has no row on that sheet (see enemy_battle_row). Used
+/// by the battle screen's own per-enemy portrait loop (screens/battle.rs)
+/// the same way character_battle_glyph drives the player's.
+pub fn enemy_battle_glyph(name: &str, frame_index: usize) -> Option<FontCharType> {
+    let row = enemy_battle_row(name)?;
+    let col = (frame_index as u16) % ENEMY_BATTLE_COLS;
+    Some(row * ENEMY_BATTLE_COLS + col)
+}
+
+/// Builds a fresh IdleAnimation for an enemy, pulling real walk-cycle
+/// frames from `resources/enemy_idle.png` when `name` has a row there
+/// (see enemy_idle_row) - falls back to the plain dungeonfont placeholder
+/// (idle_frames_for) for any enemy without real art yet, the same
+/// fallback idle_frames_for_class uses for an unrecognized class.
+pub fn idle_frames_for_enemy(name: &str, base_glyph: FontCharType) -> IdleAnimation {
+    let row = match enemy_idle_row(name) {
+        Some(r) => r,
+        None => return idle_frames_for(base_glyph),
+    };
+    let frames = (0..ENEMY_IDLE_COLS)
+        .map(|col| row * ENEMY_IDLE_COLS + col)
+        .collect();
+    IdleAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        sheet: IdleSpriteSheet::EnemyIdle,
     }
 }
 

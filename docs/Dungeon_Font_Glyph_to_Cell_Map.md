@@ -7,8 +7,10 @@ systems, each self-contained in its own part below:
 1. **PixelLab character sheets** (this section, first) — three
    per-context sheets (`character_idle.png`, `character_battle.png`,
    `character_portrait.png`) covering every playable class's real
-   animated art. The active, growing system as of 2026-09-08 — check
-   here FIRST before adding a new class or enemy's row.
+   animated art, plus two more (`enemy_idle.png`, `enemy_battle.png`)
+   added 2026-09-08 covering enemies on their own dedicated sheets - see
+   "Enemy sheets" below. The active, growing system — check here FIRST
+   before adding a new class or enemy's row.
 2. **The dungeon font** (`resources/dungeonfont.png`, own section below)
    — the original 512×512 CP437-ordered atlas covering enemies, items,
    UI icons, weapons/abilities, and any class's fallback glyph for
@@ -27,13 +29,97 @@ systems, each self-contained in its own part below:
 | `character_portrait.png` | Still icon — Class Select non-highlighted row, dungeon HUD portrait, in-battle Victory, run-ending Victory, Game Over fallen pose | 32×32 native, no upscale | 6 (column 0 only ever used) | `.with_font("character_portrait.png", 32, 32)` |
 
 All three are RON-free plain PNGs living in `resources/`, one row per
-class, rows growing downward as new classes/enemies are added — see
+class, rows growing downward as new classes are added — see
 `components.rs` for the row-lookup functions and `main.rs` for the
 console registrations that read them (`CHARACTER_IDLE_CONSOLE` +
 `CLASS_SELECT_IDLE_CONSOLE` for the idle sheet, `CHARACTER_BATTLE_CONSOLE`
 for the battle sheet, `CHARACTER_PORTRAIT_BIG_CONSOLE` +
 `CHARACTER_PORTRAIT_HUD_CONSOLE` + `END_SCREEN_FALLEN_PORTRAIT_CONSOLE`
 for the portrait sheet).
+
+### Enemy sheets (`enemy_idle.png` / `enemy_battle.png`)
+
+Enemies get their own dedicated sheets rather than more rows on the
+class sheets above - a deliberate design decision (2026-09-08), not an
+oversight. Two reasons: the class sheets only had one free row left each
+(nowhere near enough for a growing enemy roster - 7 known enemies as of
+this writing: Goblin, Orc, Ogre, Ettin, Goblin Chieftain, Orc Warlord,
+Ettin Overlord), and enemies are a different lookup domain entirely -
+keyed by `Name` (the template's `name:` field), not by class.
+
+| Sheet | Purpose / screens | Cell size | Cols | Font registration |
+| --- | --- | --- | --- | --- |
+| `enemy_idle.png` | Dungeon walk-in-place (same console trio pattern as character_idle.png - `ENEMY_IDLE_CONSOLE`/`ENEMY_IDLE_SCROLL_CONSOLE`/`ENEMY_IDLE_GLIDE_CONSOLE`) | 128×128 (4x upscale of native 32×32 art) | 6 (`ENEMY_IDLE_COLS`) | `.with_font("enemy_idle.png", 128, 128)` |
+| `enemy_battle.png` | Battle screen's per-enemy battle-idle loop (`ENEMY_BATTLE_CONSOLE`/`ENEMY_BATTLE_WIGGLE_CONSOLE`), falls back to the old static dungeonfont glyph for any enemy without a row here | 32×32 native, no upscale | 8 (`ENEMY_BATTLE_COLS`) | `.with_font("enemy_battle.png", 32, 32)` |
+
+No `enemy_portrait.png` - enemies have no still-icon use case the way
+classes do (Class Select, Victory screen); add one later only if a real
+screen needs it.
+
+Row-lookup functions in `components.rs`: `enemy_idle_row`/
+`idle_frames_for_enemy` (idle sheet) and `enemy_battle_row`/
+`enemy_battle_glyph` (battle sheet) - own dedicated functions per the
+same "every sheet needs its own row function" rule below, keyed by enemy
+name instead of class. Both sheets resized from 8 to 9 rows on 2026-09-08
+to fit the full roster in one pass.
+
+| Enemy | `enemy_idle_row` | `enemy_battle_row` |
+| --- | ---: | ---: |
+| Goblin | 0 | 0 |
+| Orc | 1 | 1 |
+| Ogre | 2 | 2 |
+| Ettin | 3 | 3 |
+| Goblin Chieftain | 4 | 5 |
+| Orc Warlord | **unassigned** | **unassigned** |
+| Ogre Warlord | 7 | 7 |
+| Ettin Overlord | 8 | 8 |
+| *(row 5 permanently blank on enemy_idle.png)* | **forbidden** | — |
+| *(row 4 permanently blank on enemy_battle.png)* | — | **forbidden** |
+
+These forbidden rows are the same NUMBERS as character_idle_row/
+character_battle_row's own forbidden rows, purely because both pairs of
+sheets happen to share the same column counts (6 and 8) - re-derived
+independently via each sheet's own `32 / cols`, not assumed safe by
+analogy.
+
+**Orc Warlord's row 6 is deliberately unassigned, not forbidden** - its
+2026-09-08 animation batch (both `Walk` and `Fight_Stance_Idle`) came
+back as a genuine PixelLab generation defect: a thin, off-model sliver
+(~9px wide in a 44×44 canvas) instead of a full character, even though
+its own static `rotations/south.png` looked completely correct. Held
+back rather than shipped - same call made for Amazon's own Walk
+animation in the class-art session. `enemy_idle_row`/`enemy_battle_row`
+have no "Orc Warlord" match arm, so it falls through to the old
+dungeonfont glyph (`K`) exactly as before, no regression - just not yet
+upgraded. Row 6 is reserved for it on both sheets once a redone batch
+arrives; next free row after that is row 9 (needs another one-row
+resize) for anything beyond the current roster.
+
+**Ogre Warlord is a brand-new enemy**, not a reused name - added
+2026-09-08 per a design conversation (`spawner::template::Templates::
+spawn_boss` already supports multiple `boss_only` templates per level,
+weighted-random by `frequency`, with zero code changes needed). It's
+`boss_only: true` with `levels: [1, 2]`, making it a second possible
+boss for BOTH Level 1 (alongside Orc Warlord) and Level 2 (alongside
+Ettin Overlord) - stats deliberately placed between those two since it
+has to feel credible in either slot. Glyph `e` (confirmed free/
+unassigned elsewhere in this doc) - `F` was tried first and rejected,
+already claimed by Fireball's technique icon.
+
+**One deliberate difference from the class sheets' own convention**: the
+battle-sheet stance uses PixelLab's `south-west` rotation for enemies,
+not `east` like every class does. This is intentional, not a mismatch -
+the battle screen's own layout puts the player bottom-left and enemies
+upper-center/right, facing off, so an enemy facing south-west (toward
+the player) is the correct call for that layout; only the walk-cycle
+(`Walk/south`) direction stays consistent between classes and enemies.
+
+Goblin's zip: `Walk/south` was 48×48 padded (needed the same
+center-crop-to-32×32 treatment documented below), `Fight_Stance_Idle/
+south-west` was already native 32×32. Background/transparency already
+correctly baked to true (0,0,0) - no transparent-pixel fix needed, only
+the usual near-black-opaque-pixel floor (≥30/channel, ~400-470 px per
+frame needed it).
 
 ### Row assignments
 
@@ -510,7 +596,7 @@ in the Complete 256-cell map below, marked Unused.
 |   98 | `b`     |    6 |    2 | (64,192)–(95,223)   | Burn (Mage) (finalized)                                                             |                     |
 |   99 | `c`     |    6 |    3 | (96,192)–(127,223)  | Treasure Chest (dungeon loot chest, finalized)                                      |                     |
 |  100 | `d`     |    6 |    4 | (128,192)–(159,223) | Dodge (Rogue) (finalized)                                                           |                     |
-|  101 | `e`     |    6 |    5 | (160,192)–(191,223) | standard glyph - freed again, Next Level ended up reusing `>` instead (see that glyph's own row) |                     |
+|  101 | `e`     |    6 |    5 | (160,192)–(191,223) | Ogre Warlord (2026-09-08) - no longer free; previously freed again after Next Level ended up reusing `>` instead |                     |
 |  102 | `f`     |    6 |    6 | (192,192)–(223,223) | Feint (Hunter) (finalized)                                                          |                     |
 |  103 | `g`     |    6 |    7 | (224,192)–(255,223) | g — current Goblin sprite                                                           |                     |
 |  104 | `h`     |    6 |    8 | (256,192)–(287,223) | standard glyph                                                                      |                     |
@@ -685,6 +771,14 @@ in the Complete 256-cell map below, marked Unused.
   available for future use, but the Battle Arena session claimed it for
   the Shopkeeper (see above). Any future "what's still free" scan should
   no longer include it.
+- **`e` is also no longer free/unassigned** — the enemy-art session
+  (2026-09-08) claimed it for the new "Ogre Warlord" boss template (see
+  the Enemy sheets section above). `F` was picked first without checking
+  either source, caught by a `template.ron` grep (already claimed by
+  Fireball's technique icon) - a reminder to check both `template.ron`
+  AND this doc's own master table before picking any new glyph, since a
+  grep alone won't catch a codepoint reserved here but not yet used
+  anywhere in code.
 ## Follow-up: `template.ron` sync (an earlier session)
  
 The mapping above (uppercase `X`/`Y`/`Z` official, lowercase `w`/`x`/`y`

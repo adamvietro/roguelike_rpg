@@ -591,5 +591,23 @@ Templates(
             speed: Some(3),
             boss_only: true
         ),
+        Template(
+            // PLACEHOLDER STATS - a second possible boss for BOTH levels
+            // 1 and 2 (per 2026-09-08 design conversation), picked
+            // randomly alongside that level's other boss_only template by
+            // Templates::spawn_boss, which already supports multiple
+            // boss_only entries per level with no code changes needed.
+            // Stats deliberately land between Orc Warlord (level 1's
+            // other boss) and Ettin Overlord (level 2's other boss),
+            // since this one has to feel like a credible pick for either
+            // slot rather than being tuned for just one.
+            entity_type: Enemy,
+            name : "Ogre Warlord", glyph : 'e', levels : [ 1, 2 ],
+            hp : Some(13),
+            frequency: 1,
+            base_damage: Some(3),
+            speed: Some(4),
+            boss_only: true
+        ),
     ],
 )

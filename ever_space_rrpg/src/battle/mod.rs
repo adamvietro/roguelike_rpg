@@ -276,6 +276,16 @@ pub struct EnemyCombatant {
     pub statuses: StatusSet,
     pub flash: Option<(FlashKind, f32)>,
     pub damage_popup: Option<DamagePopup>,
+    /// This enemy's own battle-idle portrait loop position - the
+    /// per-enemy equivalent of Battle::player_idle_frame/
+    /// player_idle_elapsed_ms, needed once enemies can have real
+    /// enemy_battle.png animated art too (see components::
+    /// enemy_battle_glyph) instead of just a static dungeonfont glyph.
+    /// Each enemy needs its own independent counter, same reason gauge/
+    /// statuses/flash/damage_popup are already per-enemy here rather than
+    /// a single shared field.
+    pub battle_idle_frame: usize,
+    pub battle_idle_elapsed_ms: f32,
 }
 
 /// Which combatant is acting - Player, or a specific enemy (there can be
@@ -549,6 +559,8 @@ impl Battle {
                 statuses: StatusSet::default(),
                 flash: None,
                 damage_popup: None,
+                battle_idle_frame: 0,
+                battle_idle_elapsed_ms: 0.0,
             })
             .collect();
         Self {
