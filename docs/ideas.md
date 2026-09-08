@@ -15,11 +15,23 @@ Roughly in the order they've come up:
 1. **Overall balance pass** — starting gold, starting items, and player/
    enemy stats generally, across both Dungeon Crawl and Battle Arena.
    Dungeon Crawl's starting-kit sustain already got a first, data-driven
-   pass (see "Dungeon Crawl economy" in Done below) using a new permanent
-   headless class-survivability simulation
-   (`cargo test --release class_survivability_report -- --ignored
-   --nocapture`, see CLAUDE.md/docs/journal.md) - still open generally
-   (Battle Arena hasn't been looked at this way at all), and:
+   pass (see "Dungeon Crawl economy" in Done below). Battle Arena's own
+   pass is **paused, picking back up later** - a real `arena_class_
+   survivability_report` simulation now exists (`cargo test --release
+   arena_class_survivability_report -- --ignored --nocapture`) and, after
+   three real bugs found and fixed along the way (see docs/journal.md and
+   CLAUDE.md's standing gotchas - a genuine `bracket-pathfinding` library
+   defect among them), produces trustworthy data: 0/10 wins for every
+   class, with Level 3 (especially its boss and late waves) a wall for
+   everyone, Mage dying earliest/most often at Level 2's boss
+   specifically. Paused specifically because **the bot's own shopping/
+   battle policy is too limited to trust these exact numbers as a verdict
+   yet** - it buys one weapon tier and spends the rest on potions, never
+   buys or uses class abilities at all, and never repositions when
+   fleeing (see the "known bot limitation" bullet just below, inherited
+   from the Dungeon Crawl bot and not yet revisited for Arena either) -
+   before drawing real balance conclusions from Level 3's wall, the bot
+   itself needs to actually use more of what a real player would.
    - **Known bot limitation, not yet fixed**: the simulation's bot
      "flee below 25% HP" rule doesn't reposition, and its pathing always
      recomputes the literal shortest route to the same target - if the
@@ -34,11 +46,48 @@ Roughly in the order they've come up:
 3. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
-4. **Idle walk-in-place animation art** — the cycling infrastructure
-   (`IdleAnimation` component) is built and genuinely cycling; every
-   frame just points at the same placeholder glyph. Needs real distinct
-   per-frame art, and maybe a move to a sprite sheet per class instead of
-   cramming more cells into the one shared `dungeonfont.png`.
+4. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
+   Rogue, Amazon, Hunter, Mage) plus the hidden "Debug" dev/test class now
+   have real PixelLab.ai art across every sheet. Full row-mapping
+   reference and every confirmed gotcha now live in `docs/
+   Dungeon_Font_Glyph_to_Cell_Map.md` (the master doc for this system,
+   not just the dungeon font); full session-by-session history in
+   `docs/journal.md`; condensed standing rules in `CLAUDE.md`. Current
+   state:
+   - `resources/character_idle.png` (6 cols x 8 rows) drives the dungeon/
+     Battle Arena/Class-Select walk-in-place loop, real Walk/south frames
+     for all 6 classes. Row 5 permanently blank (glyph-32 collision on
+     this sheet's column count); one free row (7) left before a resize
+     is needed.
+   - `resources/character_battle.png` (8 cols x 8 rows) drives the
+     battle-screen portrait animation, real Fight_Stance_Idle/east
+     frames for all 6 classes. Player-only for now - enemies keep their
+     static dungeonfont portraits. Row 4 permanently blank (same
+     collision, different row for this sheet's column count); one free
+     row (7) left.
+   - `resources/character_portrait.png` (6 cols x 8 rows, column 0 only)
+     drives every still-icon site (Class Select's non-highlighted row,
+     the dungeon HUD portrait, both in-battle and run-ending Victory
+     screens, the Game Over screen's rotated fallen pose), real
+     rotations/south.png for all 6 classes. Every old dungeonfont-glyph
+     fallback in these lookup paths is now dead code in practice - no
+     class currently falls through to it - but kept as the fallback for
+     any future class added without art yet. Two free rows (6, 7) left.
+   - Only a fraction of what each zip actually contains is in use so far
+     (Breathing_Idle and every rotation but `south` are still unused per
+     class). Directional facing (8-way rotations) is a real, unscoped
+     architecture change (the game has no concept of entity facing at
+     all today) - worth a design conversation before starting.
+   - **Next session (per 2026-09-08 planning):**
+     - Redo Amazon's Walk animation specifically - flagged as needing a
+       fresh PixelLab pass, independent of the canvas-size/leftover-art
+       bugs already fixed for it this session.
+     - Add the rest of the enemies as new PixelLab artwork (currently
+       only playable classes have real art; every enemy still uses the
+       old dungeonfont portrait).
+     - Add more animations per class (Breathing_Idle, directional
+       rotations - needs the facing-architecture conversation above
+       first for anything beyond `south`).
 5. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
 6. **More class abilities** — pull a few real ones out of the "Future

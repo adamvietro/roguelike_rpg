@@ -1,3 +1,146 @@
+# Character & Icon Art — Glyph/Row Master Map
+
+Master reference for how every character/icon sprite in this project maps
+from source art to an in-game glyph or row index. Covers two independent
+systems, each self-contained in its own part below:
+
+1. **PixelLab character sheets** (this section, first) — three
+   per-context sheets (`character_idle.png`, `character_battle.png`,
+   `character_portrait.png`) covering every playable class's real
+   animated art. The active, growing system as of 2026-09-08 — check
+   here FIRST before adding a new class or enemy's row.
+2. **The dungeon font** (`resources/dungeonfont.png`, own section below)
+   — the original 512×512 CP437-ordered atlas covering enemies, items,
+   UI icons, weapons/abilities, and any class's fallback glyph for
+   whichever of the three sheets above it doesn't (yet) have a row on.
+
+---
+
+## PixelLab Character Sheets (`character_idle.png` / `character_battle.png` / `character_portrait.png`)
+
+### The three sheets
+
+| Sheet | Purpose / screens | Cell size | Cols | Font registration |
+| --- | --- | --- | --- | --- |
+| `character_idle.png` | Dungeon walk-in-place, Battle Arena, Class Select highlighted row | 128×128 (4x upscale of native 32×32 art) | 6 (`CHARACTER_IDLE_COLS`) | `.with_font("character_idle.png", 128, 128)` |
+| `character_battle.png` | Battle screen's own idle-loop portrait (player only; enemies keep dungeonfont) | 32×32 native, no upscale | 8 (`CHARACTER_BATTLE_COLS`) | `.with_font("character_battle.png", 32, 32)` |
+| `character_portrait.png` | Still icon — Class Select non-highlighted row, dungeon HUD portrait, in-battle Victory, run-ending Victory, Game Over fallen pose | 32×32 native, no upscale | 6 (column 0 only ever used) | `.with_font("character_portrait.png", 32, 32)` |
+
+All three are RON-free plain PNGs living in `resources/`, one row per
+class, rows growing downward as new classes/enemies are added — see
+`components.rs` for the row-lookup functions and `main.rs` for the
+console registrations that read them (`CHARACTER_IDLE_CONSOLE` +
+`CLASS_SELECT_IDLE_CONSOLE` for the idle sheet, `CHARACTER_BATTLE_CONSOLE`
+for the battle sheet, `CHARACTER_PORTRAIT_BIG_CONSOLE` +
+`CHARACTER_PORTRAIT_HUD_CONSOLE` + `END_SCREEN_FALLEN_PORTRAIT_CONSOLE`
+for the portrait sheet).
+
+### Row assignments
+
+**Every sheet needs its OWN row function** — a shared mapping is only
+safe when reusing it has actually been proven safe for that specific
+sheet's column count (see the glyph-32 gotcha below). Three functions in
+`components.rs`, currently:
+
+| Class | `class_sheet_row` (portrait sheet) | `character_idle_row` (idle sheet) | `character_battle_row` (battle sheet) |
+| --- | ---: | ---: | ---: |
+| Barbarian | 0 | 0 | 0 |
+| Rogue | 1 | 1 | 1 |
+| Amazon | 2 | 2 | 2 |
+| Hunter | 3 | 3 | 3 |
+| Mage | 4 | 4 | 5 |
+| Debug (hidden dev/test class) | 5 | 6 | 6 |
+| *(row 4 permanently blank)* | — | — | **forbidden** |
+| *(row 5 permanently blank)* | — | **forbidden** | — |
+
+Next free row for a 7th class/first enemy: row 6 on the portrait sheet,
+row 7 on the idle sheet, row 7 on the battle sheet. **Before assigning
+any of them, redo the `32 / cols` check below for that specific sheet —
+do not assume a row is safe just because it's still blank on one
+particular sheet.**
+
+### PixelLab's zip export format
+
+One folder per "state" (so far only ever `Idle/`), containing:
+- `rotations/` — 8 single-frame directional poses (`north`, `north-east`,
+  `east`, `south-east`, `south`, `south-west`, `west`, `north-west`).
+  Only `south` is used today — the game has no concept of entity facing
+  yet (see `docs/ideas.md`'s backlog).
+- `animations/<Name>/<direction>/frame_NNN.png` — every class's zip so
+  far has had the same three: `Breathing_Idle` (4 frames, south only —
+  set aside, unused), `Fight_Stance_Idle` (8 frames, south+east — only
+  `east` used, for the battle sheet), `Walk` (6 frames, south only — the
+  idle sheet).
+- `metadata.json` — describes exactly what's included per class. Kept
+  alongside each class's extraction in session scratch for reference.
+
+Clean binary alpha (0 or 255, no partial values) and background pixels
+already baked to true (0,0,0) wherever transparent — no segmentation
+work needed for any class, unlike every earlier hand-supplied reference
+image this project processed.
+
+### Confirmed gotchas — read before touching any of these sheets again
+
+- **Never trust `metadata.json`'s declared size (32×32) for every
+  frame's actual canvas — check each animation state's real PNG
+  dimensions.** `rotations/south.png` is always genuinely 32×32, and
+  `Fight_Stance_Idle` was 32×32 for 5 of 6 classes, but `Walk` varies
+  PER CLASS: Hunter 48×48, Rogue/Barbarian/Debug 44×44, Amazon 40×40,
+  only Mage actually 32×32 (by coincidence). Debug's `Fight_Stance_Idle`
+  was also 44×44. The character's own absolute pixel size and center
+  position stay constant regardless of canvas size — PixelLab just pads
+  more canvas around animations with a bigger motion range (arm/leg
+  swing) to avoid clipping, it does not render the character bigger or
+  smaller. **Always center-crop to exactly 32×32 before any further
+  processing** (floor_near_black, then the sheet-specific resize/paste)
+  whenever a frame's canvas is larger than 32×32. Skipping this caused
+  two real, confirmed bugs: the idle sheet's "resize whole canvas to
+  128px cell" step under-scaled 5 of 6 classes' walk animations (a
+  padded 48×48 canvas only got a 2.7x upscale vs. the intended 4x);
+  the battle sheet's native-32×32 direct-paste (no resize) let Debug's
+  44×44 frames bleed 12px into each neighboring cell, since a plain
+  paste at a position draws the source's own full size with zero
+  cropping.
+- **Always fully blank the destination row/cell before pasting new
+  content into it — never paste directly over old content and trust the
+  new frame's own transparency to fully replace it.** Confirmed real:
+  Mage was the first class composited this session, and that first pass
+  skipped this step on the idle and battle sheets (only the portrait
+  sheet got it) — wherever the new frame's silhouette didn't fully cover
+  the OLD placeholder's silhouette (different pose, different edges),
+  old pixels stayed visible underneath the new art. Every class
+  composited after Mage got this fix; Mage itself needed a follow-up
+  pass to re-do it correctly.
+- **Floor every opaque pixel's RGB to at least 30 in every channel**
+  (not the general project floor of 10 — this sheet gets rendered on
+  BOTH plain and fancy consoles) so near-black content survives a plain
+  console's colorkey-style transparency cutoff. The exact fraction of a
+  class's pixels needing this varies a lot (checked fresh via numpy per
+  class, never assumed): roughly half of Mage's dark robe, a third of
+  Rogue's dark armor. Force fully-transparent pixels' RGB to true
+  (0,0,0) too — PixelLab already exports it this way, but enforce it
+  defensively rather than trust it blindly.
+- **`cls()`'s default glyph-32 fill lands on a different (row, col) per
+  sheet, based on THAT sheet's own column count — confirmed to bite
+  twice, on two different sheets.** A plain console fills every
+  never-drawn-this-frame cell with glyph 32; `row = 32 / cols`,
+  `col = 32 % cols` (integer division/modulo). For `character_battle.png`
+  (8 cols): row 4, col 0 — real content there filled the ENTIRE battle
+  screen with tiled Mage portraits the first time this was hit. For
+  `character_idle.png` (6 cols): row 5, col 2 — real content there
+  filled the entire title/Adventure-Select screen with tiled Robot
+  (Debug) portraits the second time. `character_portrait.png` (also 6
+  cols) is the one sheet where reusing a shared row mapping is actually
+  safe, not just lucky: it only ever populates column 0 of any row, and
+  glyph 32's column there (2) is guaranteed blank regardless of which
+  row it lands on. The idle and battle sheets fill EVERY column of a
+  class's row, so they each need their own dedicated row function that
+  permanently skips whatever row `32 / cols` computes for that sheet
+  specifically — never reuse another sheet's "it happens to still be
+  blank" row and call it safe.
+
+---
+
 # Dungeon Font — Glyph-to-Cell Master Map
  
 Source of truth: the original `dungeonfont(1).png` supplied for this project.

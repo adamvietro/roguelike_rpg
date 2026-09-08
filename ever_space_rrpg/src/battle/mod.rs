@@ -425,6 +425,17 @@ pub struct Battle {
     /// ever moves the cursor once per fight (right at its very start),
     /// never overriding a choice the player actually made mid-battle.
     pub menu_cursor_seeded: bool,
+    /// Which frame of the player's own battle-idle loop
+    /// (`resources/character_battle.png`, via components::
+    /// character_battle_glyph) is currently showing, and how long it's
+    /// been showing it - ticked every frame in battle_tick, the same
+    /// place player_flash/player_damage_popup already tick down. Not an
+    /// ECS `IdleAnimation` component - the battle portrait isn't a
+    /// dungeon-view entity, and `Battle` already persists for exactly
+    /// the lifetime this animation needs to (fresh at 0/0.0 every new
+    /// fight, same as every other per-battle field here).
+    pub player_idle_frame: usize,
+    pub player_idle_elapsed_ms: f32,
 }
 
 /// The battle menu's cursor position - which of the two columns (0 = the
@@ -560,6 +571,8 @@ impl Battle {
             hit_queue: None,
             menu_cursor: MenuCursor::new(),
             menu_cursor_seeded: false,
+            player_idle_frame: 0,
+            player_idle_elapsed_ms: 0.0,
         }
     }
 

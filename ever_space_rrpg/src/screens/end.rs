@@ -41,29 +41,39 @@ impl State {
         arena.submit(0).expect("Batch error");
     }
 
-    /// Draws the player's own glyph, big, on the battle-portrait console
-    /// (console 3) - same trick draw_portrait already uses during battle -
-    /// recolored solid `tint` rather than the entity's normal sprite
-    /// color, so it reads as a silhouette (grey for defeat, gold for
-    /// victory) instead of looking like an active battle portrait. Row is
-    /// always the console's middle row; `col` lets victory() place the
-    /// hero to one side of center instead of dead-center, so the Amulet
-    /// (see draw_end_screen_amulet) can sit beside it without overlapping.
-    /// Used by victory (upright); game_over uses
-    /// draw_end_screen_fallen_portrait instead, which is rotated.
+    /// Draws the player's own glyph, big, recolored solid `tint` rather
+    /// than the entity's normal sprite color, so it reads as a silhouette
+    /// (grey for defeat, gold for victory) instead of looking like an
+    /// active battle portrait. Row is always the console's middle row;
+    /// `col` lets victory() place the hero to one side of center instead
+    /// of dead-center, so the Amulet (see draw_end_screen_amulet) can sit
+    /// beside it without overlapping. Used by victory (upright); game_over
+    /// uses draw_end_screen_fallen_portrait instead, which is rotated.
+    ///
+    /// Prefers the class's own still portrait from character_portrait.png
+    /// (CHARACTER_PORTRAIT_BIG_CONSOLE - same lookup draw_battle_arena
+    /// uses) over the old dungeonfont glyph (console 3), falling back to
+    /// the latter only for a class with no row on that sheet.
     fn draw_end_screen_portrait(&mut self, col: i32, tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
             .map(|(e, _)| *e)
             .nth(0);
         let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        let portrait_glyph = player
+            .and_then(|p| entity_class(&self.ecs, p))
+            .and_then(|class| character_portrait_glyph(&class));
         if let Some(render) = render {
+            let (console, glyph) = match portrait_glyph {
+                Some(glyph) => (CHARACTER_PORTRAIT_BIG_CONSOLE, glyph),
+                None => (3, render.glyph),
+            };
             let mut portrait = DrawBatch::new();
-            portrait.target(3);
+            portrait.target(console);
             portrait.set(
                 Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
                 ColorPair::new(tint, BLACK),
-                render.glyph,
+                glyph,
             );
             portrait.submit(0).expect("Batch error");
         }
@@ -123,12 +133,19 @@ impl State {
             .map(|(e, _)| *e)
             .nth(0);
         let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        let portrait_glyph = player
+            .and_then(|p| entity_class(&self.ecs, p))
+            .and_then(|class| character_portrait_glyph(&class));
         if let Some(render) = render {
             let cx = DISPLAY_WIDTH / 2;
             let cy = DISPLAY_HEIGHT / 2;
 
+            let (console, glyph) = match portrait_glyph {
+                Some(glyph) => (END_SCREEN_FALLEN_PORTRAIT_CONSOLE, glyph),
+                None => (END_SCREEN_FALLEN_CONSOLE, render.glyph),
+            };
             let mut fallen = DrawBatch::new();
-            fallen.target(END_SCREEN_FALLEN_CONSOLE);
+            fallen.target(console);
             // Center of the console's square-celled DISPLAY_WIDTH x
             // DISPLAY_HEIGHT grid (same 32px cells as the main dungeon
             // view, so a 90-degree turn doesn't stretch/squash the glyph).
@@ -140,7 +157,7 @@ impl State {
                 Degrees::new(90.0),
                 PointF::new(END_SCREEN_FALLEN_SCALE, END_SCREEN_FALLEN_SCALE),
                 ColorPair::new(fg, bg),
-                render.glyph,
+                glyph,
             );
             fallen.submit(0).expect("Batch error");
         }

@@ -125,11 +125,30 @@ impl State {
     /// each Render live during an active battle, or pass captured values
     /// (battle_victory_tick, where every enemy has already been removed
     /// from the ECS - it always passes an empty `enemies` slice).
+    /// `player_class` is the player's class name whenever it's known
+    /// (both live battle and the Victory screen have a real player to
+    /// ask - only truly missing for something with no Class component at
+    /// all). `player_idle_frame` is additionally `Some(frame_index)`
+    /// only for a LIVE battle-idle animation (called from battle_tick,
+    /// with a real Battle in progress ticking Battle::player_idle_frame)
+    /// - `None` for the Victory screen's own call
+    /// (screens/battle.rs's battle_victory_tick), which has no ongoing
+    /// Battle to read a frame counter off.
+    ///
+    /// Three-tier fallback for the player's own portrait, checked in
+    /// order: character_battle.png's animated Fight_Stance loop (only
+    /// when player_idle_frame is Some AND the class has a row there) ->
+    /// character_battle.png's still portrait (same class check, no frame
+    /// needed) -> the old plain dungeonfont Render glyph. A class with
+    /// neither per-class sheet row still gets something reasonable
+    /// (its old dungeonfont glyph) rather than nothing.
     fn draw_battle_arena(
         &mut self,
         enemies: &[EnemyPortrait],
         player_render: Option<Render>,
         player_flash: Option<(FlashKind, f32)>,
+        player_class: Option<String>,
+        player_idle_frame: Option<usize>,
     ) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
@@ -248,17 +267,52 @@ impl State {
                 }
             }
         }
+        // The player's own portrait - see this fn's own doc comment for
+        // the 3-tier fallback. Each tier gets its own console pair so it
+        // never has to share a font with the dungeonfont-sourced enemy
+        // portraits above (or with each other).
+        let mut battle_idle = DrawBatch::new();
+        battle_idle.target(CHARACTER_BATTLE_CONSOLE);
+        let mut battle_idle_wiggle = DrawBatch::new();
+        battle_idle_wiggle.target(CHARACTER_BATTLE_WIGGLE_CONSOLE);
+        let mut still_portrait = DrawBatch::new();
+        still_portrait.target(CHARACTER_PORTRAIT_BIG_CONSOLE);
         if let Some(render) = player_render {
-            let tinted = Render {
-                color: flash_tint(render.color, player_flash),
-                glyph: render.glyph,
-            };
-            if !draw_wiggling_portrait(&mut wiggle, 1.0, 3.0, tinted, player_flash) {
-                draw_portrait(&mut portraits, 1, 3, tinted);
+            let color = flash_tint(render.color, player_flash);
+            let class_ref = player_class.as_deref();
+            let battle_glyph = player_idle_frame
+                .and_then(|frame| class_ref.and_then(|class| character_battle_glyph(class, frame)));
+            let portrait_glyph = class_ref.and_then(character_portrait_glyph);
+            match (battle_glyph, portrait_glyph) {
+                (Some(glyph), _) => {
+                    let tinted = Render { color, glyph };
+                    if !draw_wiggling_portrait(&mut battle_idle_wiggle, 1.0, 3.0, tinted, player_flash)
+                    {
+                        draw_portrait(&mut battle_idle, 1, 3, tinted);
+                    }
+                }
+                (None, Some(glyph)) => {
+                    let tinted = Render { color, glyph };
+                    if !draw_wiggling_portrait(&mut still_portrait, 1.0, 3.0, tinted, player_flash) {
+                        draw_portrait(&mut still_portrait, 1, 3, tinted);
+                    }
+                }
+                (None, None) => {
+                    let tinted = Render {
+                        color,
+                        glyph: render.glyph,
+                    };
+                    if !draw_wiggling_portrait(&mut wiggle, 1.0, 3.0, tinted, player_flash) {
+                        draw_portrait(&mut portraits, 1, 3, tinted);
+                    }
+                }
             }
         }
         portraits.submit(0).expect("Batch error");
         wiggle.submit(1).expect("Batch error");
+        battle_idle.submit(2).expect("Batch error");
+        battle_idle_wiggle.submit(3).expect("Batch error");
+        still_portrait.submit(4).expect("Batch error");
     }
 
     /// Records one enemy's death: stats, loot/gold (accumulated onto
@@ -609,6 +663,17 @@ impl State {
                 battle.player_damage_popup = None;
             }
         }
+        // The player's battle-idle portrait loop - see Battle::
+        // player_idle_frame's own doc comment. Keeps advancing through
+        // an attack wiggle too (the wiggle is a small shake applied ON
+        // TOP of whichever frame this lands on, not a separate paused
+        // state) - IDLE_FRAME_DURATION_MS matches the same per-frame
+        // timing the dungeon-view IdleAnimation loop already uses.
+        battle.player_idle_elapsed_ms += ctx.frame_time_ms;
+        if battle.player_idle_elapsed_ms >= IDLE_FRAME_DURATION_MS {
+            battle.player_idle_elapsed_ms -= IDLE_FRAME_DURATION_MS;
+            battle.player_idle_frame += 1;
+        }
         for enemy in battle.enemies.iter_mut() {
             if let Some((_, remaining)) = &mut enemy.flash {
                 *remaining -= ctx.frame_time_ms;
@@ -730,7 +795,14 @@ impl State {
                 })
             })
             .collect();
-        self.draw_battle_arena(&enemy_portraits, player_render, battle.player_flash);
+        let player_class = entity_class(&self.ecs, battle.player);
+        self.draw_battle_arena(
+            &enemy_portraits,
+            player_render,
+            battle.player_flash,
+            player_class,
+            Some(battle.player_idle_frame),
+        );
 
         // --- "You can act" indicator: whether the player can issue an
         // action RIGHT NOW - either a normal open PlayerMenu, or (True
@@ -1323,7 +1395,8 @@ impl State {
         };
 
         let player_render = entity_render_component(&self.ecs, victory.player);
-        self.draw_battle_arena(&[], player_render, None);
+        let player_class = entity_class(&self.ecs, victory.player);
+        self.draw_battle_arena(&[], player_render, None, player_class, None);
 
         ctx.set_active_console(2);
         ctx.print_color_centered(
@@ -1387,11 +1460,19 @@ impl State {
 /// `#[ignore]` so it doesn't run as part of the normal `cargo test`,
 /// since it takes real time even in release mode), rerun by hand after
 /// any class-balance change: `cargo test --release
-/// class_survivability_report -- --ignored --nocapture` from
-/// ever_space_rrpg/. Answers "how many runs actually reach the first
-/// shop" for each class, using the REAL game logic end to end wherever
-/// possible - the actual schedulers, movement, item pickup, chest
-/// interaction, and shop transition, not a separate simplified model.
+/// class_survivability_report -- --ignored --nocapture` (Dungeon Crawl)
+/// or `cargo test --release arena_class_survivability_report -- --ignored
+/// --nocapture` (Battle Arena) from ever_space_rrpg/. The Dungeon Crawl
+/// one answers "how many runs actually reach the first shop" for each
+/// class; the Arena one (added later, sharing every helper below except
+/// its own navigation/shopping policy - see simulate_one_arena_run)
+/// answers "how many runs clear the whole 3-level run, and where do the
+/// rest die" - Arena has no ambient floor loot at all, so a real shopping
+/// policy (see shop_step) matters a lot more to its numbers than the
+/// Dungeon Crawl bot's simpler potion-only handling. Both use the REAL
+/// game logic end to end wherever possible - the actual schedulers,
+/// movement, item pickup, chest interaction, and shop transition, not a
+/// separate simplified model.
 ///
 /// Combat itself goes straight through the same
 /// resolve_player_action/trigger_enemy_action/dismiss_action_result
@@ -1437,22 +1518,87 @@ mod class_survivability_diagnostic {
         map.index_to_point2d(idx)
     }
 
+    /// A correct, from-scratch breadth-first distance field from `target`
+    /// across every 4-directionally-connected `can_enter_tile` cell.
+    /// Written in-house rather than using `bracket_pathfinding::
+    /// DijkstraMap`, after that library function proved genuinely
+    /// unreliable across two separate real reproductions during this
+    /// bot's development:
+    ///
+    /// 1. `DijkstraMap::find_lowest_exit`'s own pick considers diagonal
+    ///    exits too (`get_available_exits` allows them), which this bot
+    ///    has no way to act on (`Action` only has Up/Down/Left/Right, no
+    ///    diagonals) - decomposing a diagonal suggestion into a single
+    ///    cardinal step by dx/dy sign doesn't reliably reduce distance,
+    ///    and caused a real back-and-forth stall right next to a chest's
+    ///    one-tile approach corridor. Picking directly among the 4
+    ///    cardinal neighbors by their own reported distance (see
+    ///    step_toward) was the first fix - but:
+    /// 2. Confirmed from `bracket-pathfinding`'s own source
+    ///    (`DijkstraMap::build`): the seed tile's own array slot is NEVER
+    ///    explicitly set to 0.0 - it only gets overwritten later by a
+    ///    neighbor's own relaxation pass, landing at roughly the edge
+    ///    cost back to that neighbor (~2.0 for one cardinal hop) instead
+    ///    of the true 0. Worse, since `build`'s open list is a plain
+    ///    FIFO queue rather than a priority queue, that wrong value can
+    ///    itself get used as a base by further relaxations, corrupting
+    ///    more than just the seed's own single cell - confirmed by a
+    ///    second real reproduction (a DIFFERENT stable 2-cycle a couple
+    ///    of tiles away from an already-special-cased target, after the
+    ///    first fix). Patching individual symptomatic cells wasn't going
+    ///    to hold indefinitely, hence this from-scratch replacement.
+    ///
+    /// Every step this bot ever takes costs exactly 1, so a plain BFS
+    /// isn't a workaround here, it's the textbook-correct algorithm for
+    /// this anyway - no priority queue needed, and no possibility of the
+    /// seed/relaxation-order bugs above, since the seed's distance is
+    /// set to 0 directly rather than relying on any later relaxation
+    /// pass to (maybe) get it right. Returns a full
+    /// SCREEN_WIDTH*SCREEN_HEIGHT-sized field (unreached cells stay at
+    /// i32::MAX) so callers can index it the same way the old
+    /// DijkstraMap.map Vec was indexed.
+    fn bfs_distance_field(map: &Map, target: Point) -> Vec<i32> {
+        let mut field = vec![i32::MAX; (SCREEN_WIDTH * SCREEN_HEIGHT) as usize];
+        if !map.in_bounds(target) {
+            return field;
+        }
+        let target_idx = map.point2d_to_index(target);
+        field[target_idx] = 0;
+        let mut queue: std::collections::VecDeque<Point> = std::collections::VecDeque::new();
+        queue.push_back(target);
+        while let Some(current) = queue.pop_front() {
+            let current_dist = field[map.point2d_to_index(current)];
+            for delta in [
+                Point::new(0, -1),
+                Point::new(0, 1),
+                Point::new(-1, 0),
+                Point::new(1, 0),
+            ] {
+                let neighbor = current + delta;
+                if neighbor != target && !map.can_enter_tile(neighbor) {
+                    continue;
+                }
+                if !map.in_bounds(neighbor) {
+                    continue;
+                }
+                let idx = map.point2d_to_index(neighbor);
+                if field[idx] == i32::MAX {
+                    field[idx] = current_dist + 1;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        field
+    }
+
     /// One step toward `target`, going through the real player_input
     /// system (via the same `key` resource main.rs's tick() sets from a
     /// live keypress) so enemy-bump battle-starts/item auto-pickup/chest
     /// interaction all happen exactly as they do for a real player -
     /// only the SOURCE of the key (computed here, not read from a
-    /// window) differs.
-    ///
-    /// Picks directly among the 4 CARDINAL neighbors by their own
-    /// Dijkstra distance, rather than trusting
-    /// DijkstraMap::find_lowest_exit's own pick - that considers diagonal
-    /// exits too (get_available_exits allows them), which this bot has
-    /// no way to act on (Action only has Up/Down/Left/Right, no
-    /// diagonals). Decomposing a diagonal suggestion into a single
-    /// cardinal step by dx/dy sign doesn't reliably reduce distance and
-    /// caused a real back-and-forth stall right next to the chest's
-    /// one-tile approach corridor during development.
+    /// window) differs. Picks directly among the 4 CARDINAL neighbors by
+    /// their own bfs_distance_field value - see that function's own doc
+    /// comment for why this doesn't just trust a library pathfinder.
     fn step_toward(state: &mut State, target: Point) {
         let player_pt = *<&Point>::query()
             .filter(component::<Player>())
@@ -1461,25 +1607,33 @@ mod class_survivability_diagnostic {
             .unwrap();
         let action = {
             let map = state.resources.get::<Map>().unwrap();
-            let dijkstra = DijkstraMap::new(
-                SCREEN_WIDTH,
-                SCREEN_HEIGHT,
-                &vec![map.point2d_to_index(target)],
-                &*map,
-                1024.0,
-            );
+            let field = bfs_distance_field(&map, target);
             let candidates: [(Action, Point); 4] = [
                 (Action::MoveUp, Point::new(player_pt.x, player_pt.y - 1)),
                 (Action::MoveDown, Point::new(player_pt.x, player_pt.y + 1)),
                 (Action::MoveLeft, Point::new(player_pt.x - 1, player_pt.y)),
                 (Action::MoveRight, Point::new(player_pt.x + 1, player_pt.y)),
             ];
-            let mut best: Option<(Action, f32)> = None;
+            let mut best: Option<(Action, i32)> = None;
             for (action, dest) in candidates {
-                if !map.can_enter_tile(dest) {
+                // A candidate exactly on the target is always enterable
+                // for navigation purposes even if it's a special tile
+                // type (a shop counter item's own square, the map's Exit
+                // tile) - can_enter_tile already allows Exit, and shop
+                // items sit on Counter tiles that step_toward's callers
+                // only ever pass as an ADJACENCY target, never actually
+                // stepped onto, so this never actually walks onto a true
+                // wall.
+                if dest != target && !map.can_enter_tile(dest) {
                     continue;
                 }
-                let dist = dijkstra.map[map.point2d_to_index(dest)];
+                if !map.in_bounds(dest) {
+                    continue;
+                }
+                let dist = field[map.point2d_to_index(dest)];
+                if dist == i32::MAX {
+                    continue;
+                }
                 let better = match best {
                     Some((_, best_dist)) => dist < best_dist,
                     None => true,
@@ -1544,7 +1698,15 @@ mod class_survivability_diagnostic {
                 .unwrap();
             (h.current, h.max)
         };
-        if hp * 4 < max_hp {
+        // Fleeing only actually helps if there's a Healing Potion to
+        // drink afterward (flee, heal, go back in) - with none carried,
+        // fleeing accomplishes nothing a real player would want, so this
+        // bot fights on instead (a Technique if one's owned, else a
+        // plain Attack) rather than wasting the flee.
+        let has_potion = <(&Name, &Carried)>::query()
+            .iter(ecs)
+            .any(|(n, c)| n.0 == "Healing Potion" && c.0 == player);
+        if hp * 4 < max_hp && has_potion {
             return BattleAction::Flee;
         }
         available_actions(ecs, player)
@@ -1689,6 +1851,297 @@ mod class_survivability_diagnostic {
             }
             report.push_str(&format!(
                 "{class}: {reached}/{runs_per_class} reached the shop ({died} died, {timed_out} timed out)\n"
+            ));
+        }
+        println!("\n{}", report);
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum ArenaOutcome {
+        Won,
+        Died { level: u8, wave: u8, boss_active: bool },
+        TimedOut,
+    }
+
+    /// The 5 tiles (own position + 4 cardinal neighbors) buy_nearby_item
+    /// itself checks (see components::shop_item_near) - duplicated here
+    /// rather than reusing that function directly since this only needs
+    /// the adjacency test, not the full stock lookup it also does.
+    const SHOP_ADJACENT: [Point; 5] = [
+        Point { x: 0, y: 0 },
+        Point { x: 0, y: -1 },
+        Point { x: 0, y: 1 },
+        Point { x: -1, y: 0 },
+        Point { x: 1, y: 0 },
+    ];
+
+    /// One shopping decision: Arena has no ambient floor loot at all (see
+    /// this module's own updated doc comment above), so unlike the
+    /// Dungeon Crawl bot - which only ever needs to drink potions it
+    /// already has - this one also has to actually SHOP for them.
+    /// Deliberately simple (Healing Potions only, buy while affordable
+    /// and in stock, ignore weapons/abilities entirely) rather than a
+    /// fully optimal shopper - same "realistic lower-middle bound, not a
+    /// hard floor" spirit this module's own doc comment already sets for
+    /// the in-battle policy.
+    /// One attempt at buying `item_name` from the current shop - `true`
+    /// means "did something this tick" (moved toward it, or bought one),
+    /// so the caller should stop and let the next tick reassess; `false`
+    /// means "nothing left to do here" (not sold in this shop, out of
+    /// stock, or unaffordable), so the caller should move on to its next
+    /// shopping priority.
+    fn try_buy_item(state: &mut State, item_name: &str) -> bool {
+        let player_pos = *<&Point>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .unwrap();
+        let found = <(&ShopStock, &Point, &Name, &Price)>::query()
+            .iter(&state.ecs)
+            .find(|(_, _, name, _)| name.0 == item_name)
+            .map(|(stock, pos, _, price)| (stock.0, *pos, price.0));
+        let (stock_count, item_pos, price) = match found {
+            Some(f) => f,
+            None => return false,
+        };
+        // Afford/stock is checked BEFORE adjacency, not after - checking
+        // adjacency first meant that once gold ran out, an entity NOT
+        // currently standing next to this item would still blindly walk
+        // toward it every single tick (only bailing out once actually
+        // adjacent), fighting whatever else this same tick's OTHER
+        // priority wanted to do the moment it stepped away again - a
+        // real, reproducible 2-tile stall confirmed during development
+        // (walk toward the exit, walk back toward an unaffordable
+        // potion, forever).
+        let gold = <&Gold>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .map(|g| g.0)
+            .unwrap_or(0);
+        if stock_count <= 0 || gold < price {
+            return false;
+        }
+        if !SHOP_ADJACENT.iter().any(|&d| item_pos == player_pos + d) {
+            step_toward(state, item_pos);
+            return true;
+        }
+        state.resources.insert(Some(VirtualKeyCode::Return));
+        state
+            .input_systems
+            .execute(&mut state.ecs, &mut state.resources);
+        state.resources.insert(None::<VirtualKeyCode>);
+        true
+    }
+
+    /// One shopping decision, in priority order: the class's own weapon
+    /// for this level FIRST (a player_attack_damage of base Damage alone,
+    /// with no weapon at all, is often 0 after an enemy's own Defense -
+    /// confirmed for real during development: Barbarian's damage=1 base
+    /// couldn't land a single point of damage unarmed, stalling every
+    /// single fight forever with neither side able to finish the other -
+    /// so skipping the weapon isn't a simplification, it breaks combat
+    /// outright), THEN Healing Potions with whatever gold is left, THEN
+    /// head for the exit once neither is affordable or there's nothing
+    /// left to buy.
+    fn shop_step(state: &mut State) {
+        let player_entity = *<Entity>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .unwrap();
+        let already_has_weapon = <(&Weapon, &Carried)>::query()
+            .iter(&state.ecs)
+            .any(|(_, c)| c.0 == player_entity);
+        if !already_has_weapon {
+            let run = state.resources.get::<Option<ArenaRun>>().unwrap().clone();
+            if let Some(run) = run {
+                let class = entity_class(&state.ecs, player_entity).unwrap_or_default();
+                if let Some(weapon_name) = weapon_name_for_class_level(&class, run.template_level())
+                {
+                    if try_buy_item(state, &weapon_name) {
+                        return;
+                    }
+                }
+            }
+        }
+        if try_buy_item(state, "Healing Potion") {
+            return;
+        }
+        let exit_pt = find_exit_tile(&state.resources.get::<Map>().unwrap());
+        step_toward(state, exit_pt);
+    }
+
+    /// One wave-combat movement decision: walk toward whichever living
+    /// Enemy is closest (straight-line distance - step_toward's own
+    /// Dijkstra pathing handles the actual route), triggering a real
+    /// bump-battle exactly like a player walking into a monster would.
+    fn wave_step(state: &mut State) {
+        let player_pos = *<&Point>::query()
+            .filter(component::<Player>())
+            .iter(&state.ecs)
+            .next()
+            .unwrap();
+        let target = <(&Enemy, &Point)>::query()
+            .iter(&state.ecs)
+            .map(|(_, p)| *p)
+            .min_by_key(|p| {
+                let dx = p.x - player_pos.x;
+                let dy = p.y - player_pos.y;
+                dx * dx + dy * dy
+            });
+        if let Some(target) = target {
+            step_toward(state, target);
+        }
+    }
+
+    fn simulate_one_arena_run(class: &str, max_actions: usize) -> ArenaOutcome {
+        let mut state = State::new();
+        state.start_arena(class);
+        state.resources.insert(AbilityBarMousePos(Point::zero()));
+        state.resources.insert(MouseLeftJustPressed(false));
+        state.resources.insert(FrameTime(16.0));
+        state.resources.insert(Point::zero()); // raw mouse_pos - see tooltips_system
+
+        for _ in 0..max_actions {
+            let current = *state.resources.get::<TurnState>().unwrap();
+            match current {
+                TurnState::AwaitingInput => {
+                    let (hp, max_hp) = {
+                        let h = <&Health>::query()
+                            .filter(component::<Player>())
+                            .iter(&state.ecs)
+                            .next()
+                            .unwrap();
+                        (h.current, h.max)
+                    };
+                    if hp * 2 < max_hp && use_potion(&mut state) {
+                        continue;
+                    }
+                    let shopping = state
+                        .resources
+                        .get::<Option<ShoppingActive>>()
+                        .unwrap()
+                        .is_some();
+                    if shopping {
+                        shop_step(&mut state);
+                    } else {
+                        wave_step(&mut state);
+                    }
+                }
+                TurnState::PlayerTurn => {
+                    state
+                        .player_systems
+                        .execute(&mut state.ecs, &mut state.resources);
+                }
+                TurnState::MonsterTurn => {
+                    state
+                        .monster_systems
+                        .execute(&mut state.ecs, &mut state.resources);
+                }
+                TurnState::InBattle => {
+                    resolve_battle(&mut state);
+                }
+                TurnState::BattleVictory => {
+                    // Same dismiss logic as battle_victory_tick's Enter
+                    // branch, minus the rendering it also does - that
+                    // real branch is what actually decides the next wave/
+                    // boss/shop/Victory via handle_arena_kill.
+                    state.resources.insert(None::<BattleVictory>);
+                    let run = state.resources.get::<Option<ArenaRun>>().unwrap().clone();
+                    match run {
+                        Some(r) => state.handle_arena_kill(r),
+                        None => {
+                            state.resources.insert(TurnState::AwaitingInput);
+                        }
+                    }
+                }
+                TurnState::ArenaTransition => {
+                    // Same logic as arena_transition_tick, minus the
+                    // rendering it also does.
+                    let run = state
+                        .resources
+                        .get::<Option<ArenaRun>>()
+                        .unwrap()
+                        .clone()
+                        .expect("ArenaTransition reached without an active ArenaRun");
+                    state.arena_begin_wave(run.level, 1);
+                }
+                TurnState::ArenaWaveCleared => {
+                    // Same logic as arena_wave_cleared_tick - shouldn't
+                    // actually trigger given this bot always fights in
+                    // real battles rather than using a ranged/Trap kill,
+                    // but handled for correctness regardless.
+                    let run = state
+                        .resources
+                        .get::<Option<ArenaRun>>()
+                        .unwrap()
+                        .clone()
+                        .expect("ArenaWaveCleared reached without an active ArenaRun");
+                    state.handle_arena_kill(run);
+                }
+                TurnState::GameOver => {
+                    let run = state.resources.get::<Option<ArenaRun>>().unwrap().clone();
+                    return match run {
+                        Some(r) => ArenaOutcome::Died {
+                            level: r.level,
+                            wave: r.wave,
+                            boss_active: r.boss_active,
+                        },
+                        None => ArenaOutcome::Died {
+                            level: 0,
+                            wave: 0,
+                            boss_active: false,
+                        },
+                    };
+                }
+                TurnState::Victory => {
+                    return ArenaOutcome::Won;
+                }
+                _ => {}
+            }
+        }
+        ArenaOutcome::TimedOut
+    }
+
+    #[test]
+    #[ignore]
+    fn arena_class_survivability_report() {
+        let classes = ["Barbarian", "Mage", "Rogue", "Amazon", "Hunter"];
+        let runs_per_class = 10;
+        let mut report = String::new();
+        for class in classes {
+            let mut won = 0;
+            let mut timed_out = 0;
+            let mut deaths: Vec<(u8, u8, bool)> = Vec::new();
+            for _ in 0..runs_per_class {
+                match simulate_one_arena_run(class, 6000) {
+                    ArenaOutcome::Won => won += 1,
+                    ArenaOutcome::TimedOut => timed_out += 1,
+                    ArenaOutcome::Died {
+                        level,
+                        wave,
+                        boss_active,
+                    } => deaths.push((level, wave, boss_active)),
+                }
+            }
+            let death_summary = if deaths.is_empty() {
+                "none".to_string()
+            } else {
+                deaths
+                    .iter()
+                    .map(|(level, wave, boss_active)| {
+                        if *boss_active {
+                            format!("L{level} boss")
+                        } else {
+                            format!("L{level}W{wave}")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            report.push_str(&format!(
+                "{class}: {won}/{runs_per_class} won the full run ({timed_out} timed out) - deaths: {death_summary}\n"
             ));
         }
         println!("\n{}", report);

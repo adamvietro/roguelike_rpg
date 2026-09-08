@@ -51,8 +51,12 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             let offset = Point::new(camera.left_x, camera.top_y);
             let mut draw_batch = DrawBatch::new();
             draw_batch.target(1);
+            let mut character_batch = DrawBatch::new();
+            character_batch.target(CHARACTER_IDLE_CONSOLE);
             let mut glide_batch = DrawBatch::new();
             glide_batch.target(GLIDE_CONSOLE);
+            let mut character_glide_batch = DrawBatch::new();
+            character_glide_batch.target(CHARACTER_IDLE_GLIDE_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -60,22 +64,36 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                 .for_each(|(entity, pos, render)| {
                     let color = tinted_color(ecs, *entity, render.color);
                     let glyph = idle_glyph(ecs, *entity, render.glyph);
+                    let sheet = idle_sheet(ecs, *entity);
                     match gliding_position(ecs, *entity) {
-                        Some((fx, fy)) => draw_glyph_fancy(
-                            &mut glide_batch,
-                            fx - offset.x as f32,
-                            fy - offset.y as f32,
-                            color,
-                            glyph,
-                        ),
-                        None => {
-                            draw_batch.set(*pos - offset, color, glyph);
+                        Some((fx, fy)) => {
+                            let batch = match sheet {
+                                IdleSpriteSheet::Dungeon => &mut glide_batch,
+                                IdleSpriteSheet::CharacterIdle => &mut character_glide_batch,
+                            };
+                            draw_glyph_fancy(
+                                batch,
+                                fx - offset.x as f32,
+                                fy - offset.y as f32,
+                                color,
+                                glyph,
+                            )
                         }
+                        None => match sheet {
+                            IdleSpriteSheet::Dungeon => {
+                                draw_batch.set(*pos - offset, color, glyph);
+                            }
+                            IdleSpriteSheet::CharacterIdle => {
+                                character_batch.set(*pos - offset, color, glyph);
+                            }
+                        },
                     }
                 });
 
             draw_batch.submit(5000).expect("Batch error");
+            character_batch.submit(5050).expect("Batch error");
             glide_batch.submit(5100).expect("Batch error");
+            character_glide_batch.submit(5150).expect("Batch error");
         }
         Some((ox, oy)) => {
             // The camera itself is panning - the player is mid-glide
@@ -98,6 +116,8 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             // entity already used.
             let mut scroll_batch = DrawBatch::new();
             scroll_batch.target(ENTITY_SCROLL_CONSOLE);
+            let mut character_scroll_batch = DrawBatch::new();
+            character_scroll_batch.target(CHARACTER_IDLE_SCROLL_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -107,10 +127,15 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                     let glyph = idle_glyph(ecs, *entity, render.glyph);
                     let (fx, fy) =
                         gliding_position(ecs, *entity).unwrap_or((pos.x as f32, pos.y as f32));
-                    draw_glyph_fancy(&mut scroll_batch, fx - ox, fy - oy, color, glyph);
+                    let batch = match idle_sheet(ecs, *entity) {
+                        IdleSpriteSheet::Dungeon => &mut scroll_batch,
+                        IdleSpriteSheet::CharacterIdle => &mut character_scroll_batch,
+                    };
+                    draw_glyph_fancy(batch, fx - ox, fy - oy, color, glyph);
                 });
 
             scroll_batch.submit(5000).expect("Batch error");
+            character_scroll_batch.submit(5050).expect("Batch error");
         }
     }
 }
@@ -160,6 +185,18 @@ fn idle_glyph(ecs: &SubWorld, entity: Entity, base: FontCharType) -> FontCharTyp
                 .map(IdleAnimation::current_glyph)
         })
         .unwrap_or(base)
+}
+
+/// Which console `idle_glyph`'s returned glyph should actually be drawn
+/// on - see IdleSpriteSheet's own doc comment in components.rs. Defaults
+/// to Dungeon for anything with no IdleAnimation at all (items/scenery),
+/// matching idle_glyph's own fallback-to-`base` behavior for the same
+/// entities - `base` is always a dungeonfont glyph for those.
+fn idle_sheet(ecs: &SubWorld, entity: Entity) -> IdleSpriteSheet {
+    ecs.entry_ref(entity)
+        .ok()
+        .and_then(|e| e.get_component::<IdleAnimation>().ok().map(|i| i.sheet))
+        .unwrap_or(IdleSpriteSheet::Dungeon)
 }
 
 /// Overrides a dungeon-view entity's color for a few status indicators.

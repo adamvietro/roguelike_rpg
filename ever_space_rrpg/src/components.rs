@@ -809,15 +809,17 @@ pub struct MovingAnimation {
     pub elapsed_ms: f32,
 }
 
-/// Upper bound on how many "standing still" frames any entity will ever
-/// be set up with - a documented ceiling (agreed as part of scoping this
-/// feature), not something IdleAnimation enforces structurally. Any Vec
-/// length up to this works with zero code changes elsewhere. Not read by
-/// any code path today (nothing currently checks a frame count against
-/// it) - it exists purely as a written-down agreement for future art
-/// work to size itself against, hence the explicit dead_code allowance.
-#[allow(dead_code)]
-pub const MAX_IDLE_FRAMES: usize = 5;
+/// How many "standing still" frame columns `resources/character_idle.png`
+/// has per class row - see CHARACTER_IDLE_COLS, which is defined in terms
+/// of this. Currently 6, matching Hunter's real PixelLab-exported Walk
+/// cycle (the first class to get real walk-in-place art from that
+/// pipeline) - Rogue/Amazon's own (older, different-pipeline) real frames
+/// only had 5, so their 6th column is just a duplicate of their own first
+/// frame rather than a genuinely distinct pose, and Barbarian/Mage's
+/// placeholder rows repeat their single existing dungeon portrait across
+/// all 6 regardless. Any Vec length up to this works with zero code
+/// changes elsewhere in IdleAnimation itself.
+pub const MAX_IDLE_FRAMES: usize = 6;
 
 /// How many idle frames a class/enemy gets by default, and how long each
 /// one shows before advancing to the next - see idle_frames_for. Every
@@ -829,13 +831,28 @@ pub const MAX_IDLE_FRAMES: usize = 5;
 pub const DEFAULT_IDLE_FRAME_COUNT: usize = 3;
 pub const IDLE_FRAME_DURATION_MS: f32 = 350.0;
 
+/// Which sprite sheet/console an IdleAnimation's `frames` glyphs are cells
+/// in - see systems/entity_render.rs, which needs this to route each
+/// entity's draw call to the matching console (CHARACTER_IDLE_CONSOLE's
+/// trio for `CharacterIdle`, the plain dungeonfont ones for `Dungeon`).
+/// Deliberately a field on the existing IdleAnimation component rather
+/// than a new separate marker component - a new component would need its
+/// own `#[read_component]` declaration added everywhere IdleAnimation is
+/// already queried, exactly the class of legion access-panic this project
+/// has been bitten by before (see CLAUDE.md); a new field on an
+/// already-declared component needs no new declarations anywhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdleSpriteSheet {
+    Dungeon,
+    CharacterIdle,
+}
+
 /// The "walking in place" idle loop: a small set of glyphs a stationary
 /// entity cycles through, advancing one frame every IDLE_FRAME_DURATION_MS
 /// (see systems/animation.rs's tick_idle_animation) and wrapping back to
-/// frame 0 after the last. Every frame is a plain FontCharType - this
-/// component doesn't know or care which sprite sheet/cell-map any of them
-/// came from, so it's unaffected by any future move to per-class sheets
-/// (see idle_frames_for's doc comment for today's specific values).
+/// frame 0 after the last. `sheet` says which console's font `frames`
+/// indexes into (see IdleSpriteSheet) - both fields' actual values come
+/// from whichever of idle_frames_for/idle_frames_for_class built this.
 /// Deliberately only advances while the entity is NOT in an in-flight
 /// MovingAnimation (see gliding_position) - real movement already has its
 /// own glide animation, and cycling frames underneath that too would just
@@ -848,6 +865,7 @@ pub struct IdleAnimation {
     pub frames: Vec<FontCharType>,
     pub frame_index: usize,
     pub elapsed_ms: f32,
+    pub sheet: IdleSpriteSheet,
 }
 
 impl IdleAnimation {
@@ -860,26 +878,181 @@ impl IdleAnimation {
     }
 }
 
-/// Builds a fresh IdleAnimation for a creature whose base dungeon-view
-/// glyph is `base_glyph` - called once at spawn time (spawn_player,
-/// spawner/template.rs's spawn_entity) for every player and Enemy.
-///
-/// Every frame today is the SAME glyph as the entity's base Render - this
-/// is a deliberate placeholder, not a bug: real distinct walk-cycle art
-/// (and very likely a move to a separate sprite sheet per class/category,
-/// rather than more cells crammed into the one shared dungeonfont.png -
-/// discussed but not yet started) is a real future art pass, agreed to be
-/// scoped separately so it doesn't block this session's actual code
-/// infrastructure. Until that happens, every entity's idle "animation"
+/// Builds a fresh, dungeonfont-based placeholder IdleAnimation for a
+/// creature whose base dungeon-view glyph is `base_glyph` - called for
+/// every Enemy (spawner/template.rs's spawn_entity, which has no class to
+/// look up a real sheet row for) and as the fallback for any player class
+/// idle_frames_for_class doesn't recognize. Every frame is the SAME glyph
+/// as the entity's base Render - a deliberate placeholder (the animation
 /// is frame-complete and genuinely cycling under the hood, it just has no
-/// visible effect yet - swapping in real per-frame art later means
-/// changing what this one function returns, nothing else in the
-/// animation/render pipeline needs to change.
+/// visible effect) until real per-enemy walk-cycle art exists.
 pub fn idle_frames_for(base_glyph: FontCharType) -> IdleAnimation {
     IdleAnimation {
         frames: vec![base_glyph; DEFAULT_IDLE_FRAME_COUNT],
         frame_index: 0,
         elapsed_ms: 0.0,
+        sheet: IdleSpriteSheet::Dungeon,
+    }
+}
+
+/// How many idle-loop frame columns `resources/character_idle.png` has
+/// per class row - see that file's own doc comment in main.rs
+/// (CHARACTER_IDLE_CONSOLE) for the full sheet layout, and
+/// MAX_IDLE_FRAMES's own doc comment for why this is 6 rather than every
+/// class actually having 6 genuinely distinct frames.
+pub const CHARACTER_IDLE_COLS: u16 = MAX_IDLE_FRAMES as u16;
+
+/// Which row a class occupies on `resources/character_portrait.png` -
+/// `None` for anything without a row there. Safe to reuse a plain
+/// 0-based row assignment here (unlike character_idle_row/
+/// character_battle_row below) because character_portrait_glyph ONLY
+/// EVER populates column 0 of a class's row - a plain console's `cls()`
+/// default glyph (32) lands at column 32 % CHARACTER_IDLE_COLS == 2 on
+/// this 6-column sheet, and column 2 is guaranteed blank on every row
+/// regardless of which row that is, so there's no row this sheet
+/// specifically needs to keep empty. (character_idle.png doesn't have
+/// this luxury - it fills every column of a class's row with a real
+/// walk-cycle frame - which is exactly why it needs its own
+/// character_idle_row instead of sharing this one.)
+pub fn class_sheet_row(class: &str) -> Option<u16> {
+    match class {
+        "Barbarian" => Some(0),
+        "Rogue" => Some(1),
+        "Amazon" => Some(2),
+        "Hunter" => Some(3),
+        "Mage" => Some(4),
+        // Debug is the hidden dev/test class (see title.rs::class_select's
+        // 'D' hotkey) - not in CLASS_ROSTER, but still a real Player
+        // entity that needs real idle/portrait art like any other class.
+        "Debug" => Some(5),
+        _ => None,
+    }
+}
+
+/// The exact `resources/character_portrait.png` glyph for `class`'s
+/// single static still portrait - `None` if `class` has no row there
+/// (see class_sheet_row). Column 0 only (this sheet only ever holds one
+/// pose per class - PixelLab's own `rotations/south.png`).
+pub fn character_portrait_glyph(class: &str) -> Option<FontCharType> {
+    let row = class_sheet_row(class)?;
+    Some(row * CHARACTER_IDLE_COLS)
+}
+
+/// Which row a class occupies on `resources/character_idle.png`
+/// SPECIFICALLY - deliberately NOT class_sheet_row, for the identical
+/// reason character_battle_row below needs its own mapping: a plain
+/// console's `cls()` fills every never-drawn-this-frame cell with glyph
+/// 32 by default, and this sheet's own column count (CHARACTER_IDLE_COLS,
+/// 6) puts that at row 5, column 2 (32 / 6 == 5, 32 % 6 == 2). Unlike
+/// character_portrait_glyph above, this sheet fills EVERY column of a
+/// class's row with a real walk-cycle frame, so column 2 is never
+/// guaranteed blank - row 5 has to stay permanently unassigned here, the
+/// same way character_battle_row permanently skips row 4. Confirmed for
+/// real, not just reasoned: assigning Debug to row 5 here (the hidden
+/// dev/test class, added after Barbarian/Rogue/Amazon/Hunter/Mage had
+/// already safely filled rows 0-4) reproduced the exact Mage-tiling bug
+/// on this sheet instead of character_battle.png - the entire title/
+/// adventure-select screen filled with tiled Robot portraits, since
+/// CHARACTER_IDLE_CONSOLE spans the full display and was never NOT
+/// showing that leaked content. The single source of truth shared by
+/// idle_frames_for_class (builds a full IdleAnimation up front, at spawn
+/// time) and the Class Select screen's highlighted-class preview
+/// (screens/title.rs::class_select, which looks up one frame at a time
+/// off its own menu timer instead of a real IdleAnimation component,
+/// since a roster entry there isn't a real ECS entity) - both stay in
+/// sync automatically if a class's row on THIS sheet ever moves.
+fn character_idle_row(class: &str) -> Option<u16> {
+    match class {
+        "Barbarian" => Some(0),
+        "Rogue" => Some(1),
+        "Amazon" => Some(2),
+        "Hunter" => Some(3),
+        "Mage" => Some(4),
+        // Row 5 deliberately skipped - see this fn's own doc comment.
+        "Debug" => Some(6),
+        _ => None,
+    }
+}
+
+/// The exact `resources/character_idle.png` glyph for `class`'s idle
+/// frame `frame_index` (wrapped modulo CHARACTER_IDLE_COLS, so any
+/// ever-increasing counter can be passed directly) - `None` if `class`
+/// has no row on that sheet (see character_idle_row).
+pub fn character_idle_glyph(class: &str, frame_index: usize) -> Option<FontCharType> {
+    let row = character_idle_row(class)?;
+    let col = (frame_index as u16) % CHARACTER_IDLE_COLS;
+    Some(row * CHARACTER_IDLE_COLS + col)
+}
+
+/// How many battle-idle frame columns `resources/character_battle.png`
+/// has per class row - 8, matching Hunter's real PixelLab-exported
+/// Fight_Stance_Idle/east cycle (see main.rs's CHARACTER_BATTLE_CONSOLE
+/// for the full sheet layout).
+pub const CHARACTER_BATTLE_COLS: u16 = 8;
+
+/// Which row a class occupies on `resources/character_battle.png`
+/// SPECIFICALLY - deliberately its own mapping, not shared with
+/// character_idle_row or class_sheet_row, and this is load-bearing, not
+/// a stylistic choice: a console's `cls()` fills every never-drawn-this-
+/// frame cell with glyph 32 by default (see CLAUDE.md's standing
+/// gotchas), and which ROW that lands on depends on THIS sheet's own
+/// column count (32 / 8 = 4 exactly) - independent of how many columns
+/// any OTHER sheet has. A naive plain 0..4 assignment would put row 4 at
+/// Mage, and Mage's frames would silently replace every undrawn cell
+/// across the WHOLE console (which spans the full display) on every
+/// screen, all the time - confirmed for real: the entire title screen
+/// filled with tiled Mage portraits before this was caught. Row 4 is
+/// left deliberately blank here and Mage moved to row 5 instead. (The
+/// exact same class of bug hit character_idle.png too, once Debug's row
+/// landed on ITS sheet's own forbidden row 5 - see character_idle_row's
+/// own doc comment for that second confirmed occurrence. Every
+/// per-class sheet needs this check done fresh for its own column count,
+/// never assumed safe by analogy with another sheet.)
+fn character_battle_row(class: &str) -> Option<u16> {
+    match class {
+        "Barbarian" => Some(0),
+        "Rogue" => Some(1),
+        "Amazon" => Some(2),
+        "Hunter" => Some(3),
+        // Row 4 deliberately skipped - see this fn's own doc comment.
+        "Mage" => Some(5),
+        "Debug" => Some(6),
+        _ => None,
+    }
+}
+
+/// The exact `resources/character_battle.png` glyph for `class`'s
+/// battle-idle frame `frame_index` (wrapped modulo CHARACTER_BATTLE_COLS)
+/// - `None` if `class` has no row on that sheet (see
+/// character_battle_row). Used by the battle screen's own portrait loop,
+/// NOT IdleAnimation - the player's battle portrait isn't a dungeon-view
+/// entity, so this is driven by a plain frame counter on `Battle` itself
+/// instead (see Battle::player_idle_frame).
+pub fn character_battle_glyph(class: &str, frame_index: usize) -> Option<FontCharType> {
+    let row = character_battle_row(class)?;
+    let col = (frame_index as u16) % CHARACTER_BATTLE_COLS;
+    Some(row * CHARACTER_BATTLE_COLS + col)
+}
+
+/// Builds a fresh IdleAnimation for a player class, pulling real frames
+/// from `resources/character_idle.png` when `class` has a row there (see
+/// character_idle_row - every current class does, including the hidden
+/// Debug one). Falls back to the plain dungeonfont placeholder
+/// (idle_frames_for) for anything without a row there - a future class
+/// added without art yet.
+pub fn idle_frames_for_class(class: &str, base_glyph: FontCharType) -> IdleAnimation {
+    let row = match character_idle_row(class) {
+        Some(r) => r,
+        None => return idle_frames_for(base_glyph),
+    };
+    let frames = (0..CHARACTER_IDLE_COLS)
+        .map(|col| row * CHARACTER_IDLE_COLS + col)
+        .collect();
+    IdleAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        sheet: IdleSpriteSheet::CharacterIdle,
     }
 }
 

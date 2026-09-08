@@ -13,3 +13,8 @@ project.zip
 
 # game files
 /game_files/*
+
+# scratch space for in-progress sprite work (previews, contact sheets,
+# extracted reference images) - never a real project asset, so it never
+# belongs in a commit
+/docs/wip_art/

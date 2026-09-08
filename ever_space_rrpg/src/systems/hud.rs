@@ -475,6 +475,8 @@ pub fn hud(
         label_batch.target(HUD_CONSOLE);
         let mut badge_batch = DrawBatch::new();
         badge_batch.target(ABILITY_BAR_BADGE_CONSOLE);
+        let mut portrait_batch = DrawBatch::new();
+        portrait_batch.target(CHARACTER_PORTRAIT_HUD_CONSOLE);
         // (name, description-lookup key, box_y for the tooltip anchor) -
         // whichever bar's icon the mouse is currently over, checked
         // across BOTH bars so hovering either one shows its description.
@@ -482,21 +484,35 @@ pub fn hud(
 
         // Player-status frame's class-portrait icon (top-left corner,
         // next to the health bar drawn earlier on HUD_CONSOLE - see
-        // HEALTH_FRAME_ICON_COL/ROW). The exact same Render the player's
-        // own dungeon-map glyph and battle portrait already use (spawner
-        // ::spawn_player sets it once per class) - not a separate "icon"
-        // asset, just the same glyph at this console's bigger cell size.
-        if let Some(player_render) = ecs
-            .entry_ref(player)
-            .ok()
-            .and_then(|entry| entry.get_component::<Render>().ok().copied())
-        {
-            draw_portrait(
-                &mut bar_batch,
+        // HEALTH_FRAME_ICON_COL/ROW). resources/character_portrait.png's
+        // still pose replaces the old "just draw the player's own
+        // dungeonfont Render glyph bigger" behavior for any class with a
+        // row there - see components::character_portrait_glyph - falling
+        // back to the old behavior for anything without one yet.
+        match character_portrait_glyph(class) {
+            Some(glyph) => draw_portrait(
+                &mut portrait_batch,
                 HEALTH_FRAME_ICON_COL,
                 HEALTH_FRAME_ICON_ROW,
-                player_render,
-            );
+                Render {
+                    color: ColorPair::new(WHITE, BLACK),
+                    glyph,
+                },
+            ),
+            None => {
+                if let Some(player_render) = ecs
+                    .entry_ref(player)
+                    .ok()
+                    .and_then(|entry| entry.get_component::<Render>().ok().copied())
+                {
+                    draw_portrait(
+                        &mut bar_batch,
+                        HEALTH_FRAME_ICON_COL,
+                        HEALTH_FRAME_ICON_ROW,
+                        player_render,
+                    );
+                }
+            }
         }
 
         // Buff badges - the abilities' own real sprite icons, just below
@@ -670,6 +686,7 @@ pub fn hud(
         bar_batch.submit(10001).expect("Batch error");
         label_batch.submit(10002).expect("Batch error");
         badge_batch.submit(10004).expect("Batch error");
+        portrait_batch.submit(10005).expect("Batch error");
 
         // The hovered slot's tooltip (from either bar) - drawn on
         // HUD_CONSOLE (fine text) rather than either bar's own coarse

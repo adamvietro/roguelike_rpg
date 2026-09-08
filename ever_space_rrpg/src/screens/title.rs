@@ -304,22 +304,46 @@ impl State {
         }
     }
 
-    /// Lists every playable class with a big name/key, a short description,
-    /// and a big letter-glyph "icon" (a placeholder for real sprite art -
-    /// reuses draw_portrait, the same helper the battle screen uses to
-    /// blow up a glyph) next to it, and starts a run with whichever one
-    /// the player picks. New classes go here as one more CLASS_ROSTER
-    /// entry - this function needs no other changes.
+    /// Lists every playable class with a big name/key, a short
+    /// description, and a big icon next to it (reuses draw_portrait, the
+    /// same helper the battle screen uses to blow up a glyph), and starts
+    /// a run with whichever one the player picks. The currently-
+    /// highlighted class plays its real idle-loop breathing animation
+    /// (resources/character_idle.png, via character_idle_glyph and
+    /// CLASS_SELECT_IDLE_CONSOLE) in place of its plain static portrait;
+    /// every other row still shows the static glyph icon
+    /// (CLASS_ROSTER's own icon_glyph field, unaffected by the
+    /// animation). New classes go here as one more CLASS_ROSTER entry -
+    /// this function needs no other changes as long as the new class
+    /// also gets a components::character_idle_row entry (falls back to
+    /// the static icon forever otherwise).
     pub fn class_select(&mut self, ctx: &mut BTerm) {
         self.tick_background(ctx);
 
         ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(0, YELLOW, BLACK, "Choose Your Class");
 
+        let previous_cursor = self.class_select_cursor;
         self.class_select_cursor = menu_nav(ctx.key, self.class_select_cursor, CLASS_ROSTER.len());
+        if self.class_select_cursor != previous_cursor {
+            // Restart the breathing cycle cleanly on the newly-highlighted
+            // class rather than continuing mid-cycle from whichever frame
+            // the previous one happened to be on.
+            self.class_select_anim_frame = 0;
+            self.class_select_anim_elapsed_ms = 0.0;
+        }
+        self.class_select_anim_elapsed_ms += ctx.frame_time_ms;
+        if self.class_select_anim_elapsed_ms >= IDLE_FRAME_DURATION_MS {
+            self.class_select_anim_elapsed_ms -= IDLE_FRAME_DURATION_MS;
+            self.class_select_anim_frame += 1;
+        }
 
         let mut icons = DrawBatch::new();
         icons.target(3);
+        let mut animated_icon = DrawBatch::new();
+        animated_icon.target(CLASS_SELECT_IDLE_CONSOLE);
+        let mut still_icon = DrawBatch::new();
+        still_icon.target(CHARACTER_PORTRAIT_BIG_CONSOLE);
 
         for (i, entry) in CLASS_ROSTER.iter().enumerate() {
             let i = i as i32;
@@ -373,17 +397,55 @@ impl State {
             }
             ctx.set_active_console(BIG_TEXT_CONSOLE);
 
-            draw_portrait(
-                &mut icons,
-                0,
-                i,
-                Render {
-                    color: ColorPair::new(WHITE, BLACK),
-                    glyph: to_cp437(entry.icon_glyph),
-                },
-            );
+            // The highlighted class plays its real idle-loop animation
+            // (CLASS_SELECT_IDLE_CONSOLE, registered after console 3 so
+            // it always paints over the static icon there) instead of
+            // the plain static portrait every other row still gets - see
+            // components::character_idle_glyph.
+            if self.class_select_cursor == i as usize {
+                if let Some(glyph) = character_idle_glyph(entry.name, self.class_select_anim_frame)
+                {
+                    draw_portrait(
+                        &mut animated_icon,
+                        0,
+                        i,
+                        Render {
+                            color: ColorPair::new(WHITE, BLACK),
+                            glyph,
+                        },
+                    );
+                    continue;
+                }
+            }
+            // The still portrait (resources/character_portrait.png,
+            // PixelLab's own south-facing rotation pose) replaces the
+            // old dungeonfont icon_glyph for any class with a row there
+            // - see components::character_portrait_glyph. Falls back to
+            // the old dungeonfont glyph for anything without one yet.
+            match character_portrait_glyph(entry.name) {
+                Some(glyph) => draw_portrait(
+                    &mut still_icon,
+                    0,
+                    i,
+                    Render {
+                        color: ColorPair::new(WHITE, BLACK),
+                        glyph,
+                    },
+                ),
+                None => draw_portrait(
+                    &mut icons,
+                    0,
+                    i,
+                    Render {
+                        color: ColorPair::new(WHITE, BLACK),
+                        glyph: to_cp437(entry.icon_glyph),
+                    },
+                ),
+            }
         }
         icons.submit(0).expect("Batch error");
+        animated_icon.submit(1).expect("Batch error");
+        still_icon.submit(2).expect("Batch error");
 
         // pending_enter_release guards specifically against the SAME held
         // Enter that just confirmed a choice on Adventure Select also

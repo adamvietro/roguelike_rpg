@@ -14,8 +14,10 @@ build), not by default.
   `=` in several places — flag any new dependency clearly before adding it.
 - Repo: https://github.com/adamvietro/roguelike_rpg (public)
 - Glyph/sprite map lives in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
-  tracked in this repo — see "Sprite sheet editing" below before touching
-  `resources/dungeonfont.png`.
+  tracked in this repo — the master reference for both `dungeonfont.png`
+  AND the PixelLab character sheets (`character_idle.png`,
+  `character_battle.png`, `character_portrait.png`). See "Sprite sheet
+  editing" / "Character sheet art" below before touching any of them.
 
 ## Build & verify — do this yourself now, don't just describe it
 
@@ -116,9 +118,29 @@ You have direct file access and a real terminal here, so use them:
   aren't visible until flush, so a second call reads the same stale value
   and overwrites (doesn't add to) the first. Accumulate into a local and
   apply once.
-- bracket-lib culls near-black opaque pixels to transparent on fancy
-  consoles (confirmed upstream bug, no toggle). Floor source art at RGB
-  10,10,10 or above.
+- **Confirmed from bracket-terminal's own GLSL source** (not just
+  observed): a plain (`with_simple_console_no_bg`) console's fragment
+  shader discards a pixel if all three of its RGB channels are below
+  0.1 (25.5/255) — it never reads the alpha channel at all, so a real
+  alpha channel by itself does nothing there; transparency on a plain
+  console is a pure RGB colorkey. A fancy console's shader instead shows
+  texture content only when (at least one RGB channel is above that same
+  0.1 cutoff) AND alpha is above 0.1, else falls back to the per-vertex
+  background color — this is what the transparent-background trick
+  (`RGBA::from_f32(0,0,0,0)` passed to `set_fancy`) actually relies on,
+  and it's also where "bracket-lib culls near-black opaque pixels"
+  comes from: a fancy console's own near-black-but-opaque pixel fails
+  the "at least one channel above 0.1" half of that check and gets
+  treated as no-content regardless of its real alpha. Two consequences
+  for any sprite sheet: floor real content's near-black pixels to at
+  least ~30 in every channel (not 25.5 exactly — leave margin) so they
+  survive on EITHER console type, and for a sheet meant to render on a
+  **plain** console specifically, force every actually-transparent
+  pixel's RGB to true (0,0,0) — setting only its alpha to 0 and leaving
+  old opaque-looking RGB behind (e.g. from a background-removal tool
+  that clears alpha but not color) renders as a solid, wrongly-opaque
+  block, invisible to any type check and only caught by an actual
+  screenshot.
 - `set_fancy` renders one full cell north of the same position via plain
   `set()` — compensate with a `..._Y_ANCHOR_OFFSET` constant.
 - A custom-sized `Camera` doesn't shrink what renders around a small map
@@ -127,6 +149,59 @@ You have direct file access and a real terminal here, so use them:
 - Console z-order is registration order; a later-registered console
   (including anything the Ability/Battle Bar or any future icon bar use)
   paints over lower ones wherever it actually draws something.
+- **`bracket_pathfinding::DijkstraMap::build` never writes 0.0 into a
+  seed tile's own array slot** (confirmed from its source: the seed only
+  ever enters the algorithm's internal queue with depth 0.0, but
+  `dm.map[seed_idx]` itself is left at its initial `f32::MAX` unless a
+  neighbor's own relaxation pass later overwrites it with ~the edge cost
+  back to that neighbor, e.g. ~2.0 for one cardinal hop). A tile you seed
+  Dijkstra at (a navigation target) can therefore report a WORSE distance
+  than a tile genuinely one step further away, and any greedy "step
+  toward whichever neighbor has the lowest `dijkstra.map` value" bot can
+  end up in a stable cycle right next to the goal, worst-cased on a
+  target boxed against a wall with few approach angles (confirmed via a
+  real reproduction next to the Arena shop's exit tile). Fix: when
+  picking among an entity's own candidate moves, treat "this candidate
+  IS the literal target" as an automatic, unconditional win — never trust
+  `dijkstra.map[]` for that one specific index.
+- A custom `with_font` sheet needs a glyph grid big enough to cover index
+  32 — every console's `cls()` fills all cells with glyph 32 by default
+  (bracket-terminal's own `SimpleConsole::cls`), and `FontScaler::
+  glyph_position` does an unsigned subtraction on the row it computes for
+  whatever glyph it's given, with no bounds check. A small custom sheet
+  (e.g. a 5-column-wide one) can compute a row of 0 for glyph 32, and
+  `glyph_y - 1` panics with "attempt to subtract with overflow" the
+  moment that console is ever cleared — happens at startup, before any
+  real content is drawn, so it's easy to mistake for something else being
+  wrong. Fix: pad the sheet's total rows/cols so index 32 lands on a real
+  (even if blank/transparent) cell, not just enough for the content you
+  actually placed.
+  **This has a second, subtler form that doesn't crash at all**: even
+  once there are enough rows to avoid the panic above, whichever specific
+  row `32 / cols` (integer division) lands on needs to actually BE blank
+  - if real content happens to sit there, every cell of that console that
+  goes undrawn on a given frame silently shows THAT content instead of
+  nothing. Confirmed for real on `character_battle.png` (8 columns, so
+  `32 / 8 == 4` exactly): Mage's row happened to be row 4, and Mage's
+  portrait replaced every empty cell of that console - which spans the
+  full display - filling the ENTIRE screen with tiled Mage portraits on
+  every single screen in the game, not just during battle. Two sheets
+  with different column counts can need DIFFERENT row assignments for
+  the exact same set of classes purely because `32 / cols` differs
+  between them - don't assume a row mapping that's safe on one sheet is
+  safe on another without checking that division again for the new
+  sheet's own column count. **This isn't hypothetical caution — it
+  recurred for real.** `character_idle.png` (6 columns, `32 / 6 == 5`)
+  was documented as "safe" purely because nothing had been assigned to
+  row 5 yet; the moment a 6th class (the hidden "Debug" class) got
+  assigned there, the same tiling bug reappeared, this time filling the
+  Adventure Select screen with the new class's portrait. A sheet with an
+  apparently-safe empty row is not a guarantee, just an unclaimed one —
+  give every per-class sheet its own dedicated row-assignment function
+  from the start (don't reuse another sheet's mapping "since it already
+  has a free row there"), and explicitly skip whatever row `32 / cols`
+  computes for that sheet's specific column count, the same way
+  `character_battle_row`/`character_idle_row` do in `components.rs`.
 
 ## Sprite sheet editing (`resources/dungeonfont.png`)
 
@@ -142,3 +217,26 @@ transparent background, not a face-only bust. Update
 `docs/Dungeon_Font_Glyph_to_Cell_Map.md` at the end of any session that
 changes the mapping — even a codepoint-reservation-only pass with no pixel
 edits counts as "changed" for this purpose.
+
+## Character sheet art (PixelLab — `character_idle.png`,
+`character_battle.png`, `character_portrait.png`)
+
+Full detail (row assignments, zip format, confirmed gotchas) now lives in
+`docs/Dungeon_Font_Glyph_to_Cell_Map.md` — it's the master reference for
+BOTH this system and the dungeonfont above; read it before touching any
+of these three sheets. The two most expensive-to-relearn lessons:
+- **Never trust a PixelLab zip's `metadata.json` size for a frame's real
+  canvas** — `Walk` in particular comes back padded larger than 32×32
+  for most classes (confirmed: 40–48px, varies per class) to give the
+  animation motion room, while the character's own pixel size and
+  center stay constant. Center-crop every frame to exactly 32×32 before
+  any further processing, or the character silently renders smaller
+  (resize-based sheets) or bleeds into neighboring cells (native-paste
+  sheets like `character_battle.png`).
+- **Always blank the destination row/cell before pasting new content** —
+  never trust a new frame's own transparency to fully replace old
+  content whose silhouette doesn't perfectly match.
+- Each of the three sheets needs its OWN row-assignment function keyed
+  to its own column count — reusing another sheet's mapping has caused
+  the tiled-portrait bug (see the glyph-32 gotcha above) twice for real,
+  on two different sheets.

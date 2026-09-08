@@ -38,17 +38,25 @@ mod prelude {
     // Console indices, in BTermBuilder registration order (see main()):
     // 0 dungeon tiles+bg, 1 dungeon entities, 2 fine 8px text (battle/
     // game-over/victory/pause), 3 battle portraits, 4 MAP_SCROLL_CONSOLE,
-    // 5 ENTITY_SCROLL_CONSOLE, 6 HUD_CONSOLE, 7 BIG_TEXT_CONSOLE, 8
-    // END_SCREEN_FALLEN_CONSOLE, 9 GLIDE_CONSOLE, 10
-    // BATTLE_PORTRAIT_WIGGLE_CONSOLE. HUD_CONSOLE and BIG_TEXT_CONSOLE
-    // used to be plain literals 4 and 5 - promoted to named constants
-    // (like everything from END_SCREEN_FALLEN_CONSOLE on already was)
-    // specifically because MAP_SCROLL_CONSOLE/ENTITY_SCROLL_CONSOLE
-    // needed to be inserted BEFORE them in registration order (see their
-    // own doc comments below for why), which pushed every console from
-    // the old 4 onward up by two - a plain-literal "4" or "5" anywhere
-    // in the codebase would have silently kept meaning the OLD console
-    // after this change, not the new one at that slot.
+    // 5 ENTITY_SCROLL_CONSOLE, 6 CHARACTER_IDLE_CONSOLE, 7
+    // CHARACTER_IDLE_SCROLL_CONSOLE, 8 CHARACTER_IDLE_GLIDE_CONSOLE, 9
+    // HUD_CONSOLE, 10 BIG_TEXT_CONSOLE, 11 END_SCREEN_FALLEN_CONSOLE, 12
+    // GLIDE_CONSOLE, 13 BATTLE_PORTRAIT_WIGGLE_CONSOLE. HUD_CONSOLE and
+    // BIG_TEXT_CONSOLE used to be plain literals 4 and 5 - promoted to
+    // named constants (like everything from END_SCREEN_FALLEN_CONSOLE on
+    // already was) specifically because MAP_SCROLL_CONSOLE/
+    // ENTITY_SCROLL_CONSOLE needed to be inserted BEFORE them in
+    // registration order (see their own doc comments below for why),
+    // which pushed every console from the old 4 onward up by two - a
+    // plain-literal "4" or "5" anywhere in the codebase would have
+    // silently kept meaning the OLD console after this change, not the
+    // new one at that slot. The idle-animation session's own
+    // CHARACTER_IDLE_* trio did this same "insert early, renumber
+    // everything after" move a second time, for the same reason: they
+    // draw actual dungeon-view entities (just from a second sheet), so
+    // they need to sit below the HUD/Ability Bar layer exactly like
+    // console 1/ENTITY_SCROLL_CONSOLE do, not appended at the end where
+    // they'd paint over it.
     /// Console 4: a "fancy console" (supports DrawBatch::set_fancy), same
     /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid and dungeonfont as console 0,
     /// with an opaque background exactly like console 0's (unlike every
@@ -84,24 +92,69 @@ mod prelude {
     /// to on the same frames as each other, never mixed with
     /// GLIDE_CONSOLE's own (different) use case in a single frame.
     pub const ENTITY_SCROLL_CONSOLE: usize = 5;
-    /// Console 6 (was console 4 before MAP_SCROLL_CONSOLE/
-    /// ENTITY_SCROLL_CONSOLE were inserted above it): the dungeon HUD -
-    /// health bar, item lists, tooltips. See HUD_COLS/HUD_ROWS above.
-    pub const HUD_CONSOLE: usize = 6;
-    /// Console 7 (was console 5): big title/class-select text, and the
-    /// large text used by the end/victory screens - DISPLAY_WIDTH x
-    /// DISPLAY_HEIGHT cols/rows (the dungeon view's own grid) on the
-    /// small text font instead of the dungeon font, landing at 32x32px
-    /// cells, 4x console 2's 8px text.
-    pub const BIG_TEXT_CONSOLE: usize = 7;
-    /// Console 8 (was console 6): a "fancy console" (supports
+    /// Console 6: a plain console, DISPLAY_WIDTH x DISPLAY_HEIGHT grid,
+    /// sourced from a SECOND font (`resources/character_idle.png`,
+    /// registered right after dungeonfont/terminal8x8 in main()) rather
+    /// than dungeonfont - see IdleSpriteSheet's own doc comment in
+    /// components.rs for why a second sheet exists at all instead of more
+    /// dungeonfont cells (short version: dungeonfont had ~32 free cells
+    /// left, nowhere near enough for 5 classes' worth of multi-frame walk
+    /// cycles, let alone enemies later). 128x128px source cells (4x
+    /// dungeonfont's 32px) - deliberately higher-resolution than the 32px
+    /// this renders at on screen, so the console's own GPU-side downscale
+    /// does the final resize instead of a lossy pre-shrink baked into the
+    /// PNG. Mirrors console 1 (dungeon entities): the "camera at rest,
+    /// this entity not currently gliding" case in entity_render.rs, for
+    /// any entity whose IdleAnimation::sheet is CharacterIdle rather than
+    /// Dungeon. Registered immediately after ENTITY_SCROLL_CONSOLE and
+    /// before HUD_CONSOLE for the same reason MAP_SCROLL_CONSOLE/
+    /// ENTITY_SCROLL_CONSOLE are - these draw real dungeon-view entities,
+    /// just from a different sheet, so they need to stay BELOW the HUD/
+    /// Ability Bar layer in z-order, not appended at the end of the chain
+    /// where they'd paint over it.
+    pub const CHARACTER_IDLE_CONSOLE: usize = 6;
+    /// Console 7: a "fancy console", same grid/font as
+    /// CHARACTER_IDLE_CONSOLE, transparent background (the GLIDE_CONSOLE
+    /// trick). The CharacterIdle-sheet equivalent of ENTITY_SCROLL_CONSOLE
+    /// - used on the same frames as that console (camera_render_offset
+    /// returns Some, i.e. the camera itself is panning), for whichever
+    /// entities' IdleAnimation::sheet is CharacterIdle. Kept separate from
+    /// ENTITY_SCROLL_CONSOLE rather than mixing sheets on one console for
+    /// the same reason CHARACTER_IDLE_CONSOLE isn't just drawn onto
+    /// console 1: a plain console (or, here, a fancy one) is bound to
+    /// exactly one font for its whole grid.
+    pub const CHARACTER_IDLE_SCROLL_CONSOLE: usize = 7;
+    /// Console 8: a second "fancy console", same grid/font as
+    /// CHARACTER_IDLE_CONSOLE. The CharacterIdle-sheet equivalent of
+    /// GLIDE_CONSOLE - used on the (more common) frames where the camera
+    /// itself sits still but this one entity is mid-step, for whichever
+    /// entities' IdleAnimation::sheet is CharacterIdle. Registered here
+    /// (immediately after CHARACTER_IDLE_SCROLL_CONSOLE, both still ahead
+    /// of HUD_CONSOLE) rather than alongside GLIDE_CONSOLE itself
+    /// (registered much later, after the HUD) - CHARACTER_IDLE_CONSOLE's
+    /// own doc comment above explains why this whole trio needs to sit
+    /// below the HUD/Ability Bar layer.
+    pub const CHARACTER_IDLE_GLIDE_CONSOLE: usize = 8;
+    /// Console 9 (was console 4 before MAP_SCROLL_CONSOLE/
+    /// ENTITY_SCROLL_CONSOLE were inserted above it, then console 6 before
+    /// the CHARACTER_IDLE_* trio was inserted above THAT): the dungeon
+    /// HUD - health bar, item lists, tooltips. See HUD_COLS/HUD_ROWS
+    /// above.
+    pub const HUD_CONSOLE: usize = 9;
+    /// Console 10 (was console 5, then 7): big title/class-select text,
+    /// and the large text used by the end/victory screens -
+    /// DISPLAY_WIDTH x DISPLAY_HEIGHT cols/rows (the dungeon view's own
+    /// grid) on the small text font instead of the dungeon font, landing
+    /// at 32x32px cells, 4x console 2's 8px text.
+    pub const BIG_TEXT_CONSOLE: usize = 10;
+    /// Console 11 (was console 6, then 8): a "fancy console" (supports
     /// DrawBatch::set_fancy, incl. rotation) - same DISPLAY_WIDTH x
     /// DISPLAY_HEIGHT grid and dungeonfont as console 0, so cells are the
     /// same 32x32px squares, giving a clean (non-stretched) rotation.
     /// Used only by draw_end_screen_fallen_portrait for the GameOver
     /// screen's fallen hero - see main()'s builder chain and State::tick's
     /// console-clear block.
-    pub const END_SCREEN_FALLEN_CONSOLE: usize = 8;
+    pub const END_SCREEN_FALLEN_CONSOLE: usize = 11;
     /// How much to blow up the fallen hero's glyph on the GameOver screen
     /// - set_fancy's `scale` parameter, a multiplier on the glyph's native
     /// 32x32px size (uniform x/y so a 90-degree rotation stays square,
@@ -112,7 +165,7 @@ mod prelude {
     /// available on a fancy console (positions there aren't snapped to a
     /// grid the way draw_portrait's are).
     pub const END_SCREEN_FALLEN_SCALE: f32 = 6.0;
-    /// Console 9 (was console 7): a second "fancy console", same
+    /// Console 12 (was console 7, then 9): a second "fancy console", same
     /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid/32x32px cells as console
     /// 0/1/8. Used by entity_render (systems/entity_render.rs) to draw
     /// any entity currently mid-tile-glide (see
@@ -130,8 +183,8 @@ mod prelude {
     /// proved out (RGBA alpha 0) - without it, a fancy console's normally
     /// opaque background quad would paint a visible box sliding over the
     /// map every time something moved.
-    pub const GLIDE_CONSOLE: usize = 9;
-    /// Console 10 (was console 8): a third "fancy console", sharing
+    pub const GLIDE_CONSOLE: usize = 12;
+    /// Console 13 (was console 8, then 10): a third "fancy console", sharing
     /// BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS's coarse 5x5 grid with
     /// console 3 (same font, same physical window) - since a low
     /// column/row count over the same window automatically yields huge
@@ -149,25 +202,24 @@ mod prelude {
     /// see the battle-portrait jiggle history in journal.md. That's the
     /// one thing that's changed since; the rest of this console's setup
     /// is otherwise identical in spirit to that first attempt.
-    pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 10;
-    /// Console 11: a plain console, same 40x25 grid/32px cells as
-    /// BIG_TEXT_CONSOLE (registered identically, just later - console
-    /// z-order is registration order), used ONLY for the floating
+    pub const BATTLE_PORTRAIT_WIGGLE_CONSOLE: usize = 13;
+    /// Console 14 (was console 11): a plain console, same 40x25 grid/32px
+    /// cells as BIG_TEXT_CONSOLE (registered identically, just later -
+    /// console z-order is registration order), used ONLY for the floating
     /// damage-number popups in screens/battle.rs. Needed because
-    /// BATTLE_PORTRAIT_WIGGLE_CONSOLE (index 10, above BIG_TEXT_CONSOLE
-    /// at index 7) is now also used for every NON-wiggling multi-enemy
-    /// portrait (see draw_portrait_fancy - fractional positions need a
-    /// fancy console even when nothing's actually shaking), which meant
-    /// an idle enemy portrait was painting directly over its own damage
-    /// number every frame. The player never showed this bug (a "Hit"
-    /// flash, which is what its own popup coincides with, never goes
-    /// through the wiggle path at all - only "Attacking" does), which is
-    /// exactly why it was easy to miss at first. Registering the popup
-    /// text on its own console at the very end of the chain, rather than
-    /// moving it onto an existing one, guarantees it renders above
-    /// EVERY portrait regardless of which of those consoles a portrait
-    /// happens to use.
-    pub const DAMAGE_POPUP_CONSOLE: usize = 11;
+    /// BATTLE_PORTRAIT_WIGGLE_CONSOLE (above BIG_TEXT_CONSOLE) is now
+    /// also used for every NON-wiggling multi-enemy portrait (see
+    /// draw_portrait_fancy - fractional positions need a fancy console
+    /// even when nothing's actually shaking), which meant an idle enemy
+    /// portrait was painting directly over its own damage number every
+    /// frame. The player never showed this bug (a "Hit" flash, which is
+    /// what its own popup coincides with, never goes through the wiggle
+    /// path at all - only "Attacking" does), which is exactly why it was
+    /// easy to miss at first. Registering the popup text on its own
+    /// console at the very end of the chain, rather than moving it onto
+    /// an existing one, guarantees it renders above EVERY portrait
+    /// regardless of which of those consoles a portrait happens to use.
+    pub const DAMAGE_POPUP_CONSOLE: usize = 14;
     /// Columns in the Ability Bar's coarse icon grid - see
     /// ABILITY_BAR_CONSOLE. 32 gives an exact 1280/32 = 40px cell width
     /// (paired with ABILITY_BAR_ROWS' 40px cell height) - a genuinely
@@ -193,34 +245,34 @@ mod prelude {
     /// slot count. Caps both which roster entries render at all and
     /// which get a number label - see systems/hud.rs.
     pub const ABILITY_BAR_MAX_SLOTS: usize = 10;
-    /// Console 12: the Ability Bar's icon strip along the bottom of the
-    /// dungeon screen (systems/hud.rs) - a plain (non-fancy) console,
-    /// same dungeonfont as the class-select/battle-portrait icon
-    /// consoles, registered last so it renders above the dungeon tiles/
-    /// entities/HUD beneath it. No background (transparent everywhere
-    /// except the icons themselves), since only its bottom row of
-    /// ABILITY_BAR_COLS cells is ever drawn into - the rest of this
+    /// Console 15 (was console 12): the Ability Bar's icon strip along
+    /// the bottom of the dungeon screen (systems/hud.rs) - a plain
+    /// (non-fancy) console, same dungeonfont as the class-select/battle-
+    /// portrait icon consoles, registered last so it renders above the
+    /// dungeon tiles/entities/HUD beneath it. No background (transparent
+    /// everywhere except the icons themselves), since only its bottom row
+    /// of ABILITY_BAR_COLS cells is ever drawn into - the rest of this
     /// console's grid stays empty on purpose (see ABILITY_BAR_ROWS).
-    pub const ABILITY_BAR_CONSOLE: usize = 12;
-    /// Console 13: a plain console, same DISPLAY_WIDTH x DISPLAY_HEIGHT
-    /// grid/32x32px dungeonfont cells as console 0/GLIDE_CONSOLE/etc -
-    /// the player-status frame's buff badges (systems/hud.rs), for the
-    /// abilities' own real sprite icons at a size smaller than
-    /// ABILITY_BAR_CONSOLE's 40px (32px is this project's other common
-    /// "native resolution" for dungeonfont art, already used by several
-    /// consoles above, rather than an arbitrary new size that would need
-    /// scaling the source art down and likely looking worse for it).
-    /// Registered last, after ABILITY_BAR_CONSOLE, so a badge always
-    /// paints over the portrait/bars beneath it. No background
-    /// (transparent everywhere except wherever a badge is actually
-    /// drawn), same as ABILITY_BAR_CONSOLE - only a few cells in the
-    /// whole grid are ever used.
-    pub const BUFF_BADGE_CONSOLE: usize = 13;
-    /// Console 14: same HUD_COLS x HUD_ROWS grid/terminal8x8 font as
-    /// HUD_CONSOLE (so it can reuse HUD_CONSOLE's own pixel-ratio math),
-    /// but registered LAST of all - the Ability/Item/Battle Bar's
-    /// stack-count badges (systems/hud.rs, e.g. "x2" for two Freeze
-    /// Traps). Those bar icons are opaque, full-bleed sprite art on
+    pub const ABILITY_BAR_CONSOLE: usize = 15;
+    /// Console 16 (was console 13): a plain console, same DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT grid/32x32px dungeonfont cells as console
+    /// 0/GLIDE_CONSOLE/etc - the player-status frame's buff badges
+    /// (systems/hud.rs), for the abilities' own real sprite icons at a
+    /// size smaller than ABILITY_BAR_CONSOLE's 40px (32px is this
+    /// project's other common "native resolution" for dungeonfont art,
+    /// already used by several consoles above, rather than an arbitrary
+    /// new size that would need scaling the source art down and likely
+    /// looking worse for it). Registered last, after ABILITY_BAR_CONSOLE,
+    /// so a badge always paints over the portrait/bars beneath it. No
+    /// background (transparent everywhere except wherever a badge is
+    /// actually drawn), same as ABILITY_BAR_CONSOLE - only a few cells in
+    /// the whole grid are ever used.
+    pub const BUFF_BADGE_CONSOLE: usize = 16;
+    /// Console 17 (was console 14): same HUD_COLS x HUD_ROWS grid/
+    /// terminal8x8 font as HUD_CONSOLE (so it can reuse HUD_CONSOLE's own
+    /// pixel-ratio math), but registered LAST of all - the Ability/Item/
+    /// Battle Bar's stack-count badges (systems/hud.rs, e.g. "x2" for two
+    /// Freeze Traps). Those bar icons are opaque, full-bleed sprite art on
     /// ABILITY_BAR_CONSOLE (registered well before this one), so a badge
     /// drawn straight onto HUD_CONSOLE would sit BELOW the icon in
     /// z-order and never actually show - the exact same reasoning
@@ -229,7 +281,73 @@ mod prelude {
     /// shop's own existing "Healing Potion x5" quantity convention. No
     /// background (transparent everywhere except wherever a badge is
     /// actually drawn), same as the two consoles above it.
-    pub const ABILITY_BAR_BADGE_CONSOLE: usize = 14;
+    pub const ABILITY_BAR_BADGE_CONSOLE: usize = 17;
+    /// Console 18: a plain console, sharing console 3's coarse
+    /// BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS grid (so its cells are
+    /// automatically the same big size), but sourced from
+    /// character_idle.png instead of dungeonfont - the Class Select
+    /// screen's highlighted-class preview (screens/title.rs::
+    /// class_select), which plays that class's real idle-loop animation
+    /// in place of its plain static portrait while it's the one currently
+    /// selected. Registered last of all so it's guaranteed to paint over
+    /// console 3's own icons regardless of draw order within
+    /// class_select - in practice class_select only ever draws ONE of
+    /// the two for a given roster row (skips console 3's static icon
+    /// entirely for the highlighted row), so this is redundant safety
+    /// more than a strict requirement, matching DAMAGE_POPUP_CONSOLE's
+    /// own reasoning for the same "just register it last" choice.
+    pub const CLASS_SELECT_IDLE_CONSOLE: usize = 18;
+    /// Console 19: a plain console, same BATTLE_PORTRAIT_COLS x
+    /// BATTLE_PORTRAIT_ROWS grid as console 3 (so cells are the same big
+    /// blown-up size), sourced from a THIRD sheet -
+    /// `resources/character_battle.png` - at its own native 32x32px
+    /// cells (matching dungeonfont's own native resolution, which
+    /// console 3's existing portraits already blow up the exact same
+    /// way - no new oversampling concern here beyond what's already
+    /// accepted). The battle screen's own player-portrait idle loop
+    /// (screens/battle.rs::draw_battle_arena, driven by Battle::
+    /// player_idle_frame - NOT the dungeon-view IdleAnimation system,
+    /// since a battle portrait isn't a dungeon-view entity). Enemies
+    /// keep using console 3/dungeonfont unchanged - this is player-only.
+    pub const CHARACTER_BATTLE_CONSOLE: usize = 19;
+    /// Console 20: a fancy console, same grid/font as console 19 - the
+    /// character_battle.png equivalent of BATTLE_PORTRAIT_WIGGLE_CONSOLE,
+    /// used for the exact same "Attacking" shake
+    /// (draw_wiggling_portrait doesn't care which console/font its batch
+    /// targets, so this reuses that same helper unchanged).
+    pub const CHARACTER_BATTLE_WIGGLE_CONSOLE: usize = 20;
+    /// Console 21: a plain console, same BATTLE_PORTRAIT_COLS x
+    /// BATTLE_PORTRAIT_ROWS grid as console 3, sourced from a FOURTH
+    /// sheet - `resources/character_portrait.png` (one still pose per
+    /// class, PixelLab's own `rotations/south.png` - see
+    /// components::character_portrait_glyph). Shared by three screens
+    /// that all need a still (non-animated) big portrait on this exact
+    /// grid: Class Select's non-highlighted-row icon (screens/title.rs::
+    /// class_select - the STILL counterpart to CLASS_SELECT_IDLE_
+    /// CONSOLE's animated one), the in-battle Victory screen's own player
+    /// portrait (screens/battle.rs::draw_battle_arena, which has no live
+    /// Battle to animate a battle-idle frame counter from - see that
+    /// function's own doc comment for its full 3-tier fallback), and the
+    /// run-ending Victory screen's hero icon (screens/end.rs::
+    /// draw_end_screen_portrait - distinct from battle.rs's per-fight one).
+    pub const CHARACTER_PORTRAIT_BIG_CONSOLE: usize = 21;
+    /// Console 22: a plain console, same ABILITY_BAR_COLS x
+    /// ABILITY_BAR_ROWS grid as ABILITY_BAR_CONSOLE (so it lines up
+    /// exactly with HEALTH_FRAME_ICON_COL/ROW), sourced from
+    /// character_portrait.png too. The dungeon HUD's player-status
+    /// portrait icon (systems/hud.rs) - replaces the old "just draw the
+    /// player's own dungeonfont Render glyph bigger" behavior for any
+    /// class with a row on this sheet.
+    pub const CHARACTER_PORTRAIT_HUD_CONSOLE: usize = 22;
+    /// Console 23: a fancy console (supports DrawBatch::set_fancy), same
+    /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid as END_SCREEN_FALLEN_CONSOLE,
+    /// sourced from character_portrait.png instead of dungeonfont.png -
+    /// same native 32x32px cell size, so a 90-degree rotation still
+    /// doesn't stretch/squash the glyph. Used only by
+    /// draw_end_screen_fallen_portrait (screens/end.rs) for the GameOver
+    /// screen's fallen hero, for any class with a row on that sheet -
+    /// falls back to END_SCREEN_FALLEN_CONSOLE/dungeonfont otherwise.
+    pub const END_SCREEN_FALLEN_PORTRAIT_CONSOLE: usize = 23;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -301,6 +419,18 @@ struct State {
     /// - see screens/title.rs::class_select. Reset the same way as
     /// adventure_select_cursor above.
     class_select_cursor: usize,
+    /// Which idle-loop frame the currently-highlighted class's preview is
+    /// showing, and how long it's been showing it - see
+    /// screens/title.rs::class_select. Plain State fields rather than a
+    /// real ECS IdleAnimation component, since a class-select roster
+    /// entry isn't a real entity - same "menu timing lives on State"
+    /// convention as background_move_timer_ms. Reset to (0, 0.0) whenever
+    /// class_select_cursor changes, so switching the highlight always
+    /// restarts the breathing cycle cleanly instead of continuing
+    /// mid-cycle from whichever frame the previous class happened to be
+    /// on.
+    class_select_anim_frame: usize,
+    class_select_anim_elapsed_ms: f32,
     /// Cursor row for the Options screen's browsing list (the 4 rebindable
     /// Actions plus Battle Speed/ATB Mode, 6 rows total) - see
     /// screens/options.rs. Reset to 0 every time Options is freshly
@@ -498,6 +628,8 @@ impl State {
             adventure_mode: AdventureMode::DungeonCrawl,
             adventure_select_cursor: 0,
             class_select_cursor: 0,
+            class_select_anim_frame: 0,
+            class_select_anim_elapsed_ms: 0.0,
             options_cursor: 0,
             stats_view_cursor: 0,
             item_menu_cursor: MenuCursor::new(),
@@ -1200,6 +1332,12 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(ENTITY_SCROLL_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(CHARACTER_IDLE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_IDLE_SCROLL_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_IDLE_GLIDE_CONSOLE);
+        ctx.cls();
         ctx.set_active_console(HUD_CONSOLE);
         ctx.cls();
         ctx.set_active_console(BIG_TEXT_CONSOLE);
@@ -1217,6 +1355,18 @@ impl GameState for State {
         ctx.set_active_console(BUFF_BADGE_CONSOLE);
         ctx.cls();
         ctx.set_active_console(ABILITY_BAR_BADGE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CLASS_SELECT_IDLE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_BATTLE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_BATTLE_WIGGLE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_PORTRAIT_BIG_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_PORTRAIT_HUD_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(END_SCREEN_FALLEN_PORTRAIT_CONSOLE);
         ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
@@ -1330,6 +1480,9 @@ fn main() -> BError {
         .with_resource_path("resources/")
         .with_font("dungeonfont.png", 32, 32)
         .with_font("terminal8x8.png", 8, 8)
+        .with_font("character_idle.png", 128, 128)
+        .with_font("character_battle.png", 32, 32)
+        .with_font("character_portrait.png", 32, 32)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2, "terminal8x8.png")
@@ -1357,6 +1510,19 @@ fn main() -> BError {
         // only by entity_render, on the same frames as MAP_SCROLL_CONSOLE
         // - see its own doc comment in the prelude module above.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
+        // Console 6 (CHARACTER_IDLE_CONSOLE): a plain console, same grid
+        // as console 0/1 but sourced from the second sheet
+        // (character_idle.png) - see its own doc comment above for the
+        // full reasoning. No background (transparent everywhere except
+        // wherever an entity with real idle-frame art is actually drawn).
+        .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "character_idle.png")
+        // Console 7 (CHARACTER_IDLE_SCROLL_CONSOLE): a fancy console,
+        // same grid/font as console 6 - see its own doc comment above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "character_idle.png")
+        // Console 8 (CHARACTER_IDLE_GLIDE_CONSOLE): a second fancy
+        // console, same grid/font as console 6 - see its own doc comment
+        // above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "character_idle.png")
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "terminal8x8.png")
         // Console 8 (END_SCREEN_FALLEN_CONSOLE): a "fancy console" -
@@ -1401,12 +1567,52 @@ fn main() -> BError {
         // beneath it. See BUFF_BADGE_CONSOLE's own doc comment for why
         // this grid (32px cells) rather than reusing ABILITY_BAR_CONSOLE.
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
-        // Console 14 (ABILITY_BAR_BADGE_CONSOLE): a plain console,
+        // Console 17 (ABILITY_BAR_BADGE_CONSOLE): a plain console,
         // registered last of all so a stack-count badge always paints
         // over the bar icons beneath it. See its own doc comment for why
         // this needs to be separate from HUD_CONSOLE despite sharing its
         // exact grid/font.
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
+        // Console 18 (CLASS_SELECT_IDLE_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_idle.png - see
+        // its own doc comment above. Registered last of all.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_idle.png",
+        )
+        // Console 19 (CHARACTER_BATTLE_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_battle.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_battle.png",
+        )
+        // Console 20 (CHARACTER_BATTLE_WIGGLE_CONSOLE): a fancy console,
+        // same grid/font as console 19 - see its own doc comment above.
+        .with_fancy_console(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_battle.png",
+        )
+        // Console 21 (CHARACTER_PORTRAIT_BIG_CONSOLE): a plain
+        // console, same coarse grid as console 3, sourced from
+        // character_portrait.png - see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_portrait.png",
+        )
+        // Console 22 (CHARACTER_PORTRAIT_HUD_CONSOLE): a plain console,
+        // same grid as ABILITY_BAR_CONSOLE, sourced from
+        // character_portrait.png - see its own doc comment above.
+        .with_simple_console_no_bg(ABILITY_BAR_COLS, ABILITY_BAR_ROWS, "character_portrait.png")
+        // Console 23 (END_SCREEN_FALLEN_PORTRAIT_CONSOLE): a fancy
+        // console, same grid/cell-size as END_SCREEN_FALLEN_CONSOLE, but
+        // sourced from character_portrait.png - see its own doc comment
+        // above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "character_portrait.png")
         .with_vsync(false)
         .build()?;
 
