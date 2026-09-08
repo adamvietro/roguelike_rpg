@@ -35,18 +35,25 @@ pub fn map_render(
             // player is actually mid-step.
             let mut draw_batch = DrawBatch::new();
             draw_batch.target(0);
+            let mut tile_batch = DrawBatch::new();
+            tile_batch.target(MAP_TILE_CONSOLE);
             let offset = Point::new(camera.left_x, camera.top_y);
             for y in camera.top_y..=camera.bottom_y {
                 for x in camera.left_x..camera.right_x {
                     let pt = Point::new(x, y);
-                    if let Some((color_pair, glyph)) =
+                    if let Some((color_pair, glyph, sheet)) =
                         tile_render_at(map, theme.as_ref(), &player_fov.visible_tiles, pt)
                     {
-                        draw_batch.set(pt - offset, color_pair, glyph);
+                        let batch = match sheet {
+                            TileSpriteSheet::Dungeon => &mut draw_batch,
+                            TileSpriteSheet::MapTiles => &mut tile_batch,
+                        };
+                        batch.set(pt - offset, color_pair, glyph);
                     }
                 }
             }
             draw_batch.submit(0).expect("Batch error");
+            tile_batch.submit(1).expect("Batch error");
         }
         Some((ox, oy)) => {
             // The camera itself is panning (see camera_render_offset).
@@ -59,6 +66,8 @@ pub fn map_render(
             // draw_batch.set on console 0.
             let mut draw_batch = DrawBatch::new();
             draw_batch.target(MAP_SCROLL_CONSOLE);
+            let mut tile_batch = DrawBatch::new();
+            tile_batch.target(MAP_TILE_SCROLL_CONSOLE);
 
             // One tile of padding on every side: camera.left_x/right_x/
             // top_y/bottom_y are already snapped to the destination tile
@@ -72,10 +81,14 @@ pub fn map_render(
             for y in (camera.top_y - 1)..=(camera.bottom_y + 1) {
                 for x in (camera.left_x - 1)..(camera.right_x + 1) {
                     let pt = Point::new(x, y);
-                    if let Some((color_pair, glyph)) =
+                    if let Some((color_pair, glyph, sheet)) =
                         tile_render_at(map, theme.as_ref(), &player_fov.visible_tiles, pt)
                     {
-                        draw_batch.set_fancy(
+                        let batch = match sheet {
+                            TileSpriteSheet::Dungeon => &mut draw_batch,
+                            TileSpriteSheet::MapTiles => &mut tile_batch,
+                        };
+                        batch.set_fancy(
                             PointF::new(
                                 pt.x as f32 - ox,
                                 pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET,
@@ -90,6 +103,7 @@ pub fn map_render(
                 }
             }
             draw_batch.submit(0).expect("Batch error");
+            tile_batch.submit(1).expect("Batch error");
         }
     }
 }

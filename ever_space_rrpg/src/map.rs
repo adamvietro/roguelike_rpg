@@ -13,6 +13,15 @@ pub enum TileType {
     /// rendered as a distinct warm bar (see tile_render_at) instead of
     /// theme brick, so shop items don't read as text stuck in a wall.
     Counter,
+    /// A real map-theme "special wall" feature (see
+    /// docs/Map_Tile_Theme_Guide.md) - impassable exactly like Wall, same
+    /// zero-extra-logic reasoning as Counter above (can_enter_tile/
+    /// is_opaque only special-case Floor/Exit as passable/see-through).
+    /// Not placed by any map generator yet - deliberate, targeted
+    /// placement (a river, a lone obstacle) is deferred to a later
+    /// design pass; this variant exists now so the render/data-model
+    /// side is ready whenever that placement logic arrives.
+    Water,
 }
 
 pub fn map_idx(x: i32, y: i32) -> usize {
@@ -22,6 +31,16 @@ pub fn map_idx(x: i32, y: i32) -> usize {
 pub struct Map {
     pub tiles: Vec<TileType>,
     pub revealed_tiles: Vec<bool>,
+    /// Which specific texture (within its TileType's variant pool) each
+    /// tile shows, for a theme with real per-tile art (see
+    /// MapTheme::tile_row / docs/Map_Tile_Theme_Guide.md) - meaningless
+    /// (left at 0) for a theme still on the old single-glyph rendering,
+    /// and for any TileType without a variant pool. Rolled once at map-
+    /// generation time (see map_builder::assign_tile_variants) and
+    /// stored here rather than re-rolled on every draw, so a given
+    /// tile's texture stays the same from frame to frame instead of
+    /// flickering between variants.
+    pub tile_variant: Vec<u8>,
 }
 
 impl Map {
@@ -29,6 +48,7 @@ impl Map {
         Self {
             tiles: vec![TileType::Floor; NUM_TILES],
             revealed_tiles: vec![false; NUM_TILES],
+            tile_variant: vec![0; NUM_TILES],
         }
     }
 
