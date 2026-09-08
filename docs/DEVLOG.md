@@ -9,6 +9,186 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
+Same day (9/8/26), a third session: two rounds of feedback/content on
+top of the Death/Victory/Technique framework below, still on
+`expand-character-animations` (not yet merged).
+
+**Round 1 - feedback on Rogue's own Flurry animation after seeing it in
+a real fight**, all in `OneShotAnimation`/`components.rs`:
+- **No more wiggle on a technique animation.** The "Attacking" flash's
+  usual shake, layered on top of an animation that already shows real
+  motion, read as redundant/busy. `CHARACTER_TECHNIQUE_WIGGLE_CONSOLE`
+  (console 32) is gone entirely, not just unused - it was the very last
+  console in the registration chain, so removing it needed no
+  renumbering.
+- **Technique animations are much faster.** `frame_duration_ms` moved
+  from a shared global constant onto `OneShotAnimation` itself, so each
+  animation can have its own pace - Death/Victory keep the old
+  `IDLE_FRAME_DURATION_MS` (350ms), but a new `TECHNIQUE_FRAME_DURATION_MS`
+  (80ms) makes an attack read as fast and punchy instead of a slow held
+  pose. At the old pace, a 9-frame technique would only get through ~3
+  frames before `RESULT_AUTO_ADVANCE_MS` (1100ms) auto-dismissed a
+  single-hit ActionResult.
+- **A multi-hit/AOE technique's animation now loops** instead of
+  freezing on its last frame - a new `OneShotAnimation::repeat` flag,
+  decided in `resolve_player_action`'s `BattleAction::Technique` branch
+  by checking the item's own `TechniqueEffect` (`battle::
+  technique_effect`) for `MultiHit`/`AoeMultiHit` before building the
+  animation. Without this, Flurry's 3-hit sequence (or a 9-hit Arrow
+  Volley) spent most of its `HitQueue`-driven real-time span frozen on
+  frame 1, since one play-through is much shorter than the whole
+  multi-hit sequence takes to land.
+
+**Round 2 - the rest of the classes' Death/Victory/technique art plus
+Orc Warlord's redo**, six more zips (`Debug.zip`, `Hunter.zip`,
+`Barbarian.zip`, `Amazon.zip`, `Mage.zip`, `Orc_Warlord.zip`):
+- All three new sheets (`character_death.png`, `character_victory.png`,
+  `character_technique.png`) went from Rogue-only to every class that
+  has the art: Death/Victory now cover all 6 (Rogue, Debug, Hunter,
+  Barbarian, Amazon, Mage); the technique sheet covers the 5 with a real
+  AOE technique (Rogue/Flurry, Hunter/Arrow Volley, Barbarian/Whirlwind,
+  Amazon/Javelin Volley, Mage/Blizzard) - Debug has none, since its
+  "techniques" are cheat items (Victory/Defeat), not real attacks. All
+  three sheets stayed at their existing 9-col x 8-row size - no resize
+  needed, since the 5 new rows all fit in the headroom already there.
+  **One real naming mismatch caught before it became a bug**: the
+  Amazon zip's own animation folder was named `Spear_Volley` (after the
+  class's weapon), but the actual in-battle item name (what
+  `resolve_player_action` actually looks this row up by) is "Javelin
+  Volley" - matched on the real name, not the zip's folder name.
+- **Orc Warlord's redo fixed the earlier defect for real.** The
+  regenerated batch's Fight_Stance_Idle (8 frames, native 32x32) and
+  Walk (8 frames, 44x44 padded) both came back as a genuine full
+  character this time, confirmed by screenshot - no more thin off-model
+  sliver. One new wrinkle: Walk came back with 8 frames, exceeding the
+  idle sheet's own 6-column ceiling (`MAX_IDLE_FRAMES`, shared by every
+  entity on that sheet) - handled by evenly sampling 6 of the 8
+  (`numpy.linspace(0, 7, 6)` -> indices 0,1,3,4,6,7) rather than
+  truncating to the first 6, so the walk cycle doesn't visibly skip its
+  back half. `enemy_idle_row`/`enemy_battle_row` both got a real "Orc
+  Warlord" => Some(6) arm, replacing the old dungeonfont `K` fallback.
+- Both sheet-update scripts LOADED the existing PNGs and touched only
+  the new rows (blanking each destination row first, per this project's
+  standing rule) rather than rebuilding from scratch - the enemy sheets
+  in particular hold several other already-shipped enemies that aren't
+  in this session's scratch directory anymore, so a from-scratch rebuild
+  would have silently erased them.
+- `cargo check`/`build`/`test` all clean throughout both rounds (only
+  the pre-existing unrelated `EmptyArchitect` warning). Still no live
+  screenshot verification - the X11 input-driver issue from the
+  previous entry in this file wasn't revisited this session.
+
+**Also this session**: confirmed `map-tile-themes` (a whole separate,
+already-built real per-tile map theme system - Forest/Dungeon/Sewer, see
+"Previous session (9/8/26) - map themes" below) was never merged into
+`pixellab-character-art`/`expand-character-animations`, which is why it
+was invisible when the user checked - it only exists on its own branch.
+Both branches independently made large edits to `main.rs`'s console
+list, so merging will need real conflict resolution. Decision: finish
+the character-animation work first (this session's own scope), merge
+both branches together afterward.
+
+---
+
+## Previous session (9/8/26) — Death/Victory/Technique framework for Rogue
+
+Same day (9/8/26), an earlier session: built a reusable framework for
+played-once character animations (Death, Victory, per-technique) on top
+of the class-art migration below, and implemented it end-to-end for
+Rogue as the first real case. New branch `expand-character-animations`
+(off `pixellab-character-art`) - not yet merged.
+
+**The core addition**: `OneShotAnimation` (`components.rs`) - plays
+through a frame list once, then holds on the last frame, as opposed to
+`IdleAnimation`'s permanent loop. Deliberately a separate type rather
+than a flag on `IdleAnimation` - every existing idle-loop call site would
+otherwise need to start handling a "hold at the end" case it never
+actually hits. Its actual tick/finished logic (frame advances on
+schedule, holds and stops advancing once finished, doesn't skip ahead on
+a big time delta) was covered by a real temporary unit test, run once to
+confirm, then removed per this project's "verify logic, don't leave
+throwaway tests behind" convention - `hud_system_execution_tests` is
+still the one deliberate exception to that.
+
+**Three new sheets** (`character_death.png`, `character_victory.png`,
+`character_technique.png`), one row per class (or per (class, technique)
+pair for the technique sheet - see below), same "own dedicated row
+function per sheet" convention every other sheet in this project follows
+- full detail moved to `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s new
+"One-shot animation sheets" section, including the two novel wrinkles
+this batch introduced: these three share a column count (9) with no
+other existing sheet, so they get their OWN forbidden-row number (3) for
+the glyph-32 `cls()` gotcha - re-derived, not assumed; and the technique
+sheet is keyed by a COMPOUND (class, technique name) identity rather
+than by class alone, since a class can end up with several technique
+animations over time (explicit user instruction: "assume however that
+we will add a lot more battle animations for each class").
+
+**Wiring, in order of where each animation shows**:
+- `State::death_animation`/`victory_animation` (new fields, `main.rs`) -
+  lazily built and ticked once per frame by `screens/end.rs`'s
+  `game_over()`/`victory()`, reset to `None` in `return_to_title()` so a
+  fresh run doesn't inherit a stale animation. `draw_end_screen_
+  fallen_portrait`/`draw_end_screen_portrait` check these FIRST, falling
+  back to the pre-existing rotated-glyph (Death) or still-portrait
+  (Victory) logic for a class with no row yet - so this is purely
+  additive, no regression for Barbarian/Amazon/Hunter/Mage/Debug.
+- `Battle::player_technique_animation` (new field) - set in
+  `resolve_player_action`'s `BattleAction::Technique` branch (looked up
+  by the item's own class+name, same identity `Stats::record_ability_
+  used` already keys on), ticked alongside the existing battle-idle
+  frame counter, cleared in `dismiss_action_result` the instant `turn`
+  returns to `Filling` so it can never linger into the next race.
+- `BattleVictory::portrait_animation` (new field) - built once in
+  `finish_battle`, ticked by `battle_victory_tick`, which now re-inserts
+  its own ticked snapshot back into the resource every frame (the same
+  "snapshot, mutate, re-insert" shape `battle_tick` already used for
+  `battle` itself - this screen just never needed it before).
+- `draw_battle_arena` gained two new parameters (`technique_glyph`,
+  `victory_glyph`) that each override its existing 3-tier player-portrait
+  fallback when `Some` - never both at once, since a technique animation
+  only plays during a live battle and a victory animation only once the
+  battle's already over.
+- Four new consoles (29-32: `CHARACTER_DEATH_CONSOLE`, `CHARACTER_
+  VICTORY_CONSOLE`, `CHARACTER_TECHNIQUE_CONSOLE`, `CHARACTER_TECHNIQUE_
+  WIGGLE_CONSOLE`), appended at the end of the registration chain like
+  every other battle/end-screen-only console before them - no dungeon
+  HUD z-order constraint to respect for any of the four.
+
+**Rogue's own first real case**: sourced from `Rogue.zip` (2026-09-08) -
+`The_hooded_figure_slumps_forward_as_its_knees_buck/south` (Death),
+`Victory/south` (Victory), `Flurry/east` (the AOE technique's own
+animation - east, not south, matching the "battle portraits always face
+east" convention). `Breathing_Idle` in the same zip is deliberately
+unused per explicit standing instruction - it "doesn't look that great"
+as a battle-portrait loop. All three source animations came back 44x44
+padded (same center-crop-to-32x32 treatment `Walk` already needed) with
+exactly 9 frames each, which is what set `EXTRA_ANIM_COLS`.
+
+**Verification**: `cargo check`/`build`/`test` all clean (only the
+pre-existing unrelated `EmptyArchitect` dead-code warning). Live
+in-game screenshot verification was attempted but blocked by an
+environment issue, not a code issue - see the new Known Environment
+Quirks entry below. The next session picking this up should attempt a
+real playthrough screenshot (Rogue into a fight, use Flurry, win or die)
+once that's resolved, before treating this as fully proven rather than
+just "compiles and follows every proven pattern from the class-art
+migration exactly."
+
+**Still to come, per explicit user instruction**: every other class gets
+its own Victory, Death, and one-or-more per-technique animations,
+delivered in future zips one class at a time - "I will give you all the
+rest after we get the rogue going." Adding each one is: extract the
+zip, build/verify the three sheet updates (or extend cols if a class's
+frame count differs from 9), add one row-function match arm per sheet
+(two for the technique sheet, per new technique) - no further
+architecture work anticipated, that's the point of building this as a
+framework now.
+
+---
+
+## Previous session (9/8/26) — Character art migration
+
 That session (9/8/26) migrated all 5 playable classes (Barbarian, Rogue,
 Amazon, Hunter, Mage) plus the hidden dev/test "Debug" class onto real
 PixelLab.ai animated art across three new sheets, replacing the old
@@ -294,6 +474,35 @@ something already understood.)
 - **`WINIT_UNIX_BACKEND=x11` required for `cargo run` on this WSL setup.**
   Without it, window creation panics inside `bracket-terminal`'s Wayland
   title-bar font rendering. Set permanently via `.cargo/config.toml`.
+- **The ad hoc python-xlib/XTEST driver used to screenshot-verify this
+  game cannot reliably deliver keyboard input on this WSLg setup - traced
+  one level deeper this session (9/8/26), not just re-observed.**
+  `XGetInputFocus` on this display reports focus `None` even immediately
+  after `set_input_focus` on the game's own window (both `RevertToParent`
+  and `RevertToPointerRoot` tried), and even after a synthetic click
+  (`XTEST` `ButtonPress`/`ButtonRelease` warped onto the window first) and
+  an EWMH `_NET_ACTIVE_WINDOW` client message sent to root - none of the
+  three normal ways to acquire X11 focus took effect. `ps aux` shows no
+  window manager process at all (no weston/mutter/openbox/etc.), which is
+  consistent with WSLg's actual architecture: each X11 window is really a
+  proxy for a Win32 window on the Windows host, and keyboard focus is
+  ultimately tracked by the Windows desktop's own foreground-window
+  state (via WSLg's RDP-style channel), not by anything an X11 client
+  running inside the WSL side can request through the X protocol alone.
+  A background shell process has no way to bring the corresponding Win32
+  window to the host's foreground, so XTEST key events get delivered to
+  whatever (or nothing) the host currently has focused instead of this
+  game's window - explaining the earlier-observed "1-2 events then decay"
+  pattern as a symptom of this, not a separate flakiness bug. Screenshots
+  themselves (`XGetImage` on the window) work fine regardless, since
+  those don't depend on focus - it's specifically synthetic keyboard/
+  mouse input that's unreliable. Until a real fix is found (something
+  that can toggle actual Windows foreground-window state from inside
+  WSL), don't sink more time re-attempting the same xlib approach - rely
+  on code-level verification (matching an already-proven console/render
+  pattern exactly, plus a real unit test for any non-rendering logic)
+  and ask the user for a real screenshot when a rendering-specific detail
+  genuinely needs eyes on it.
 - `.gitignore` already covers `saves/` (`keymap.ron`, `stats.ron`,
   `battle_speed.ron`, `atb_mode.ron`, `menu_memory.ron`,
   `last_battle_action.ron`).

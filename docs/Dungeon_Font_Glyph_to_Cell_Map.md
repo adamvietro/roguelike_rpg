@@ -7,10 +7,14 @@ systems, each self-contained in its own part below:
 1. **PixelLab character sheets** (this section, first) — three
    per-context sheets (`character_idle.png`, `character_battle.png`,
    `character_portrait.png`) covering every playable class's real
-   animated art, plus two more (`enemy_idle.png`, `enemy_battle.png`)
-   added 2026-09-08 covering enemies on their own dedicated sheets - see
-   "Enemy sheets" below. The active, growing system — check here FIRST
-   before adding a new class or enemy's row.
+   animated art, two more (`enemy_idle.png`, `enemy_battle.png`) added
+   2026-09-08 covering enemies on their own dedicated sheets - see
+   "Enemy sheets" below - and three MORE added the same day covering
+   played-once Death/Victory/technique animations (`character_death.png`,
+   `character_victory.png`, `character_technique.png`) - see "One-shot
+   animation sheets" below. The active, growing system — check here
+   FIRST before adding a new class or enemy's row, or a new technique's
+   own animation.
 2. **The dungeon font** (`resources/dungeonfont.png`, own section below)
    — the original 512×512 CP437-ordered atlas covering enemies, items,
    UI icons, weapons/abilities, and any class's fallback glyph for
@@ -70,7 +74,7 @@ to fit the full roster in one pass.
 | Ogre | 2 | 2 |
 | Ettin | 3 | 3 |
 | Goblin Chieftain | 4 | 5 |
-| Orc Warlord | **unassigned** | **unassigned** |
+| Orc Warlord | 6 | 6 |
 | Ogre Warlord | 7 | 7 |
 | Ettin Overlord | 8 | 8 |
 | *(row 5 permanently blank on enemy_idle.png)* | **forbidden** | — |
@@ -82,18 +86,24 @@ sheets happen to share the same column counts (6 and 8) - re-derived
 independently via each sheet's own `32 / cols`, not assumed safe by
 analogy.
 
-**Orc Warlord's row 6 is deliberately unassigned, not forbidden** - its
-2026-09-08 animation batch (both `Walk` and `Fight_Stance_Idle`) came
-back as a genuine PixelLab generation defect: a thin, off-model sliver
-(~9px wide in a 44×44 canvas) instead of a full character, even though
-its own static `rotations/south.png` looked completely correct. Held
-back rather than shipped - same call made for Amazon's own Walk
-animation in the class-art session. `enemy_idle_row`/`enemy_battle_row`
-have no "Orc Warlord" match arm, so it falls through to the old
-dungeonfont glyph (`K`) exactly as before, no regression - just not yet
-upgraded. Row 6 is reserved for it on both sheets once a redone batch
-arrives; next free row after that is row 9 (needs another one-row
-resize) for anything beyond the current roster.
+**Orc Warlord's row 6 was unassigned, not forbidden, through its first
+animation batch (2026-09-08)** - that batch (both `Walk` and
+`Fight_Stance_Idle`) came back as a genuine PixelLab generation defect:
+a thin, off-model sliver (~9px wide in a 44×44 canvas) instead of a full
+character, even though its own static `rotations/south.png` looked
+completely correct. Held back rather than shipped - same call made for
+Amazon's own Walk animation in the class-art session. **A regenerated
+batch, same day, came back clean** - confirmed by screenshot, now
+occupying row 6 on both sheets as shown above. One new wrinkle handled
+along the way: its `Walk/south` came back with 8 frames, more than the
+idle sheet's own 6-column ceiling (`MAX_IDLE_FRAMES`, shared by every
+entity on that sheet) allows - 6 of the 8 were evenly sampled
+(`numpy.linspace(0, 7, 6)` → source indices 0, 1, 3, 4, 6, 7) rather
+than just truncating to the first 6, so the walk cycle doesn't visibly
+skip its back half. Its `Fight_Stance_Idle/south-west` came back with
+exactly 8 frames, matching `ENEMY_BATTLE_COLS` exactly - no sampling
+needed there. Next free row for anything beyond the current roster is
+row 9 (needs another one-row resize).
 
 **Ogre Warlord is a brand-new enemy**, not a reused name - added
 2026-09-08 per a design conversation (`spawner::template::Templates::
@@ -120,6 +130,88 @@ south-west` was already native 32×32. Background/transparency already
 correctly baked to true (0,0,0) - no transparent-pixel fix needed, only
 the usual near-black-opaque-pixel floor (≥30/channel, ~400-470 px per
 frame needed it).
+
+### One-shot animation sheets (`character_death.png` / `character_victory.png` / `character_technique.png`)
+
+Added 2026-09-08, alongside the `expand-character-animations` branch.
+Three more per-class sheets, same "own dedicated row function" rule as
+everything else here, but a different ANIMATION shape from
+`character_idle.png`/`character_battle.png`: those two loop forever
+(`IdleAnimation`); these three play through their frames ONCE and hold
+on the last one (`OneShotAnimation`, `components.rs`) — the natural
+shape for a death collapse, a victory pose, or a technique's own hit
+animation, none of which should loop.
+
+| Sheet | Purpose / screens | Row-lookup fn | Console(s) |
+| --- | --- | --- | --- |
+| `character_death.png` | Run-ending Game Over screen — replaces the old "rotate the static portrait 90°" fallback for any class with a row here | `character_death_row` / `death_animation_for_class` | `CHARACTER_DEATH_CONSOLE` |
+| `character_victory.png` | BOTH Victory screens — the in-battle one (`BattleVictory::portrait_animation`) and the run-ending one (`State::victory_animation`) | `character_victory_row` / `victory_animation_for_class` | `CHARACTER_VICTORY_CONSOLE` |
+| `character_technique.png` | In-battle only — replaces the ordinary Fight_Stance_Idle loop for the duration of a technique's own ActionResult display | `technique_animation_row` / `technique_animation_for` — keyed by **(class, technique name)**, not by class alone, since one class can end up with several rows over time | `CHARACTER_TECHNIQUE_CONSOLE` (no wiggle-console counterpart — see below) |
+
+All three share a column count of 9 (`EXTRA_ANIM_COLS`) because Rogue's
+first batch of Death/Victory/Flurry exports all happened to come back
+with exactly 9 frames each, and every class delivered since has matched
+that count too — a future animation with a different frame count needs
+this bumped (and all three sheets rebuilt wider) the same way any other
+sheet's column count has grown before. Forbidden row (the `32 / cols`
+glyph-32 gotcha below): **row 3**, independent of every other sheet's
+own forbidden row since none of them share this column count.
+
+**No wiggle console for the technique sheet, unlike every other battle
+portrait tier** (explicit user feedback, 2026-09-08, after seeing
+Flurry's animation in a real fight): a `CHARACTER_TECHNIQUE_WIGGLE_
+CONSOLE` existed briefly, but the "Attacking" flash's usual shake read
+as redundant/busy stacked on top of an animation that already shows
+real motion, so `draw_battle_arena`'s technique tier never wiggles and
+the console was removed entirely (it was the last one registered, so no
+renumbering was needed). Two more pieces of the same feedback pass, both
+on `OneShotAnimation` itself rather than this sheet specifically:
+`frame_duration_ms` moved from a shared constant onto each animation
+instance, so a technique can advance at its own much faster
+`TECHNIQUE_FRAME_DURATION_MS` (80ms, vs. Death/Victory's 350ms
+`IDLE_FRAME_DURATION_MS`) instead of reading as a slow held pose; and a
+new `repeat` flag makes a multi-hit/AOE technique's animation loop for
+as long as its `HitQueue` is still landing damage, rather than freezing
+on its last frame for most of that span (decided in `resolve_
+player_action` by checking the item's own `TechniqueEffect` for
+`MultiHit`/`AoeMultiHit` before building the animation).
+
+Current row assignments:
+
+| Class / (class, technique) | Death/Victory row | Technique row |
+| --- | ---: | ---: |
+| Rogue (technique: "Flurry") | 0 | 0 |
+| Debug (no technique — cheat items only) | 1 | — |
+| Hunter (technique: "Arrow Volley") | 2 | 1 |
+| *(row 3, all three sheets)* | **forbidden** | **forbidden** |
+| Barbarian (technique: "Whirlwind") | 4 | 2 |
+| Amazon (technique: "Javelin Volley") | 5 | 4 |
+| Mage (technique: "Blizzard") | 6 | 5 |
+
+**One naming mismatch caught before it became a silent no-op**: the
+Amazon zip's own animation folder was named `Spear_Volley` (after the
+class's weapon), but the actual in-battle item name in `template.ron` -
+what `resolve_player_action` looks this row up by via `entity_name` - is
+"Javelin Volley". `technique_animation_row` is keyed on the real item
+name, not the zip's folder name.
+
+Source folders, mapped to these sheets (same shape for every class - a
+per-class zip's own `Death/south`, `Victory/south`, and its one
+AOE-technique-named folder's `east` variant): Rogue used `The_hooded_
+figure_slumps_forward_as_its_knees_buck/south` for Death (the other five
+classes' zips all just used `Death/south`) and `Flurry/east` for its
+technique; Hunter/Barbarian/Amazon/Mage used their own technique's name
+(`Arrow_Volley`, `Whirlwind`, `Spear_Volley`, `Blizzard` respectively) -
+`east`, not `south`, matching the "only east Fight_Stance_Idle"
+convention for anything shown during a live battle, since the player's
+battle portrait always faces that way; Death/Victory use `south` since
+those are run-ending/no-facing-implied poses. Every one of these came
+back padded (40×40 to 48×48 depending on class) and needed the same
+center-crop-to-32×32 treatment as `Walk` (documented below) - none came
+back native 32×32.
+`Breathing_Idle` exists in the same zip but is deliberately unused per
+standing instruction (doesn't read well as a battle-portrait loop) —
+not wired into any row function, and not planned unless that changes.
 
 ### Row assignments
 

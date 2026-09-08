@@ -414,6 +414,44 @@ mod prelude {
     /// non-wiggling multi-enemy one, since both need the same fractional
     /// positioning a plain console can't express.
     pub const ENEMY_BATTLE_WIGGLE_CONSOLE: usize = 28;
+    /// Console 29: a plain console, same BATTLE_PORTRAIT_COLS x
+    /// BATTLE_PORTRAIT_ROWS grid as CHARACTER_PORTRAIT_BIG_CONSOLE,
+    /// sourced from a new sheet - `resources/character_death.png` - a
+    /// real played-once death animation (see components::
+    /// death_animation_for_class / OneShotAnimation) for any class with a
+    /// row there, replacing the old "rotate the class's static portrait
+    /// glyph 90 degrees" hack on the GameOver screen for that class. No
+    /// rotation needed - the source animation already shows a natural
+    /// top-down collapse - so this reuses the plain "big portrait on a
+    /// coarse grid" convention instead of END_SCREEN_FALLEN_CONSOLE's
+    /// DISPLAY_WIDTH/set_fancy/scale machinery. Appended at the end like
+    /// CHARACTER_BATTLE_CONSOLE/ENEMY_BATTLE_CONSOLE before it - no
+    /// dungeon HUD showing on the GameOver screen to stay under.
+    pub const CHARACTER_DEATH_CONSOLE: usize = 29;
+    /// Console 30: a plain console, same grid as CHARACTER_DEATH_CONSOLE,
+    /// sourced from `resources/character_victory.png` - a real
+    /// played-once victory-pose animation (components::
+    /// victory_animation_for_class) for any class with a row there,
+    /// shared by BOTH the in-battle Victory screen (screens/battle.rs's
+    /// draw_battle_arena, replacing its old CHARACTER_PORTRAIT_BIG_CONSOLE
+    /// still-portrait tier) and the run-ending Victory screen (screens/
+    /// end.rs). No wiggle variant - neither Victory screen has an active
+    /// flash/hit state to animate around (the fight, if any, is already
+    /// over by the time either shows).
+    pub const CHARACTER_VICTORY_CONSOLE: usize = 30;
+    /// Console 31: a plain console, same grid, sourced from a THIRD new
+    /// sheet - `resources/character_technique.png` - keyed by (class,
+    /// technique) pairs rather than by class alone (components::
+    /// technique_animation_for / Battle::player_technique_animation),
+    /// since a class can end up with several of these over time. Replaces
+    /// the ordinary Fight_Stance_Idle loop for exactly the duration of a
+    /// technique's own ActionResult display, for any (class, technique)
+    /// pair with a row. No wiggle-console counterpart, deliberately (see
+    /// draw_battle_arena's technique tier) - the animation itself already
+    /// shows real motion, so an "Attacking" flash's usual shake read as
+    /// redundant/busy stacked on top of it (explicit user feedback,
+    /// 2026-09-08).
+    pub const CHARACTER_TECHNIQUE_CONSOLE: usize = 31;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -584,6 +622,26 @@ struct State {
     /// per-screen hand-off semantics, it just continuously tracks physical
     /// button state regardless of what screen is showing.
     mouse_left_was_down: bool,
+    /// The run-ending Game Over screen's own death animation, if the
+    /// player's class has one (see components::death_animation_for_class)
+    /// - `None` either before Game Over triggers or for a class without
+    /// real death art yet, in which case game_over() keeps the old
+    /// rotated-glyph fallback. Built once, the instant Game Over is
+    /// entered (see dismiss_action_result/screens/battle.rs), then ticked
+    /// once per frame by game_over() itself - a OneShotAnimation holds on
+    /// its last frame once finished, so this never needs to be cleared
+    /// early, only reset (to a fresh one, or None) the next time a run
+    /// actually ends in death.
+    death_animation: Option<OneShotAnimation>,
+    /// The run-ending Victory screen's own victory-pose animation, same
+    /// shape/lifecycle as death_animation above (see
+    /// components::victory_animation_for_class) - built once when Victory
+    /// is entered, ticked by victory() itself. Deliberately separate from
+    /// the IN-BATTLE Victory screen's own animation (BattleVictory::
+    /// portrait_animation lives on that resource instead, since a run
+    /// can include many in-battle victories but only ever reaches this
+    /// specific run-ending screen once).
+    victory_animation: Option<OneShotAnimation>,
 }
 
 /// How long Enter must be continuously absent before pending_enter_release
@@ -705,6 +763,8 @@ impl State {
             pause_hint_index: 0,
             pause_hint_timer_ms: 0.0,
             mouse_left_was_down: false,
+            death_animation: None,
+            victory_animation: None,
         };
         state.spawn_title_background();
         state
@@ -1255,6 +1315,8 @@ impl State {
         self.item_menu_cursor = MenuCursor::new();
         self.pause_cursor = 0;
         self.pause_hint_index = 0;
+        self.death_animation = None;
+        self.victory_animation = None;
         self.pause_hint_timer_ms = 0.0;
 
         let mut stats = Stats::load();
@@ -1444,6 +1506,12 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(ENEMY_BATTLE_WIGGLE_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(CHARACTER_DEATH_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_VICTORY_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_TECHNIQUE_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1561,6 +1629,9 @@ fn main() -> BError {
         .with_font("character_portrait.png", 32, 32)
         .with_font("enemy_idle.png", 128, 128)
         .with_font("enemy_battle.png", 32, 32)
+        .with_font("character_death.png", 32, 32)
+        .with_font("character_victory.png", 32, 32)
+        .with_font("character_technique.png", 32, 32)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         .with_simple_console_no_bg(SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2, "terminal8x8.png")
@@ -1717,6 +1788,30 @@ fn main() -> BError {
             BATTLE_PORTRAIT_COLS,
             BATTLE_PORTRAIT_ROWS,
             "enemy_battle.png",
+        )
+        // Console 29 (CHARACTER_DEATH_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_death.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_death.png",
+        )
+        // Console 30 (CHARACTER_VICTORY_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_victory.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_victory.png",
+        )
+        // Console 31 (CHARACTER_TECHNIQUE_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_technique.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_technique.png",
         )
         .with_vsync(false)
         .build()?;

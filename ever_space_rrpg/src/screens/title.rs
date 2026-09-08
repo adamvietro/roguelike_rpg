@@ -481,7 +481,17 @@ impl State {
             // WSLg/X11 stack (same family of issue as the documented
             // WINIT_UNIX_BACKEND quirk), while letter keys (G, Q) are
             // already proven working elsewhere in this codebase.
-            self.start_game("Debug");
+            //
+            // Mirrors the same adventure_mode branch as chosen_entry
+            // above - this predates Battle Arena mode and always called
+            // start_game (Dungeon Crawl) unconditionally, so pressing D
+            // from Battle Arena's own Class Select silently dropped into
+            // a Dungeon Crawl run instead (found by the user trying to
+            // reach Debug in the Arena to test Orc Warlord's art).
+            match self.adventure_mode {
+                AdventureMode::DungeonCrawl => self.start_game("Debug"),
+                AdventureMode::BattleArena => self.start_arena("Debug"),
+            }
         }
     }
 }

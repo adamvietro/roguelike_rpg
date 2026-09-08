@@ -149,6 +149,16 @@ impl State {
     /// needed) -> the old plain dungeonfont Render glyph. A class with
     /// neither per-class sheet row still gets something reasonable
     /// (its old dungeonfont glyph) rather than nothing.
+    ///
+    /// `technique_glyph`/`victory_glyph` each override that whole 3-tier
+    /// fallback when Some - a live battle passes
+    /// `battle.player_technique_animation`'s current glyph (see
+    /// Battle::player_technique_animation's own doc comment) for the
+    /// duration of a technique's own ActionResult, and
+    /// battle_victory_tick passes BattleVictory::portrait_animation's
+    /// once the fight is won. Never both Some for the same call - a
+    /// technique animation only ever plays during a live battle, a
+    /// victory animation only once the battle is already over.
     fn draw_battle_arena(
         &mut self,
         enemies: &[EnemyPortrait],
@@ -156,6 +166,8 @@ impl State {
         player_flash: Option<(FlashKind, f32)>,
         player_class: Option<String>,
         player_idle_frame: Option<usize>,
+        technique_glyph: Option<FontCharType>,
+        victory_glyph: Option<FontCharType>,
     ) {
         // --- Arena background: the current dungeon theme's floor/wall
         // tiles, tinted with that theme's palette and framed with a border,
@@ -312,27 +324,45 @@ impl State {
         battle_idle_wiggle.target(CHARACTER_BATTLE_WIGGLE_CONSOLE);
         let mut still_portrait = DrawBatch::new();
         still_portrait.target(CHARACTER_PORTRAIT_BIG_CONSOLE);
+        let mut technique = DrawBatch::new();
+        technique.target(CHARACTER_TECHNIQUE_CONSOLE);
+        let mut victory_portrait = DrawBatch::new();
+        victory_portrait.target(CHARACTER_VICTORY_CONSOLE);
         if let Some(render) = player_render {
             let color = flash_tint(render.color, player_flash);
             let class_ref = player_class.as_deref();
             let battle_glyph = player_idle_frame
                 .and_then(|frame| class_ref.and_then(|class| character_battle_glyph(class, frame)));
             let portrait_glyph = class_ref.and_then(character_portrait_glyph);
-            match (battle_glyph, portrait_glyph) {
-                (Some(glyph), _) => {
+            match (technique_glyph, victory_glyph, battle_glyph, portrait_glyph) {
+                (Some(glyph), _, _, _) => {
+                    // Deliberately never wiggled, even during an
+                    // "Attacking" flash - the technique's own animation
+                    // already shows real motion, so stacking the shake
+                    // on top of it read as redundant/busy (explicit user
+                    // feedback, 2026-09-08). Every other tier still gets
+                    // the wiggle.
+                    let tinted = Render { color, glyph };
+                    draw_portrait(&mut technique, 1, 3, tinted);
+                }
+                (None, Some(glyph), _, _) => {
+                    let tinted = Render { color, glyph };
+                    draw_portrait(&mut victory_portrait, 1, 3, tinted);
+                }
+                (None, None, Some(glyph), _) => {
                     let tinted = Render { color, glyph };
                     if !draw_wiggling_portrait(&mut battle_idle_wiggle, 1.0, 3.0, tinted, player_flash)
                     {
                         draw_portrait(&mut battle_idle, 1, 3, tinted);
                     }
                 }
-                (None, Some(glyph)) => {
+                (None, None, None, Some(glyph)) => {
                     let tinted = Render { color, glyph };
                     if !draw_wiggling_portrait(&mut still_portrait, 1.0, 3.0, tinted, player_flash) {
                         draw_portrait(&mut still_portrait, 1, 3, tinted);
                     }
                 }
-                (None, None) => {
+                (None, None, None, None) => {
                     let tinted = Render {
                         color,
                         glyph: render.glyph,
@@ -350,6 +380,8 @@ impl State {
         still_portrait.submit(4).expect("Batch error");
         enemy_battle_idle.submit(5).expect("Batch error");
         enemy_battle_wiggle.submit(6).expect("Batch error");
+        technique.submit(7).expect("Batch error");
+        victory_portrait.submit(8).expect("Batch error");
     }
 
     /// Records one enemy's death: stats, loot/gold (accumulated onto
@@ -454,6 +486,8 @@ impl State {
         // Crawl anyway (see match arm below).
         let is_arena = self.resources.get::<Option<ArenaRun>>().unwrap().is_some();
 
+        let portrait_animation = entity_class(&self.ecs, battle.player)
+            .and_then(|class| victory_animation_for_class(&class));
         self.resources.insert(Some(BattleVictory {
             player: battle.player,
             enemy_names: battle.defeated_names.clone(),
@@ -463,6 +497,7 @@ impl State {
             } else {
                 None
             },
+            portrait_animation,
         }));
         self.resources.insert(None::<Battle>);
         self.resources.insert(TurnState::BattleVictory);
@@ -570,6 +605,25 @@ impl State {
                     if let Some(mut stats) = self.resources.get_mut::<Stats>() {
                         stats.record_ability_used(&class, &name);
                     }
+                    // A real animation for this specific (class,
+                    // technique) pair, if one exists yet (see
+                    // components::technique_animation_for) - None leaves
+                    // draw_battle_arena showing the ordinary
+                    // Fight_Stance_Idle loop instead, same as before this
+                    // existed. Cleared in dismiss_action_result once turn
+                    // returns to Filling. A multi-hit/AOE technique's own
+                    // HitQueue (battle::damage) keeps landing damage over
+                    // a real span of time far longer than one play-
+                    // through of the animation, so it loops instead of
+                    // holding on its last frame for most of that span -
+                    // see OneShotAnimation::repeat's own doc comment.
+                    let repeats = matches!(
+                        technique_effect(&self.ecs, item),
+                        Some(TechniqueEffect::MultiHit(_))
+                            | Some(TechniqueEffect::AoeMultiHit { .. })
+                    );
+                    battle.player_technique_animation =
+                        technique_animation_for(&class, &name, repeats);
                 }
                 // A self-buff technique (Heal/Evade/WarCry/Counter) just
                 // ignores `target` entirely inside apply_player_technique
@@ -659,6 +713,11 @@ impl State {
         }
 
         battle.turn = BattleTurn::Filling;
+        // Whatever technique animation was playing for the action just
+        // dismissed is done - clear it so draw_battle_arena falls back to
+        // the ordinary Fight_Stance_Idle loop for the next race, rather
+        // than holding on the technique's last frame indefinitely.
+        battle.player_technique_animation = None;
         ResultOutcome::Continue
     }
 
@@ -710,6 +769,14 @@ impl State {
         if battle.player_idle_elapsed_ms >= IDLE_FRAME_DURATION_MS {
             battle.player_idle_elapsed_ms -= IDLE_FRAME_DURATION_MS;
             battle.player_idle_frame += 1;
+        }
+        // A played-once technique animation, if the player's most recent
+        // action set one (see resolve_player_action's BattleAction::
+        // Technique branch) - a no-op past its own last frame, and
+        // cleared entirely once dismiss_action_result returns turn to
+        // Filling, so it never lingers into the next race.
+        if let Some(anim) = battle.player_technique_animation.as_mut() {
+            anim.tick(ctx.frame_time_ms);
         }
         for enemy in battle.enemies.iter_mut() {
             if let Some((_, remaining)) = &mut enemy.flash {
@@ -842,12 +909,18 @@ impl State {
             })
             .collect();
         let player_class = entity_class(&self.ecs, battle.player);
+        let technique_glyph = battle
+            .player_technique_animation
+            .as_ref()
+            .map(OneShotAnimation::current_glyph);
         self.draw_battle_arena(
             &enemy_portraits,
             player_render,
             battle.player_flash,
             player_class,
             Some(battle.player_idle_frame),
+            technique_glyph,
+            None,
         );
 
         // --- "You can act" indicator: whether the player can issue an
@@ -1431,7 +1504,7 @@ impl State {
             .get::<Option<BattleVictory>>()
             .unwrap()
             .clone();
-        let victory = match victory_snapshot {
+        let mut victory = match victory_snapshot {
             Some(v) => v,
             None => {
                 // Shouldn't happen, but don't get stuck if it does.
@@ -1440,9 +1513,31 @@ impl State {
             }
         };
 
+        // Advance the victory-pose animation, if this class has one (see
+        // BattleVictory::portrait_animation's own doc comment) - a no-op
+        // past its own last frame. The ticked copy is written back into
+        // the resource below, the same "snapshot, mutate, re-insert"
+        // shape battle_tick already uses for `battle` itself.
+        if let Some(anim) = victory.portrait_animation.as_mut() {
+            anim.tick(ctx.frame_time_ms);
+        }
+        let victory_glyph = victory
+            .portrait_animation
+            .as_ref()
+            .map(OneShotAnimation::current_glyph);
+
         let player_render = entity_render_component(&self.ecs, victory.player);
         let player_class = entity_class(&self.ecs, victory.player);
-        self.draw_battle_arena(&[], player_render, None, player_class, None);
+        self.draw_battle_arena(
+            &[],
+            player_render,
+            None,
+            player_class,
+            None,
+            None,
+            victory_glyph,
+        );
+        self.resources.insert(Some(victory.clone()));
 
         ctx.set_active_console(2);
         ctx.print_color_centered(

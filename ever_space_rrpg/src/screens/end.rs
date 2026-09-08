@@ -50,16 +50,33 @@ impl State {
     /// beside it without overlapping. Used by victory (upright); game_over
     /// uses draw_end_screen_fallen_portrait instead, which is rotated.
     ///
-    /// Prefers the class's own still portrait from character_portrait.png
+    /// Prefers a real played-once victory animation from
+    /// character_victory.png (self.victory_animation, see
+    /// tick_victory_animation - called by victory() before this) over the
+    /// class's own still portrait from character_portrait.png
     /// (CHARACTER_PORTRAIT_BIG_CONSOLE - same lookup draw_battle_arena
-    /// uses) over the old dungeonfont glyph (console 3), falling back to
-    /// the latter only for a class with no row on that sheet.
+    /// uses), falling back further to the old dungeonfont glyph (console
+    /// 3) for a class with neither. The animation draws in the player's
+    /// own render color (WHITE - full color, since the sheet already has
+    /// real color art) rather than the solid `tint` silhouette the two
+    /// static fallbacks below still use.
     fn draw_end_screen_portrait(&mut self, col: i32, tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
             .map(|(e, _)| *e)
             .nth(0);
         let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        if let (Some(render), Some(anim)) = (render, self.victory_animation.as_ref()) {
+            let mut victory = DrawBatch::new();
+            victory.target(CHARACTER_VICTORY_CONSOLE);
+            victory.set(
+                Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
+                render.color,
+                anim.current_glyph(),
+            );
+            victory.submit(0).expect("Batch error");
+            return;
+        }
         let portrait_glyph = player
             .and_then(|p| entity_class(&self.ecs, p))
             .and_then(|class| character_portrait_glyph(&class));
@@ -99,6 +116,45 @@ impl State {
         amulet.submit(0).expect("Batch error");
     }
 
+    /// Lazily builds self.death_animation the first time this runs for a
+    /// run that just ended in death (State::death_animation starts `None`
+    /// and only return_to_title resets it - see that field's own doc
+    /// comment), then advances it by ctx.frame_time_ms. A no-op once the
+    /// animation has reached its last frame (OneShotAnimation::tick
+    /// already handles that), so calling this every frame of game_over()
+    /// is fine. Does nothing (leaves it `None`) for a class with no row
+    /// on character_death.png yet - draw_end_screen_fallen_portrait falls
+    /// back to the old rotated-glyph look in that case.
+    fn tick_death_animation(&mut self, ctx: &BTerm) {
+        if self.death_animation.is_none() {
+            let class = <(Entity, &Player)>::query()
+                .iter(&self.ecs)
+                .map(|(e, _)| *e)
+                .nth(0)
+                .and_then(|p| entity_class(&self.ecs, p));
+            self.death_animation = class.and_then(|class| death_animation_for_class(&class));
+        }
+        if let Some(anim) = self.death_animation.as_mut() {
+            anim.tick(ctx.frame_time_ms);
+        }
+    }
+
+    /// Same lazy-build-then-tick shape as tick_death_animation, for
+    /// self.victory_animation instead - see that field's own doc comment.
+    fn tick_victory_animation(&mut self, ctx: &BTerm) {
+        if self.victory_animation.is_none() {
+            let class = <(Entity, &Player)>::query()
+                .iter(&self.ecs)
+                .map(|(e, _)| *e)
+                .nth(0)
+                .and_then(|p| entity_class(&self.ecs, p));
+            self.victory_animation = class.and_then(|class| victory_animation_for_class(&class));
+        }
+        if let Some(anim) = self.victory_animation.as_mut() {
+            anim.tick(ctx.frame_time_ms);
+        }
+    }
+
     /// Draws the player's own glyph rotated 90 degrees - lying on its side,
     /// for the GameOver screen specifically. draw_portrait/
     /// draw_end_screen_portrait can only place a glyph on a fixed grid
@@ -133,6 +189,23 @@ impl State {
             .map(|(e, _)| *e)
             .nth(0);
         let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        // A real played-once death animation (self.death_animation, see
+        // tick_death_animation - called by game_over() before this) takes
+        // priority over the rotated-glyph fallback below: the animation
+        // already shows a natural top-down collapse, drawn upright (no
+        // rotation, no scale, full color) on the coarse BATTLE_PORTRAIT
+        // grid just like draw_end_screen_portrait's victory animation.
+        if let (Some(render), Some(anim)) = (render, self.death_animation.as_ref()) {
+            let mut death = DrawBatch::new();
+            death.target(CHARACTER_DEATH_CONSOLE);
+            death.set(
+                Point::new(1, BATTLE_PORTRAIT_ROWS / 2),
+                render.color,
+                anim.current_glyph(),
+            );
+            death.submit(0).expect("Batch error");
+            return;
+        }
         let portrait_glyph = player
             .and_then(|p| entity_class(&self.ecs, p))
             .and_then(|class| character_portrait_glyph(&class));
@@ -170,6 +243,7 @@ impl State {
         // red, with a genuinely transparent background this time (see
         // draw_end_screen_fallen_portrait) instead of an opaque quad
         // matched to the arena color.
+        self.tick_death_animation(ctx);
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
         self.draw_end_screen_fallen_portrait(RED.into());
 
@@ -242,6 +316,7 @@ impl State {
         // Amulet of Yala icon only makes sense for a dungeon-crawl win -
         // an Arena win has no amulet at all, so it's skipped entirely
         // rather than drawing a prop that doesn't apply.
+        self.tick_victory_animation(ctx);
         self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
         self.draw_end_screen_portrait(1, YELLOW.into());
         if !is_arena {

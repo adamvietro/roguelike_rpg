@@ -46,7 +46,34 @@ Roughly in the order they've come up:
 3. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
-4. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
+4. **Battle screen redesign — now that classes have real animated art**
+   (added 2026-09-08, explicit ask: "we can do soooo much better now").
+   Not scoped yet - needs a real design conversation before code, per
+   CLAUDE.md's convention for anything this size - but candidate
+   directions worth putting on the table:
+   - **Give enemies their own attack animations to match the player's.**
+     Right now only the PLAYER's own techniques get a real played-once
+     animation (`character_technique.png`) - an enemy landing a hit still
+     just shows its ordinary Fight_Stance_Idle loop the whole time,
+     which reads as increasingly static now that the player's side is
+     this much more alive.
+   - **Enemy Death animations.** An enemy currently just vanishes from
+     the arena the instant it's killed - no animation at all, unlike the
+     player's new Death pose. Would need its own sheet (`enemy_death.png`?)
+     and a moment to actually play it before removing the entity/awarding
+     loot, both new.
+   - **A hit-impact effect timed to `HitQueue`'s own per-hit landing**
+     (`battle::damage::tick_hit_queue`) - screen shake, a flash, eventually
+     a sound (see item 5 below) - right now a landed hit only shows the
+     floating damage number, no impact feedback synced to the moment it
+     actually connects.
+   - **Visual projectiles for ranged techniques** (Arrow Volley, Javelin
+     Volley, Blizzard) that travel from caster to target instead of only
+     animating the caster in place.
+   - **Reconsider the arena's static background/scenery** now that the
+     characters themselves are this much more dynamic - it hasn't changed
+     since the original theme-tinted-floor-and-border implementation.
+5. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
    Rogue, Amazon, Hunter, Mage) plus the hidden "Debug" dev/test class now
    have real PixelLab.ai art across every sheet. Full row-mapping
    reference and every confirmed gotcha now live in `docs/
@@ -78,16 +105,42 @@ Roughly in the order they've come up:
      class). Directional facing (8-way rotations) is a real, unscoped
      architecture change (the game has no concept of entity facing at
      all today) - worth a design conversation before starting.
-   - **Enemy art (2026-09-08): 6 of 7 enemies done, plus a new boss.**
-     Enemies get their own dedicated sheets (`resources/enemy_idle.png`,
-     `resources/enemy_battle.png`, both now 9 rows) rather than more rows
-     on the character sheets above - see the design conversation and full
-     row-mapping in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Enemy
-     sheets" section. Done: Goblin, Orc, Ogre, Ettin, Goblin Chieftain,
-     Ogre Warlord, Ettin Overlord. Verified end-to-end with real
-     screenshots (Goblin and Orc both checked live) in the dungeon walk
-     loop and in real fights - clean, no bleed, no leftover placeholder
-     art.
+   - **Played-once Death/Victory/technique animations (2026-09-08,
+     branch `expand-character-animations`, not yet merged).** A new
+     `OneShotAnimation` type (components.rs) - plays through its frames
+     once and holds the last one (or loops, for a multi-hit/AOE
+     technique - see below) - on three more sheets, each still just
+     `EXTRA_ANIM_COLS` (9) wide: `resources/character_death.png` and
+     `resources/character_victory.png` (all 6 classes now have a row -
+     Rogue, Debug, Hunter, Barbarian, Amazon, Mage - replacing the old
+     rotated-glyph Game Over pose and static Victory portrait for every
+     one of them) and `resources/character_technique.png` (keyed by
+     COMPOUND `(class, technique name)` since a class can end up with
+     several - currently Rogue/Flurry, Hunter/Arrow Volley, Barbarian/
+     Whirlwind, Amazon/Javelin Volley, Mage/Blizzard; Debug has none,
+     since its "techniques" are cheat items, not real attacks). A
+     multi-hit/AOE technique's animation loops for as long as its
+     `HitQueue` is still landing damage instead of freezing on frame 1;
+     every technique animation runs much faster than the idle loop's own
+     pace (`TECHNIQUE_FRAME_DURATION_MS`, 80ms vs. 350ms) and never gets
+     the "Attacking" flash's usual wiggle-shake layered on top of it -
+     both explicit user feedback after seeing Flurry in a real fight.
+     Full technical detail in `docs/DEVLOG.md` and `docs/
+     Dungeon_Font_Glyph_to_Cell_Map.md`'s "One-shot animation sheets"
+     section. Not yet verified with a live screenshot (blocked by an
+     X11 input-driver issue that session, see DEVLOG's Known Environment
+     Quirks) - worth a real playthrough check before calling this fully
+     proven.
+   - **Enemy art (2026-09-08): all 8 enemies done, including a since-
+     fixed Orc Warlord.** Enemies get their own dedicated sheets
+     (`resources/enemy_idle.png`, `resources/enemy_battle.png`, both 9
+     rows) rather than more rows on the character sheets above - see the
+     design conversation and full row-mapping in `docs/
+     Dungeon_Font_Glyph_to_Cell_Map.md`'s "Enemy sheets" section. Done:
+     Goblin, Orc, Ogre, Ettin, Goblin Chieftain, Orc Warlord, Ogre
+     Warlord, Ettin Overlord. Verified end-to-end with real screenshots
+     (Goblin and Orc both checked live) in the dungeon walk loop and in
+     real fights - clean, no bleed, no leftover placeholder art.
      - **"Ogre Warlord" is a brand-new enemy**, not a reused name - a
        second possible boss for BOTH Level 1 (alongside Orc Warlord) and
        Level 2 (alongside Ettin Overlord), per a design conversation
@@ -97,23 +150,28 @@ Roughly in the order they've come up:
        fellow bosses. Not yet playtested live for balance - same
        "placeholder, real balance pass later" status as the original 3
        bosses.
-     - **Orc Warlord's own art is held back, not shipped** - its
-       2026-09-08 zip's Walk AND Fight_Stance_Idle animations both came
-       back as a genuine PixelLab defect (a thin off-model sliver, not a
-       full character), even though its static portrait pose looked
-       fine. Still on its old dungeonfont glyph (`K`) meanwhile - no
-       regression, just not upgraded yet. Needs a regenerated animation
-       batch from PixelLab, same as Amazon's Walk redo below - row 6 is
-       reserved for it on both sheets once that arrives.
+     - **Orc Warlord's redo (2026-09-08) fixed the earlier defect** - its
+       first batch's Walk/Fight_Stance_Idle both came back as a genuine
+       PixelLab generation defect (a thin off-model sliver, not a full
+       character); the regenerated batch came back clean, confirmed by
+       screenshot, and now occupies row 6 on both sheets. Its Walk/south
+       came back with 8 frames, more than the idle sheet's own 6-column
+       ceiling (`MAX_IDLE_FRAMES`) - 6 of the 8 were evenly sampled
+       rather than truncated, so the cycle doesn't skip its back half.
    - Redo Amazon's Walk animation specifically - flagged as needing a
      fresh PixelLab pass, independent of the canvas-size/leftover-art
-     bugs already fixed for it this session.
+     bugs already fixed for it this session. Still outstanding - not
+     part of the 2026-09-08 Death/Victory/technique batch above, which
+     only touched the three new sheets.
    - Add more animations per class/enemy (Breathing_Idle, directional
      rotations - needs the facing-architecture conversation above first
      for anything beyond `south`).
-5. **Music & sound effects** — no crate picked yet (`rodio` is the
+6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
-6. **More class abilities** — pull a few real ones out of the "Future
+   The new `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
+   ~150ms apart) is a ready-made hook point for a per-hit sound once a
+   crate is picked - see the Battle screen redesign item above too.
+7. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -130,22 +188,30 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
-7. **More dungeon tile sets** (added 2026-09-08) — right now every
-   dungeon level renders with the same tile graphics regardless of theme/
-   depth. Not scoped yet: how many tile sets, which biomes/areas they'd
-   cover, how a level picks which one applies. Explicitly a DIFFERENT
-   kind of problem from the character/enemy/NPC sprite-sheet work above -
-   this is about the *map* console's tile graphics, not an animated
-   actor's sprite - so it needs its own design conversation before
-   starting, not an extension of the sheet-naming convention above.
-8. **A refactor for how maps get made and tiles are set** (added
-   2026-09-08, follows directly from #7 above) — supporting more than one
-   tile set will likely require rethinking how map generation and tile
-   assignment currently work (today, `map_builder`'s architects and
-   `MapTheme` bake in a single tile graphics assumption per call). Not
-   scoped yet either - do the tile-set design conversation (#7) first,
-   since what that system needs to support will drive what this refactor
-   actually has to change.
+8. **More dungeon tile sets** (added 2026-09-08) — **built, on an
+   unmerged branch.** `map-tile-themes` (branched off `pixellab-
+   character-art` at the same commit `expand-character-animations` was)
+   replaced the old single-colored-glyph-per-TileType rendering with real
+   per-tile textures (`resources/map_tiles.png`) and a `MapTheme`-based
+   theme pool - Forest, Dungeon, Sewer, randomly picked per generated
+   level, with a `VariantStyle::Patch/Scatter` system so floor/wall
+   accents (torches, rubble, etc.) read as deliberate clusters instead of
+   a uniform per-tile noise. Two real regressions found and fixed along
+   the way (a console z-order bug hiding the Shopkeeper/dungeonfont
+   enemies; Sewer's walls reading too flat without a darkening tint).
+   Full detail in `docs/Map_Tile_Theme_Guide.md`. **Not merged into
+   `pixellab-character-art`/`expand-character-animations` yet** - that's
+   why it's currently invisible in-game on this branch; both branches
+   independently made large edits to `main.rs`'s console list, so
+   merging needs real conflict resolution. Plan (per 2026-09-08
+   conversation): finish the character-animation work first, then merge
+   both branches together.
+9. **A refactor for how maps get made and tiles are set** (added
+   2026-09-08, follows directly from #8 above) — supporting more than one
+   tile set already required some rethinking of map generation/tile
+   assignment (see `map-tile-themes` above), but `map_builder`'s
+   architects still bake in some single-tile-set assumptions worth
+   revisiting once that branch is merged and lived with for a while.
 
 ## Refactoring opportunities
 

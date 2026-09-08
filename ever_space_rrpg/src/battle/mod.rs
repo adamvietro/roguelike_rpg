@@ -446,6 +446,19 @@ pub struct Battle {
     /// fight, same as every other per-battle field here).
     pub player_idle_frame: usize,
     pub player_idle_elapsed_ms: f32,
+    /// The player's own played-once technique animation, when their most
+    /// recent action was a (class, technique) pair with a row on
+    /// `resources/character_technique.png` (see components::
+    /// technique_animation_for) - None the rest of the time, including
+    /// the ordinary Filling/PlayerMenu state between actions, in which
+    /// case draw_battle_arena keeps showing the ordinary
+    /// Fight_Stance_Idle loop via player_idle_frame above instead. Set in
+    /// resolve_player_action's BattleAction::Technique branch, ticked
+    /// alongside player_idle_elapsed_ms in battle_tick, and cleared back
+    /// to None in dismiss_action_result the same moment turn returns to
+    /// Filling - so it only ever plays for the duration of its own
+    /// ActionResult display, never lingering into the next race.
+    pub player_technique_animation: Option<OneShotAnimation>,
 }
 
 /// The battle menu's cursor position - which of the two columns (0 = the
@@ -585,6 +598,7 @@ impl Battle {
             menu_cursor_seeded: false,
             player_idle_frame: 0,
             player_idle_elapsed_ms: 0.0,
+            player_technique_animation: None,
         }
     }
 
@@ -783,6 +797,15 @@ pub struct BattleVictory {
     /// all). See screens/battle.rs's record_enemy_kill, the only place
     /// this is ever accumulated.
     pub gold_earned: Option<i32>,
+    /// A real played-once victory-pose animation for the winning player's
+    /// class, if one exists yet (components::victory_animation_for_class)
+    /// - built once in finish_battle, ticked each frame by
+    /// battle_victory_tick (which writes the ticked copy back into the
+    /// resource, the same way battle_tick re-inserts its own `battle`
+    /// snapshot every frame). `None` for a class with no row on
+    /// character_victory.png yet, in which case draw_battle_arena keeps
+    /// its old CHARACTER_PORTRAIT_BIG_CONSOLE still-portrait fallback.
+    pub portrait_animation: Option<OneShotAnimation>,
 }
 
 // --- Shared lookups/helpers used by the battle screen -----------------------

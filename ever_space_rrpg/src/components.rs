@@ -1087,15 +1087,16 @@ fn enemy_idle_row(name: &str) -> Option<u16> {
         "Ettin" => Some(3),
         "Goblin Chieftain" => Some(4),
         // Row 5 deliberately skipped - see this fn's own doc comment.
-        // Row 6 deliberately unassigned for now, NOT a forbidden row -
-        // reserved for "Orc Warlord" once its animation batch gets a
-        // PixelLab redo (2026-09-08's batch was a genuine generation
-        // defect: a thin off-model sliver instead of a full character,
-        // on both Walk and Fight_Stance_Idle, even though its static
-        // `south` rotation looked correct - held back rather than
-        // shipped, the same call made for Amazon's own Walk animation
-        // earlier). "Orc Warlord" falls through to the dungeonfont
-        // placeholder (see idle_frames_for_enemy) until then.
+        // "Orc Warlord" was held back here through 2026-09-08's first
+        // batch (a genuine PixelLab generation defect - a thin off-model
+        // sliver instead of a full character, on both Walk and
+        // Fight_Stance_Idle) - the redo batch (same day) came back
+        // clean, confirmed by screenshot. Its Walk/south came back with
+        // 8 frames, more than this sheet's own 6-column ceiling
+        // (MAX_IDLE_FRAMES) allows - 6 of the 8 were evenly sampled
+        // (indices 0,1,3,4,6,7) rather than just truncated, so the walk
+        // cycle doesn't visibly skip its back half.
+        "Orc Warlord" => Some(6),
         "Ogre Warlord" => Some(7),
         "Ettin Overlord" => Some(8),
         _ => None,
@@ -1121,11 +1122,11 @@ fn enemy_battle_row(name: &str) -> Option<u16> {
         "Ettin" => Some(3),
         // Row 4 deliberately skipped - see this fn's own doc comment.
         "Goblin Chieftain" => Some(5),
-        // Row 6 deliberately unassigned for now - see enemy_idle_row's
-        // own doc comment (same "Orc Warlord" art defect, same reserved
-        // row number on this sheet too, purely for bookkeeping symmetry -
-        // the two sheets don't need matching row numbers per enemy, they
-        // just happen to here).
+        // "Orc Warlord" - see enemy_idle_row's own doc comment for the
+        // redo/defect history. Its Fight_Stance_Idle/south-west came
+        // back with exactly 8 frames, matching this sheet's own column
+        // count - no sampling needed here, unlike the idle sheet.
+        "Orc Warlord" => Some(6),
         "Ogre Warlord" => Some(7),
         "Ettin Overlord" => Some(8),
         _ => None,
@@ -1162,6 +1163,210 @@ pub fn idle_frames_for_enemy(name: &str, base_glyph: FontCharType) -> IdleAnimat
         elapsed_ms: 0.0,
         sheet: IdleSpriteSheet::EnemyIdle,
     }
+}
+
+/// A non-looping animation: plays through `frames` once, then holds on
+/// the last one - the shape Death, Victory, and a single-hit technique's
+/// own battle animation share, as opposed to `IdleAnimation`'s permanent
+/// loop. Deliberately its own type rather than a flag on `IdleAnimation`
+/// - those two only ever need the opposite behavior from each other,
+/// and every existing `IdleAnimation` call site would need to start
+/// handling a "hold at the end" case it never actually hits.
+///
+/// `repeat` (added 2026-09-08, explicit user feedback after seeing
+/// Flurry's animation in a real fight) makes this loop back to frame 0
+/// instead of holding once it reaches the end - for a multi-hit/AOE
+/// technique, whose HitQueue keeps landing damage over a real span of
+/// time far longer than one play-through, a single strike pose held
+/// motionless for most of that span read as broken/frozen rather than an
+/// ongoing flurry of hits. `frame_duration_ms` is baked in per-animation
+/// rather than a shared global constant like `IdleAnimation`'s
+/// `IDLE_FRAME_DURATION_MS`, since a technique needs a much faster,
+/// punchier pace than a breathing idle stance or a held Death/Victory
+/// pose - see `TECHNIQUE_FRAME_DURATION_MS`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OneShotAnimation {
+    pub frames: Vec<FontCharType>,
+    pub frame_index: usize,
+    pub elapsed_ms: f32,
+    pub frame_duration_ms: f32,
+    pub repeat: bool,
+}
+
+impl OneShotAnimation {
+    pub fn current_glyph(&self) -> FontCharType {
+        self.frames
+            .get(self.frame_index)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// True once this animation has reached its last frame and has
+    /// nothing left to advance to - always false for a `repeat` one,
+    /// which by definition never reaches a permanent end.
+    pub fn finished(&self) -> bool {
+        !self.repeat && self.frame_index + 1 >= self.frames.len()
+    }
+
+    /// Advances by `dt_ms` of real time, at this animation's own
+    /// `frame_duration_ms` pace - a no-op once `finished()`, so the
+    /// caller never has to check that separately before ticking. A
+    /// `repeat` animation wraps back to frame 0 instead of stopping.
+    pub fn tick(&mut self, dt_ms: f32) {
+        if self.finished() {
+            return;
+        }
+        self.elapsed_ms += dt_ms;
+        if self.elapsed_ms >= self.frame_duration_ms {
+            self.elapsed_ms -= self.frame_duration_ms;
+            self.frame_index += 1;
+            if self.repeat && self.frame_index >= self.frames.len() {
+                self.frame_index = 0;
+            }
+        }
+    }
+}
+
+/// Columns on `resources/character_death.png` / `character_victory.png` /
+/// `character_technique.png` - all three happen to share this column
+/// count because Rogue's own Death/Victory/Flurry exports all came back
+/// with exactly 9 frames; a future class/technique with more frames
+/// would need this bumped (and the sheets rebuilt wider) the same way
+/// any other sheet's column count has grown before.
+pub const EXTRA_ANIM_COLS: u16 = 9;
+
+/// Real ms each frame of a technique animation holds before advancing -
+/// see `OneShotAnimation`'s own doc comment for why this needs its own,
+/// much faster pace than `IDLE_FRAME_DURATION_MS` (350ms): at that pace,
+/// a 9-frame technique animation like Flurry's would only get through
+/// ~3 frames before `RESULT_AUTO_ADVANCE_MS` (1100ms) auto-dismisses a
+/// single-hit ActionResult - an attack needs to read as fast and punchy,
+/// not like a slow held pose.
+pub const TECHNIQUE_FRAME_DURATION_MS: f32 = 80.0;
+
+/// Which row a class occupies on `resources/character_death.png` -
+/// `None` for a class without one yet, same "grow as art arrives"
+/// shape as every other per-class sheet. Row 3 is this sheet's own
+/// forbidden row (32 / 9 == 3, see the glyph-32 gotcha in CLAUDE.md) -
+/// skipped permanently, independent of character_idle_row/
+/// character_battle_row's own forbidden rows on their different
+/// column counts.
+fn character_death_row(class: &str) -> Option<u16> {
+    match class {
+        "Rogue" => Some(0),
+        "Debug" => Some(1),
+        "Hunter" => Some(2),
+        // Row 3 deliberately skipped - see this fn's own doc comment.
+        "Barbarian" => Some(4),
+        "Amazon" => Some(5),
+        "Mage" => Some(6),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s death sequence -
+/// `None` if `class` has no row yet (caller keeps whatever fallback it
+/// already had, e.g. the rotated-glyph approach).
+pub fn death_animation_for_class(class: &str) -> Option<OneShotAnimation> {
+    let row = character_death_row(class)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: IDLE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
+/// Which row a class occupies on `resources/character_victory.png` -
+/// same shape/forbidden-row (3) as `character_death_row`, own dedicated
+/// mapping since this is a different sheet.
+fn character_victory_row(class: &str) -> Option<u16> {
+    match class {
+        "Rogue" => Some(0),
+        "Debug" => Some(1),
+        "Hunter" => Some(2),
+        // Row 3 deliberately skipped - see character_death_row's own
+        // doc comment for why (identical reasoning, this sheet's own
+        // column count).
+        "Barbarian" => Some(4),
+        "Amazon" => Some(5),
+        "Mage" => Some(6),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s victory pose -
+/// `None` if `class` has no row yet.
+pub fn victory_animation_for_class(class: &str) -> Option<OneShotAnimation> {
+    let row = character_victory_row(class)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: IDLE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
+/// Which row a (class, technique name) pair occupies on
+/// `resources/character_technique.png` - keyed by a COMPOUND identity
+/// rather than by class alone, since a class can end up with several of
+/// these over time ("assume we will add a lot more battle animations for
+/// each class" - 2026-09-08). Adding the next one is one more match arm
+/// with the next free row, same shape as every other per-thing row
+/// function in this file - row 3 is this sheet's own forbidden row
+/// (32 / 9 == 3), skipped permanently.
+fn technique_animation_row(class: &str, technique: &str) -> Option<u16> {
+    match (class, technique) {
+        ("Rogue", "Flurry") => Some(0),
+        ("Hunter", "Arrow Volley") => Some(1),
+        ("Barbarian", "Whirlwind") => Some(2),
+        // Row 3 deliberately skipped - see this fn's own doc comment.
+        // Amazon's own PixelLab batch named this animation "Spear_Volley"
+        // (after the class's weapon) - the real item name in
+        // template.ron is "Javelin Volley", which is the string
+        // resolve_player_action actually looks this row up by (see
+        // entity_name), so that's the name matched here, not the zip's
+        // own folder name.
+        ("Amazon", "Javelin Volley") => Some(4),
+        ("Mage", "Blizzard") => Some(5),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s own animation for
+/// `technique` - `None` if that specific (class, technique) pair has no
+/// row yet, in which case the caller keeps showing the ordinary
+/// Fight_Stance_Idle loop instead (see `Battle::player_technique_
+/// animation`'s own doc comment). `repeat` should be true for a multi-
+/// hit/AOE technique (see `OneShotAnimation::repeat`'s own doc comment)
+/// - the caller decides this from the item's own `TechniqueEffect`
+/// (`battle::technique_effect`) before calling, since that's the only
+/// place that already knows whether this specific use is single-hit or
+/// not.
+pub fn technique_animation_for(
+    class: &str,
+    technique: &str,
+    repeat: bool,
+) -> Option<OneShotAnimation> {
+    let row = technique_animation_row(class, technique)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: TECHNIQUE_FRAME_DURATION_MS,
+        repeat,
+    })
 }
 
 /// Wall-clock milliseconds since the last frame (see BTerm::frame_time_ms),
