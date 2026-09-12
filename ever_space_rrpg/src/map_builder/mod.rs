@@ -52,6 +52,16 @@ pub trait MapTheme: Sync + Send {
     fn tile_row(&self) -> Option<u16> {
         None
     }
+    /// This theme's row on the shared `resources/battle_backgrounds.png`
+    /// sheet (one full 1280x800 painted arena scene per row, no columns -
+    /// see `BATTLE_BACKDROP_CONSOLE`'s own doc comment in main.rs)  -
+    /// `None` for a theme still on the old procedural tinted-glyph fill
+    /// (`tile_to_render`/`floor_color`/`wall_color`/`battle_scenery` in
+    /// `draw_battle_arena`). Defaults to `None` so a brand new `MapTheme`
+    /// impl doesn't need real battle-background art to compile.
+    fn battle_background_row(&self) -> Option<u16> {
+        None
+    }
     /// Which placement style floor variant `variant` (1..FLOOR_VARIANT_
     /// COUNT - variant 0 is always the plain default, never patched or
     /// scattered) should use - see `VariantStyle`. Defaults to `Patch`

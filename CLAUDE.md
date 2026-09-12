@@ -202,6 +202,57 @@ You have direct file access and a real terminal here, so use them:
   has a free row there"), and explicitly skip whatever row `32 / cols`
   computes for that sheet's specific column count, the same way
   `character_battle_row`/`character_idle_row` do in `components.rs`.
+  **A third, crash-shaped variant (2026-09-11, `battle_backgrounds.png`,
+  one glyph = one full-screen image):** a sheet doesn't need a wrong ROW
+  to have live content on it to fail — it can simply not have ENOUGH
+  rows/cols to contain index 32 at all, in which case `glyph_position`'s
+  unsigned subtraction underflows immediately on the very first `cls()`
+  (a real launch-time panic, "attempt to subtract with overflow", not a
+  silent wrong-content bug). This bites hardest on a sheet with very few
+  columns — a single-column, one-full-image-per-glyph sheet needs `cols *
+  rows >= 33` just to give index 32 SOME valid cell, which at 1 column
+  means 33 full rows. Don't pad a narrow sheet taller to reach that
+  minimum — pick a wider grid instead (e.g. 6x6 instead of 1x33): total
+  padded cells needed is roughly constant regardless of shape (always
+  ~33), but a tall-and-narrow texture risks exceeding a GPU's max texture
+  dimension where a squarer one won't.
+
+## Journal (`docs/journal.md`) — also a source for blog posts
+
+Each top-level `# <date>` header in the journal (e.g. `# 9/8/26`) is meant
+to become one post on the user's devlog blog
+(https://blog-wild-leaf-1554.fly.dev), titled "Custom Roguelike -
+<date>" — confirmed against the two posts already up there: `/posts/181`
+("Custom Roguelike - 9/06/26") and `/posts/182` ("Custom Roguelike -
+9/07/26"). Goal, not yet built: post directly from a day's journal.md
+section right after a day's work, instead of copy/pasting by hand.
+**Before building any automation for this, find out whether the blog
+exposes a real API vs. only a plain HTML form (likely behind login)** —
+that decides whether this becomes a simple scripted HTTP call or needs a
+headless browser/session cookie from the user.
+
+**Tags**: this blog is a personal multi-project devlog (Elixir/Phoenix
+learning posts, other side projects, etc. — not just this game), with one
+large tag vocabulary shared across all of it. Reuse an existing tag
+whenever one already fits rather than inventing a new one — check the
+full current list first at
+https://blog-wild-leaf-1554.fly.dev/tags/search. **"My Roguelike" (blog
+tag id 166) is the umbrella tag for this specific game** — every post
+about this project needs it, and
+https://blog-wild-leaf-1554.fly.dev/tags/search/?tag=166 is the fastest
+way to see every past post (and its tags) for this game alone, without
+wading through the blog's other projects. Tags already used on this
+game's two posts so far, for reference: `dungeon-crawl`, `Economy`,
+`balance`, `Simulation`, `Bug-Fix`, `Refactor`, `Sprite-Art`, `Pixellab`,
+`Battle-Arena`, `Rust`, `Rusty Roguelike`, `ECS`, `Bracket-Lib`,
+`My Game`, `Gamedev`, `Indiedev`, `devlog`, `game-ui`, `Solo-dev` (exact
+casing as shown on the blog — it's inconsistent tag-to-tag, so match
+each one's own existing casing rather than normalizing). No tag yet
+exists for animation work specifically (walk/battle-idle art, the
+Death/Victory/technique framework) - `Animation` was proposed as a new
+one 2026-09-08, not yet confirmed as added to the blog's vocabulary.
+Always alphabetize a proposed tag list when presenting it (standing user
+preference, independent of this blog specifically).
 
 ## Sprite sheet editing (`resources/dungeonfont.png`)
 

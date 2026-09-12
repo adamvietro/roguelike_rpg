@@ -9,6 +9,51 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
+9/11/26: real painted battle-arena backgrounds for Forest/Dungeon/Sewer,
+replacing the old flat-tinted-glyph-plus-vignette fill - see
+`docs/journal.md`'s own 9/11/26 entry for the full narrative (art
+iteration, prompt tuning, the clone-stamp fixes). Technical summary:
+
+- New `MapTheme::battle_background_row() -> Option<u16>` (mirrors
+  `tile_row`'s exact shape/fallback), backed by a new
+  `resources/battle_backgrounds.png` - one full 1280x800 painted scene
+  per theme, not a tileable asset (JRPG-battle-backdrop style, chosen
+  over more `map_tiles.png`-style tiling specifically because the user
+  correctly flagged that path would need far more themed tile variety to
+  avoid looking stale).
+- Required a genuinely new console, `BATTLE_BACKDROP_CONSOLE` (a 1x1-cell
+  console - stretches to fill the whole window as a single glyph, same
+  mechanism BATTLE_PORTRAIT_COLS/ROWS's coarse grid already relies on;
+  confirmed against bracket-terminal's own `calc_step`/`rebuild_vertices`
+  source, not just inferred from behavior). Had to sit below the battle
+  screen's own text and creature portraits, which were still bare
+  literals (`2`/`3`) since the very start - the first time any "insert
+  early, renumber everything after" move in this project's console list
+  has needed to go below those two rather than just below the HUD. Both
+  promoted to named constants (`FINE_TEXT_CONSOLE`,
+  `BATTLE_PORTRAIT_CONSOLE`) as part of the insertion; every console
+  index in `main.rs` shifted by exactly 1. A theme with no real
+  background art yet still falls back to the original procedural fill,
+  unchanged.
+- Hit the glyph-32 `cls()` gotcha (see Known Environment Quirks below) in
+  a new shape: a single-column font (one glyph = one full-screen image)
+  needs 33+ rows just for glyph 32 to land on a valid cell, which would
+  have meant an absurd 1280x26400 texture. Fixed with a 6x6 grid
+  (7680x4800) instead of a tall single column - a crash from too few
+  TOTAL cells, not the previously-documented "wrong row" tiling variant.
+- Verification was source-confirmed plus screenshot-partial: got a real
+  title-screen screenshot post-renumbering (no crash, no regression to
+  consoles below the insertion point), but couldn't reach Class Select
+  or a live battle myself - same WSLg synthetic-input unreliability
+  already documented below (screenshots work regardless of focus,
+  synthetic keyboard/mouse doesn't reliably reach the window). Left the
+  game running and asked the user to check those two screens with real
+  input instead of re-attempting the same xlib approach.
+
+---
+
+## Previous session (9/8/26) — Debug hotkey fix + branch merge
+
 Same day (9/8/26), a fourth session: one real bug fix, then the full
 merge of both outstanding branches into `master`.
 
@@ -743,6 +788,24 @@ something already understood.)
   guaranteed blank no matter which row it lands on — safe to share a
   row mapping ONLY when a sheet has that specific property, never by
   default.
+- **Third occurrence (9/11/26), a genuinely different failure shape from
+  the two above: a crash, not silently-wrong content.** Both prior hits
+  had PLENTY of rows/cols to contain glyph 32 somewhere - the bug was
+  live content sitting on the wrong one. `resources/battle_backgrounds.
+  png` (one glyph = one full 1280x800 painted scene, for the new battle-
+  arena background art) started as a single-column sheet, 3 rows - nowhere
+  NEAR enough total cells to contain index 32 at all. `FontScaler::
+  glyph_position`'s unsigned subtraction underflows immediately the
+  moment `cls()` first runs (a real panic, "attempt to subtract with
+  overflow", at launch, before any content ever draws), not a rendering
+  glitch to catch on a screenshot. Minimum total cells needed to safely
+  contain index 32 is `cols * rows >= 33`, roughly independent of the
+  grid's shape (33 slots either way) - the trap is picking a shape that
+  technically satisfies that but produces an impractical texture, e.g.
+  padding a 1-column sheet to 33 rows tall (1280x26400 - risks exceeding
+  a GPU's max texture dimension for almost no real content). Fixed with a
+  6x6 grid (7680x4800) instead - same total padding, much saner aspect
+  ratio, comfortably under typical GPU texture limits.
 - **PixelLab.ai does not export every animation state at a consistent
   canvas size, and its own `metadata.json` doesn't say so.** Confirmed
   across 6 real character batches: `rotations/south.png` is reliably

@@ -339,7 +339,7 @@ impl State {
         }
 
         let mut icons = DrawBatch::new();
-        icons.target(3);
+        icons.target(BATTLE_PORTRAIT_CONSOLE);
         let mut animated_icon = DrawBatch::new();
         animated_icon.target(CLASS_SELECT_IDLE_CONSOLE);
         let mut still_icon = DrawBatch::new();

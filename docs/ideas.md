@@ -73,6 +73,30 @@ Roughly in the order they've come up:
    - **Reconsider the arena's static background/scenery** now that the
      characters themselves are this much more dynamic - it hasn't changed
      since the original theme-tinted-floor-and-border implementation.
+     **(2026-09-11: implemented, pending final live confirmation.)** Real
+     painted full-scene backdrops for Forest/Dungeon/Sewer
+     (`resources/battle_backgrounds.png`, one 1280x800 scene per theme,
+     JRPG-battle-backdrop style rather than tileable map-tile art -
+     picked specifically to avoid needing ever-more themed tile variety)
+     replace the old flat-tinted-glyph-plus-vignette fill via a new
+     `MapTheme::battle_background_row`; a theme without real art yet
+     still falls back to the old procedural fill unchanged. Needed a
+     genuinely new console (`BATTLE_BACKDROP_CONSOLE`) inserted below the
+     battle screen's own text/portraits, which - for the first time in
+     this project's four prior "insert a console early" moves - forced
+     two long-bare-literal consoles (`2`/`3`) to finally become real
+     named constants (`FINE_TEXT_CONSOLE`/`BATTLE_PORTRAIT_CONSOLE`).
+     Two real bugs found and fixed along the way: a launch crash from a
+     new shape of the glyph-32 gotcha (a single-column "one glyph = one
+     full image" sheet needs 33+ total cells just to contain index 32,
+     which a 6x6 grid solves far more sanely than a 1x33 one would), and
+     - caught only by the user's own screenshot - near-black pixels in
+     the art (shadows, mortar lines, canopy gaps) rendering as stark
+     white cracks, since bracket-terminal's WITH-bg console shader falls
+     back to the background color for any texture pixel whose RGB is all
+     <=0.1 (~25/255), not just on a `_no_bg` console. Fixed by flooring
+     every channel to >=30 across all three images. Full write-up in
+     `docs/journal.md`'s 2026-09-11 entry.
 5. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
    Rogue, Amazon, Hunter, Mage) plus the hidden "Debug" dev/test class now
    have real PixelLab.ai art across every sheet. Full row-mapping
@@ -170,6 +194,25 @@ Roughly in the order they've come up:
    - Add more animations per class/enemy (Breathing_Idle, directional
      rotations - needs the facing-architecture conversation above first
      for anything beyond `south`).
+   - **Enemies should walk in place on the title screen too** (added
+     2026-09-11) - currently only wander/animate a certain way there;
+     bring them in line with however the player classes already animate
+     on that screen.
+   - **Real moving animations, not just idle-in-place** (added
+     2026-09-11) - right now a character/enemy plays its idle loop
+     whether it's standing still or actually walking between tiles; a
+     genuine walk-cycle synced to movement is a separate, not-yet-built
+     thing. Could cover all directions of movement, not just south, if
+     needed - ties into the directional-facing architecture question
+     already noted above (the game has no concept of entity facing
+     today).
+   - **Animations for every ability, including out-of-combat ones**
+     (added 2026-09-11) - technique animations only exist for in-battle
+     techniques today (`character_technique.png`); out-of-combat class
+     Abilities have no animation at all. Needs real animation-state
+     switching logic outside of battle (currently the dungeon view only
+     ever shows the walk/idle loop) so an ability use can briefly
+     override it, not just add more art.
 6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The new `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
@@ -198,6 +241,19 @@ Roughly in the order they've come up:
    rethinking of map generation/tile assignment, but `map_builder`'s
    architects still bake in some single-tile-set assumptions worth
    revisiting once that's been lived with for a while.
+9. **Camera/map framing shows black space outside the map's own bounds**
+   (added 2026-09-11) - relates to the existing "a custom-sized Camera
+   doesn't shrink what renders around a small map" gotcha in CLAUDE.md.
+   Two related asks:
+   - Center the title screen's background map view on the map's own
+     center - there are times the black area outside the map is visible
+     there.
+   - More generally, don't let the camera move outside the map's bounds
+     during normal play either - clamp it so the black border is never
+     visible at any map edge. Means the player's own on-screen position
+     can no longer always be dead-center - it'll need to stop recentering
+     once the camera itself has hit an edge of the map, same idea as a
+     typical 2D platformer/RPG camera clamp.
 
 ## Refactoring opportunities
 

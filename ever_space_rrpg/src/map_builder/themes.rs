@@ -44,6 +44,12 @@ impl MapTheme for DungeonTheme {
         Some(4)
     }
 
+    /// Row 1 (of 3) on `resources/battle_backgrounds.png` - see
+    /// `MapTheme::battle_background_row`'s own doc comment.
+    fn battle_background_row(&self) -> Option<u16> {
+        Some(1)
+    }
+
     /// Every one of Dungeon's row-3 (themed floor) cells - drain grate,
     /// bones/debris, cracked pillar base, torchlight glow - is a
     /// discrete point fixture, not a spreadable ground cover. Confirmed
@@ -95,6 +101,12 @@ impl MapTheme for ForestTheme {
     fn tile_row(&self) -> Option<u16> {
         Some(0)
     }
+
+    /// Row 0 (of 3) on `resources/battle_backgrounds.png` - see
+    /// `MapTheme::battle_background_row`'s own doc comment.
+    fn battle_background_row(&self) -> Option<u16> {
+        Some(0)
+    }
 }
 
 impl ForestTheme {
@@ -141,6 +153,12 @@ impl MapTheme for SewerTheme {
     /// theme's block skips it entirely rather than starting there.
     fn tile_row(&self) -> Option<u16> {
         Some(9)
+    }
+
+    /// Row 2 (of 3) on `resources/battle_backgrounds.png` - see
+    /// `MapTheme::battle_background_row`'s own doc comment.
+    fn battle_background_row(&self) -> Option<u16> {
+        Some(2)
     }
 
     /// Row-3 (themed floor) cells 9-10 (drainage grate, rubble/debris)

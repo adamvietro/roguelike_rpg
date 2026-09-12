@@ -70,10 +70,11 @@ fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
 ///
 /// NOTE: despite living in a variable named after HUD_CONSOLE
 /// conventions elsewhere in this file, this text actually renders on
-/// console 2 (see battle_tick's own `ctx.set_active_console(2)` right
-/// before this block runs), NOT HUD_CONSOLE - the ratios below (32
-/// columns and 20 rows per one coarse portrait-grid unit) are console
-/// 2's own. Confirmed against the original single-enemy constants
+/// FINE_TEXT_CONSOLE (see battle_tick's own
+/// `ctx.set_active_console(FINE_TEXT_CONSOLE)` right before this block
+/// runs), NOT HUD_CONSOLE - the ratios below (32 columns and 20 rows per
+/// one coarse portrait-grid unit) are FINE_TEXT_CONSOLE's own. Confirmed
+/// against the original single-enemy constants
 /// themselves: portrait position (3, 1) gives col 3*32=96 and row
 /// (1+1)*20+1=41, exactly matching the values already proven correct -
 /// console 2 is a 160x100 grid over the same 1280x800 window, so each
@@ -169,18 +170,28 @@ impl State {
         technique_glyph: Option<FontCharType>,
         victory_glyph: Option<FontCharType>,
     ) {
-        // --- Arena background: the current dungeon theme's floor/wall
-        // tiles, tinted with that theme's palette and framed with a border,
-        // plus a soft vignette that brightens toward the center (a
-        // "clearing") and darkens toward the edges. Console 0 is otherwise
-        // blank outside battle-related states, so this is free real estate.
+        // --- Arena background. Two paths, chosen per the live dungeon
+        // theme's MapTheme::battle_background_row:
         //
-        // Cell backgrounds (not just the thin foreground glyph) carry the
-        // tint, since a small character like '.' or ';' only covers a
-        // fraction of a cell's pixels - foreground-only color reads as
-        // scattered specks on black rather than an actual colored floor.
+        // Real art (Some(row)): the theme's one full painted scene from
+        // resources/battle_backgrounds.png, drawn as a single glyph on
+        // BATTLE_BACKDROP_CONSOLE (a 1x1-cell console stretched to fill
+        // the entire window - see its own doc comment in main.rs).
+        // Fully opaque, so it needs nothing else drawn under it.
+        //
+        // No real art yet (None): the original procedural fallback -
+        // the theme's floor/wall tiles, tinted with its palette and
+        // framed with a border, plus a soft vignette that brightens
+        // toward the center (a "clearing") and darkens toward the edges,
+        // drawn cell-by-cell onto console 0 (otherwise blank during
+        // battle, so free real estate). Cell backgrounds (not just the
+        // thin foreground glyph) carry the tint, since a small character
+        // like '.' or ';' only covers a fraction of a cell's pixels -
+        // foreground-only color reads as scattered specks on black
+        // rather than an actual colored floor.
         {
             let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap();
+            let background_row = theme.battle_background_row();
             let floor_glyph = theme.tile_to_render(TileType::Floor);
             let wall_glyph = theme.tile_to_render(TileType::Wall);
             let floor_base = theme.floor_color();
@@ -188,70 +199,93 @@ impl State {
             let scenery = theme.battle_scenery();
             drop(theme);
 
-            let mut arena = DrawBatch::new();
-            arena.target(0);
-            for y in 0..DISPLAY_HEIGHT {
-                for x in 0..DISPLAY_WIDTH {
-                    let is_border =
-                        x == 0 || y == 0 || x == DISPLAY_WIDTH - 1 || y == DISPLAY_HEIGHT - 1;
-                    let (glyph, base) = if is_border {
-                        (wall_glyph, wall_base)
-                    } else {
-                        (floor_glyph, floor_base)
-                    };
-                    let bg = vignette(base, x, y, DISPLAY_WIDTH, DISPLAY_HEIGHT);
-                    let fg = RGB::from_f32(
-                        (bg.r * 1.4).min(1.0),
-                        (bg.g * 1.4).min(1.0),
-                        (bg.b * 1.4).min(1.0),
-                    );
-                    arena.set(Point::new(x, y), ColorPair::new(fg, bg), glyph);
-                }
-            }
-
-            match scenery {
-                BattleScenery::ScatteredTrees => {
-                    // A handful of large tree/foliage silhouettes,
-                    // hand-placed clear of the portraits, their labels,
-                    // and the message/menu panel. Drawn at full-strength
-                    // color (not vignetted) so they read as distinct
-                    // features wherever they land on the light/dark
-                    // gradient above.
-                    let canopy_color = RGB::from_f32(
-                        (floor_base.r * 1.5).min(1.0),
-                        (floor_base.g * 1.5).min(1.0),
-                        (floor_base.b * 1.5).min(1.0),
-                    );
-                    let trunk_color =
-                        RGB::from_f32(wall_base.r * 0.85, wall_base.g * 0.85, wall_base.b * 0.85);
-                    for &(tx, ty) in &[(6, 3), (18, 3), (35, 15), (22, 19)] {
-                        draw_tree(&mut arena, wall_glyph, canopy_color, trunk_color, tx, ty);
+            if let Some(row) = background_row {
+                // fg WHITE so the real art shows through untinted;
+                // bg BLACK (not WHITE) as a deliberate defense-in-depth
+                // fallback - CONSOLE_WITH_BG_FS falls back to this exact
+                // per-vertex bg color for any texture pixel whose RGB is
+                // all <=0.1 (~25/255) or whose alpha isn't fully opaque
+                // (see the glyph-32-adjacent near-black-pixel gotcha in
+                // CLAUDE.md). The real fix is flooring every near-black
+                // pixel in resources/battle_backgrounds.png to >=30/
+                // channel so that fallback should never actually trigger
+                // for real content - BLACK just means a pixel that
+                // somehow still slips through blends into a dark scene
+                // instead of standing out as a stark white fleck the way
+                // an earlier, unfloored version of this art did.
+                let mut backdrop = DrawBatch::new();
+                backdrop.target(BATTLE_BACKDROP_CONSOLE);
+                backdrop.set(Point::new(0, 0), ColorPair::new(WHITE, BLACK), row as FontCharType);
+                backdrop.submit(0).expect("Batch error");
+            } else {
+                let mut arena = DrawBatch::new();
+                arena.target(0);
+                for y in 0..DISPLAY_HEIGHT {
+                    for x in 0..DISPLAY_WIDTH {
+                        let is_border =
+                            x == 0 || y == 0 || x == DISPLAY_WIDTH - 1 || y == DISPLAY_HEIGHT - 1;
+                        let (glyph, base) = if is_border {
+                            (wall_glyph, wall_base)
+                        } else {
+                            (floor_glyph, floor_base)
+                        };
+                        let bg = vignette(base, x, y, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+                        let fg = RGB::from_f32(
+                            (bg.r * 1.4).min(1.0),
+                            (bg.g * 1.4).min(1.0),
+                            (bg.b * 1.4).min(1.0),
+                        );
+                        arena.set(Point::new(x, y), ColorPair::new(fg, bg), glyph);
                     }
                 }
-                BattleScenery::RoomWalls => {
-                    // Thick stone walls down the left/right sides, so the
-                    // arena reads as an enclosed room rather than open
-                    // ground. Full-strength color (not vignetted) - these
-                    // are structural, not lighting, so they stay solid
-                    // regardless of the floor's center-lit gradient.
-                    const SIDE_WALL_THICKNESS: i32 = 4;
-                    let fg = RGB::from_f32(
-                        (wall_base.r * 1.4).min(1.0),
-                        (wall_base.g * 1.4).min(1.0),
-                        (wall_base.b * 1.4).min(1.0),
-                    );
-                    let wall_color_pair = ColorPair::new(fg, wall_base);
-                    for y in 0..DISPLAY_HEIGHT {
-                        for x in 0..SIDE_WALL_THICKNESS {
-                            arena.set(Point::new(x, y), wall_color_pair, wall_glyph);
-                            let rx = DISPLAY_WIDTH - 1 - x;
-                            arena.set(Point::new(rx, y), wall_color_pair, wall_glyph);
+
+                match scenery {
+                    BattleScenery::ScatteredTrees => {
+                        // A handful of large tree/foliage silhouettes,
+                        // hand-placed clear of the portraits, their labels,
+                        // and the message/menu panel. Drawn at full-strength
+                        // color (not vignetted) so they read as distinct
+                        // features wherever they land on the light/dark
+                        // gradient above.
+                        let canopy_color = RGB::from_f32(
+                            (floor_base.r * 1.5).min(1.0),
+                            (floor_base.g * 1.5).min(1.0),
+                            (floor_base.b * 1.5).min(1.0),
+                        );
+                        let trunk_color = RGB::from_f32(
+                            wall_base.r * 0.85,
+                            wall_base.g * 0.85,
+                            wall_base.b * 0.85,
+                        );
+                        for &(tx, ty) in &[(6, 3), (18, 3), (35, 15), (22, 19)] {
+                            draw_tree(&mut arena, wall_glyph, canopy_color, trunk_color, tx, ty);
+                        }
+                    }
+                    BattleScenery::RoomWalls => {
+                        // Thick stone walls down the left/right sides, so the
+                        // arena reads as an enclosed room rather than open
+                        // ground. Full-strength color (not vignetted) - these
+                        // are structural, not lighting, so they stay solid
+                        // regardless of the floor's center-lit gradient.
+                        const SIDE_WALL_THICKNESS: i32 = 4;
+                        let fg = RGB::from_f32(
+                            (wall_base.r * 1.4).min(1.0),
+                            (wall_base.g * 1.4).min(1.0),
+                            (wall_base.b * 1.4).min(1.0),
+                        );
+                        let wall_color_pair = ColorPair::new(fg, wall_base);
+                        for y in 0..DISPLAY_HEIGHT {
+                            for x in 0..SIDE_WALL_THICKNESS {
+                                arena.set(Point::new(x, y), wall_color_pair, wall_glyph);
+                                let rx = DISPLAY_WIDTH - 1 - x;
+                                arena.set(Point::new(rx, y), wall_color_pair, wall_glyph);
+                            }
                         }
                     }
                 }
-            }
 
-            arena.submit(0).expect("Batch error");
+                arena.submit(0).expect("Batch error");
+            }
         }
 
         // --- Portraits: each creature's own glyph, drawn once on the
@@ -262,7 +296,7 @@ impl State {
         // small shake instead of the plain draw - see
         // draw_wiggling_portrait below.
         let mut portraits = DrawBatch::new();
-        portraits.target(3);
+        portraits.target(BATTLE_PORTRAIT_CONSOLE);
         let mut wiggle = DrawBatch::new();
         wiggle.target(BATTLE_PORTRAIT_WIGGLE_CONSOLE);
         // Two-tier fallback for each enemy's own portrait, mirroring the
@@ -946,7 +980,7 @@ impl State {
 
         // --- Text: name + HP bar anchored next to each portrait, and a
         // message/menu panel centered in the gap between them.
-        ctx.set_active_console(2);
+        ctx.set_active_console(FINE_TEXT_CONSOLE);
 
         // Whichever enemy the player's own single-target actions will hit
         // right now (see Battle::primary_target) - highlighted so the
@@ -1092,7 +1126,7 @@ impl State {
         const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 2;
 
         let mut log_batch = DrawBatch::new();
-        log_batch.target(2);
+        log_batch.target(FINE_TEXT_CONSOLE);
         draw_ascii_box(
             &mut log_batch,
             MSG_BOX_X,
@@ -1147,7 +1181,7 @@ impl State {
             let start_col = 12 - (text.chars().count() as i32) / 2;
             ctx.print_color(start_col, 17, RED, BLACK, &text);
         }
-        ctx.set_active_console(2);
+        ctx.set_active_console(FINE_TEXT_CONSOLE);
 
         // --- Actions box, on the HUD console (107x67 grid, ~12px cells -
         // the same "1.5x" size used for the dungeon HUD) rather than the
@@ -1367,7 +1401,7 @@ impl State {
                 selected,
             );
         }
-        ctx.set_active_console(2);
+        ctx.set_active_console(FINE_TEXT_CONSOLE);
 
         match battle.turn {
             BattleTurn::Filling => {
@@ -1539,7 +1573,7 @@ impl State {
         );
         self.resources.insert(Some(victory.clone()));
 
-        ctx.set_active_console(2);
+        ctx.set_active_console(FINE_TEXT_CONSOLE);
         ctx.print_color_centered(
             45,
             GREEN,

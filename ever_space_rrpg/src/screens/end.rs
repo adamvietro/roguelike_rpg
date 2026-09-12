@@ -107,7 +107,7 @@ impl State {
     /// by depending on the entity still being present.
     fn draw_end_screen_amulet(&mut self, col: i32, tint: RGB) {
         let mut amulet = DrawBatch::new();
-        amulet.target(3);
+        amulet.target(BATTLE_PORTRAIT_CONSOLE);
         amulet.set(
             Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
             ColorPair::new(tint, BLACK),

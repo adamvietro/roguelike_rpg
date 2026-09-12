@@ -3800,3 +3800,31 @@ The ad hoc python-xlib/XTEST driver from the enemy-art session got noticeably le
 
 ---
 
+# 9/11/26
+
+## Real painted battle-arena backgrounds - Forest/Dungeon/Sewer
+Picked up the "reconsider the arena's static background/scenery" item from the battle-screen-redesign backlog. Talked through the design first, per the usual convention: the battle background already tracked the correct dungeon theme (Forest/Dungeon/Sewer share the exact same `Box<dyn MapTheme>` resource the map renderer reads), but it was still rendering that theme with the pre-tile-art technique - a flat tinted CP437 glyph fill plus a vignette and one of two generic scenery overlays (`ScatteredTrees`/`RoomWalls`), unchanged since before the map ever got real pixel-art tiles.
+<br />
+
+Considered reusing the map's own tile art (`map_tiles.png`) to build the arena floor out of small repeating tiles, but the existing tile sets were never designed to read as a "stage" up close, and the user correctly called out that path would need a lot more themed tile variety to avoid looking stale fast. Landed instead on one full painted scene per theme - a proper JRPG-style battle backdrop (like classic Final Fantasy/Chrono Trigger, which paint the background and layer crisp sprite characters on top) rather than a tileable grid asset.
+<br />
+
+### Getting the art right took real iteration, not one prompt
+Sourced the art externally rather than generating it in-house (PixelLab is built for character sprites, not full painted scenes) - the user tried Lucid Origin. First Forest attempt: nice mood, but symmetric/mirrored ("radial clearing" is a classic diffusion-model default) with the two center tree trunks sitting right where enemies needed to stand. Second attempt broke the symmetry but added little creature figures the prompt explicitly excluded, and still had a trunk reaching into the enemy zone. Third attempt fixed both - clean, asymmetric, correct zones - but read as an open woodland clearing rather than an enclosed "stage" the way Dungeon/Sewer's stone-walled rooms immediately did. A fourth, tightened prompt (thick fallen logs/root-wall along all four edges, mirroring Dungeon/Sewer's solid perimeter) finally landed a version that reads as a proper boxed arena while staying distinctly forest.
+<br />
+
+That version still had two small hidden creatures the model snuck in (an obvious one in the open clearing, a second, subtler one - just a mouth/eyes tucked in a tree hollow - found on a closer double-check afterward). Both were isolated on fairly uniform texture, so patched both out locally with a feathered clone-stamp (copy a similar nearby patch, blend the seam with a soft elliptical mask) instead of spending another generation on it. Dungeon and Sewer both worked on the first real attempt - the "enclosed room" framing the user's own prompt asked for came naturally to an indoor stone chamber in a way it didn't for an open forest clearing.
+<br />
+
+### Wiring it in: one new console, and the deepest z-order insertion this project has needed yet
+Cropped/scaled all three (source images came back 1344x768, cropped to 1229px wide centered then scaled to exactly 1280x800 - the arena viewport's real pixel size) and added `MapTheme::battle_background_row` (mirrors `tile_row`'s existing `Option<u16>` shape/fallback exactly) so a theme without real art yet still falls back to the old procedural fill, unchanged.
+<br />
+
+Rendering the result needed a genuinely new console, not just new art - the backdrop has to sit below the battle screen's own text (FINE_TEXT_CONSOLE) and creature portraits (BATTLE_PORTRAIT_CONSOLE), both of which had been bare literals (`2` and `3`) since the very beginning, never touched by any of the four previous "insert early, renumber everything after" moves this project's console list has already been through - all of which only ever needed to go below the HUD, never this deep. Promoted both to real named constants as part of the insertion (the same reason HUD_CONSOLE/BIG_TEXT_CONSOLE were promoted once before) and bumped every console index in the file by one. A fully mechanical, grep-verified change - every literal `2`/`3` console call site across battle.rs/main.rs/end.rs/title.rs is enumerable by one search, so nothing could hide.
+<br />
+
+Hit the classic glyph-32 crash again, in a new shape: a single-column font sheet (one glyph = one full 1280x800 image, stacked 3 rows for the 3 themes) needs at least 33 rows just for `cls()`'s default fill (glyph 32) to land on a valid cell, which would have meant an absurd 1280x26400 texture. Fixed by widening the atlas to a 6-column x 6-row grid (7680x4800, glyph 32 lands safely on row 5 - still blank) instead of a tall single column - same underlying gotcha CLAUDE.md already documents, just a new failure shape (a crash from too few TOTAL cells, not the sneaky "wrong row" tiling bug from previous sessions).
+<br />
+
+### Verification: source-confirmed, screenshot-partial
+Traced bracket-terminal's own `calc_step`/`rebuild_vertices` source directly (not just inferred from behavior) to confirm a console's grid always stretches to fill the entire window based purely on its own cols/rows, completely independent of its font's tile pixel size - confirming the "1x1 console = one glyph spanning the whole screen" design actually works the way BATTLE_PORTRAIT_COLS/ROWS's existing coarse-grid trick already relies on. Got a real screenshot of the title screen post-renumbering (via the same ad hoc python-xlib driver from prior sessions) confirming no crash and no regression to the console range below the insertion point. Could not get a screenshot of a live battle or Class Select specifically - the same WSLg synthetic-input unreliability documented in a prior session's own notes (screenshots work regardless of focus; synthetic keyboard/mouse input doesn't reliably reach the game window) - left the game running and asked the user to check those two screens directly with real input instead of sinking more time re-attempting the same xlib approach.
