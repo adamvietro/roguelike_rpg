@@ -71,27 +71,33 @@ struct EnemyPortrait {
 /// read as too close to the player/too central - "move it up and to the
 /// right". RIGHT only had ~0.1 unit of headroom left before re-clipping
 /// the frame edge (the original reported bug), so 3.9 is close to the
-/// practical ceiling, not a round number picked for looks. ROW_BACK/
-/// ROW_FRONT are UNCHANGED - re-tested pushing ROW_BACK up to 1.7 and it
-/// immediately clipped Forest's fence again on both sides (screenshot-
-/// verified against the real art, not assumed); 1.9 is a hard ceiling
-/// for that theme specifically, not an arbitrary choice, so "up" wasn't
-/// achievable this round without either accepting a Forest regression or
-/// giving this theme its own row values - flagged back to the user
-/// rather than silently picking one.
-fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
+/// practical ceiling, not a round number picked for looks. Pushing
+/// ROW_BACK up to 1.7 immediately clipped Forest's fence again on both
+/// sides (screenshot-verified) - 1.9 is a hard ceiling for THAT theme
+/// specifically, not for every theme.
+///
+/// Fourth pass (same day, "we need to move them up" after the third
+/// pass still wasn't enough): rather than one shared row pair, `rows`
+/// now comes from the live theme's own `MapTheme::enemy_formation_rows`
+/// - Dungeon/Sewer's much thinner top wall/pipe band has real headroom
+/// Forest's tree/fence perimeter doesn't (screenshot-verified: as high
+/// as row 0.9 still clipped Dungeon's window sill/torch/crate, but
+/// 1.5/1.9 sits clear on both, with Sewer having room to spare beyond
+/// that). Forest keeps the original 1.9/2.3 via `enemy_formation_rows`'
+/// own default - see MapTheme's doc comment for why that stays the
+/// conservative fallback for any future theme too.
+fn enemy_portrait_position(count: usize, index: usize, rows: (f32, f32)) -> (f32, f32) {
     if count <= 1 {
         return (3.0, 1.0);
     }
-    const ROW_BACK: f32 = 1.9;
-    const ROW_FRONT: f32 = 2.3;
+    let (row_back, row_front) = rows;
     const LEFT: f32 = 1.9;
     const RIGHT: f32 = 3.9;
     let effective_count = count.min(4);
     let effective_index = index.min(effective_count - 1);
     let step = (RIGHT - LEFT) / (effective_count - 1) as f32;
     let col = LEFT + step * effective_index as f32;
-    let row = if effective_index % 2 == 0 { ROW_BACK } else { ROW_FRONT };
+    let row = if effective_index % 2 == 0 { row_back } else { row_front };
     (col, row)
 }
 
@@ -123,11 +129,11 @@ fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
 /// every portrait is exactly one grid unit tall regardless of its
 /// fractional top-left anchor), plus a 1-row margin so text starts just
 /// past the sprite rather than flush against it.
-fn enemy_text_position(count: usize, index: usize) -> (i32, i32) {
+fn enemy_text_position(count: usize, index: usize, rows: (f32, f32)) -> (i32, i32) {
     if count <= 1 {
         return (96, 41);
     }
-    let (col, row) = enemy_portrait_position(count, index);
+    let (col, row) = enemy_portrait_position(count, index, rows);
     let console2_col = (col * 32.0).round() as i32;
     let console2_row = ((row + 1.0) * 20.0).round() as i32 + 1;
     (console2_col, console2_row)
@@ -140,8 +146,8 @@ fn enemy_text_position(count: usize, index: usize) -> (i32, i32) {
 /// portrait console cover the same physical window, at ratios of 8
 /// BIG_TEXT columns and 5 BIG_TEXT rows per one portrait-grid unit,
 /// centered half a unit into whichever cell the portrait occupies.
-fn enemy_damage_popup_position(count: usize, index: usize) -> (i32, i32) {
-    let (col, row) = enemy_portrait_position(count, index);
+fn enemy_damage_popup_position(count: usize, index: usize, rows: (f32, f32)) -> (i32, i32) {
+    let (col, row) = enemy_portrait_position(count, index, rows);
     let big_col = (col * 8.0 + 4.0).round() as i32;
     let big_row = (row * 5.0 + 2.0).round() as i32;
     (big_col, big_row)
@@ -347,8 +353,17 @@ impl State {
         let mut enemy_battle_wiggle = DrawBatch::new();
         enemy_battle_wiggle.target(ENEMY_BATTLE_WIGGLE_CONSOLE);
         let enemy_count = enemies.len();
+        // See MapTheme::enemy_formation_rows' own doc comment - how far
+        // up the screen this theme's own battle backdrop art lets the
+        // zigzag formation reach before overlapping its perimeter
+        // scenery.
+        let formation_rows = self
+            .resources
+            .get::<Box<dyn MapTheme>>()
+            .unwrap()
+            .enemy_formation_rows();
         for (index, enemy) in enemies.iter().enumerate() {
-            let (col, row) = enemy_portrait_position(enemy_count, index);
+            let (col, row) = enemy_portrait_position(enemy_count, index, formation_rows);
             let color = flash_tint(enemy.render.color, enemy.flash);
             match enemy_battle_glyph(&enemy.name, enemy.battle_idle_frame) {
                 Some(glyph) => {
@@ -1040,9 +1055,15 @@ impl State {
         // edge-to-edge. Single-enemy keeps the original width entirely
         // unchanged.
         let bar_width = if enemy_count <= 1 { 16 } else { 10 };
+        // See MapTheme::enemy_formation_rows' own doc comment.
+        let formation_rows = self
+            .resources
+            .get::<Box<dyn MapTheme>>()
+            .unwrap()
+            .enemy_formation_rows();
         for (index, enemy) in battle.enemies.iter().enumerate() {
             let (enemy_hp, enemy_max) = entity_health(&self.ecs, enemy.entity);
-            let (col, base) = enemy_text_position(enemy_count, index);
+            let (col, base) = enemy_text_position(enemy_count, index, formation_rows);
             let is_target = Some(enemy.entity) == primary_target;
             let name_color = if is_target { YELLOW } else { WHITE };
             let name_text = if is_target && enemy_count > 1 {
@@ -1205,10 +1226,16 @@ impl State {
         // nudged left by half the number's length to actually center it
         // rather than just its left edge.
         ctx.set_active_console(DAMAGE_POPUP_CONSOLE);
+        // See MapTheme::enemy_formation_rows' own doc comment.
+        let formation_rows = self
+            .resources
+            .get::<Box<dyn MapTheme>>()
+            .unwrap()
+            .enemy_formation_rows();
         for (index, enemy) in battle.enemies.iter().enumerate() {
             if let Some(popup) = &enemy.damage_popup {
                 let text = format!("-{}", popup.amount);
-                let (center_col, row) = enemy_damage_popup_position(enemy_count, index);
+                let (center_col, row) = enemy_damage_popup_position(enemy_count, index, formation_rows);
                 let start_col = center_col - (text.chars().count() as i32) / 2;
                 ctx.print_color(start_col, row, RED, BLACK, &text);
             }
@@ -1379,15 +1406,17 @@ impl State {
         const BOX_X: i32 = 44;
         // Anchored to the player's own portrait top edge (see the doc
         // comment below) for a single enemy, but pushed down further
-        // for 2+ - enemy_portrait_position's ROW_FRONT (2.3, the zigzag
-        // formation's lower row - see its own doc comment) puts an
-        // enemy's own name/HP text as low as row 67 of the 100-row
-        // FINE_TEXT_CONSOLE (67% down the screen), which in THIS
-        // console's own 67-row scale is row ~45 - BOX_Y_BASE needs to
-        // clear that with margin regardless of whether the fight has 2,
-        // 3, or 4 enemies, since any of them can put an enemy on
-        // ROW_FRONT (only single-enemy fights never use the zigzag at
-        // all, so they alone keep the higher/earlier value).
+        // for 2+ - a zigzag formation's own front row (see
+        // MapTheme::enemy_formation_rows) puts an enemy's own name/HP
+        // text as low as row 67 of the 100-row FINE_TEXT_CONSOLE (67%
+        // down the screen) for Forest specifically - its own front row
+        // (2.3) is the LOWEST any theme currently uses, so 47 is
+        // calibrated to that worst case and stays a safe margin for
+        // Dungeon/Sewer's higher-up front row (1.9) too, without needing
+        // to vary by theme itself. Applies regardless of whether the
+        // fight has 2, 3, or 4 enemies, since any of them can put an
+        // enemy on the front row (only single-enemy fights never use the
+        // zigzag at all, so they alone keep the higher/earlier value).
         let box_y_base = if battle.enemies.len() <= 1 { 40 } else { 47 };
         const BOX_COL_WIDTH: i32 = 20;
         let box_width = BOX_COL_WIDTH * 2 + 3;

@@ -50,6 +50,14 @@ impl MapTheme for DungeonTheme {
         Some(1)
     }
 
+    /// Dungeon's thin top wall band leaves real headroom Forest's
+    /// tree/fence perimeter doesn't - screenshot-verified against the
+    /// real art (a candidate back row as high as 0.9 clipped the window
+    /// sill/torch/crate near the top; 1.5/1.9 sits clear of all of them).
+    fn enemy_formation_rows(&self) -> (f32, f32) {
+        (1.5, 1.9)
+    }
+
     /// Every one of Dungeon's row-3 (themed floor) cells - drain grate,
     /// bones/debris, cracked pillar base, torchlight glow - is a
     /// discrete point fixture, not a spreadable ground cover. Confirmed
@@ -159,6 +167,14 @@ impl MapTheme for SewerTheme {
     /// `MapTheme::battle_background_row`'s own doc comment.
     fn battle_background_row(&self) -> Option<u16> {
         Some(2)
+    }
+
+    /// Sewer's thin top pipe/wall band leaves the same real headroom
+    /// Dungeon's does - screenshot-verified clear at 1.5/1.9 with room
+    /// to spare (no nearby fixtures at all near the top, unlike
+    /// Dungeon's window/torch/crate).
+    fn enemy_formation_rows(&self) -> (f32, f32) {
+        (1.5, 1.9)
     }
 
     /// Row-3 (themed floor) cells 9-10 (drainage grate, rubble/debris)

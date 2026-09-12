@@ -62,6 +62,21 @@ pub trait MapTheme: Sync + Send {
     fn battle_background_row(&self) -> Option<u16> {
         None
     }
+    /// (back_row, front_row) for `screens/battle.rs`'s multi-enemy
+    /// zigzag formation (`enemy_portrait_position`) - how far up the
+    /// screen (in BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_ROWS grid units)
+    /// this theme's own battle backdrop art lets enemies stand before
+    /// they'd overlap its perimeter scenery. Defaults to (1.9, 2.3) -
+    /// Forest's own hard ceiling, screenshot-verified against the real
+    /// art (its tree/fence perimeter reaches noticeably lower into frame
+    /// than Dungeon/Sewer's thin top wall does) - a safe, conservative
+    /// default for any theme that hasn't had this checked yet, rather
+    /// than one that could silently clip a future theme's own art.
+    /// Override per-theme once its own headroom has actually been
+    /// checked against real background art the same way, not guessed.
+    fn enemy_formation_rows(&self) -> (f32, f32) {
+        (1.9, 2.3)
+    }
     /// Which placement style floor variant `variant` (1..FLOOR_VARIANT_
     /// COUNT - variant 0 is always the plain default, never patched or
     /// scattered) should use - see `VariantStyle`. Defaults to `Patch`
