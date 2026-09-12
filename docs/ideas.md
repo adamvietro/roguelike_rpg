@@ -263,6 +263,13 @@ Roughly in the order they've come up:
     animation" in Done), so this is about something beyond the animation
     itself - worth a real design conversation before touching code, per
     CLAUDE.md's convention for anything this size.
+12. **Ability Bar/other HUD panels should go transparent when the player
+    is underneath them** (added 2026-09-11) — a side effect of the camera
+    changes: the player can now end up positioned under the Ability
+    Bar/similar fixed UI panels, which currently just draw solid on top
+    of them. Needs a design pass (which panels, "transparent" vs. "hide
+    entirely," how to detect the player's screen-space position is
+    actually under a given panel's cells) before touching code.
 
 ## Future Class Ability Ideas (brainstorm only)
 
