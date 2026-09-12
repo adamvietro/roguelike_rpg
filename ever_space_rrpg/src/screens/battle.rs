@@ -32,43 +32,53 @@ struct EnemyPortrait {
 /// render_helpers.rs's draw_portrait_fancy/draw_wiggling_portrait, both
 /// fractional for exactly this reason.
 ///
-/// Retuned 2026-09-11 for the real painted battle backgrounds
-/// (resources/battle_backgrounds.png) - the original 2-tier "pyramid"
-/// formation (a pair up top, a pair below) was tuned back when the arena
-/// background was a flat procedural fill with nothing near the edges.
-/// Against the real art it broke two ways at once, confirmed by a real
-/// 2-enemy screenshot: the rightmost column (4.0, cell spanning 80-100%
-/// of the screen width) sat flush against the frame's own right edge on
-/// EVERY theme, and the upper tier (row 0.6, cell top at 12% of screen
-/// height) reached up into Forest's own tree/fence perimeter art
-/// specifically (Dungeon/Sewer have a much thinner top wall band and
-/// had more headroom to spare).
+/// Retuned twice on 2026-09-11 for the real painted battle backgrounds
+/// (resources/battle_backgrounds.png). First pass replaced the original
+/// 2-tier "pyramid" formation (a pair up top, a pair below) - tuned back
+/// when the arena background was a flat procedural fill with nothing
+/// near the edges - with a single row, after a real 2-enemy screenshot
+/// showed the old rightmost column (4.0, cell spanning 80-100% of the
+/// screen width) sitting flush against the frame's own right edge on
+/// EVERY theme, and the old upper tier (row 0.6) reaching up into
+/// Forest's own tree/fence perimeter art specifically. That single row
+/// worked geometrically (verified against all three themes' actual art)
+/// but read as visually flat/robotic once seen live - explicit user
+/// feedback ("I dont like the line of enemies").
 ///
-/// Fixed by checking all three themes' actual art directly (crop each
-/// theme's cell out of the real sheet, overlay the candidate grid,
-/// look) rather than re-guessing coordinates blind a second time.
-/// Landed on a single row (not a 2-tier pyramid) at ROW = 1.9 (cell
-/// spans 38-58% of screen height) - clear of Forest's perimeter on every
-/// column tested, comfortably above the Actions box (starts ~66% down)
-/// - with enemies spread evenly between LEFT/RIGHT (28-96% of screen
-/// width, well clear of both the left/right treeline in Forest and the
-/// frame's own edges). Single-enemy fights are untouched (3.0, 1.0) -
-/// not the bug that was reported, and already confirmed fine live.
-/// 5+ enemies (not currently a normal battle size) reuse the 4-enemy
-/// layout's rightmost slot rather than attempting to cram a 5th
-/// position into the same row - matches the original code's own
-/// handling of that case, not a new limitation.
+/// Second pass: a shallow zigzag between ROW_BACK (1.9 - the exact row
+/// already verified clear of Forest's perimeter) and ROW_FRONT (2.3,
+/// further from the perimeter and still safely above the Actions box
+/// once BOX_Y_BASE below was pushed down to match - see its own doc
+/// comment). Alternates by index parity, so a 3-enemy fight reads as a
+/// wedge (back-front-back) and a 2 or 4-enemy fight as a diagonal/full
+/// zigzag - re-verified against all three themes' actual art the same
+/// way the first pass was, not re-guessed blind. Index 0 (the leftmost
+/// position, closest to the player's own bottom-left spot) always lands
+/// on ROW_BACK specifically, since LEFT (1.4) is close enough to the
+/// player's own column (1.0-2.0) that a front-row placement there could
+/// visually overlap the player's portrait - confirmed clear by the same
+/// grid-overlay check.
+///
+/// Single-enemy fights are untouched (3.0, 1.0) - never the bug that was
+/// reported, confirmed fine live both times. 5+ enemies (not currently a
+/// normal battle size) reuse the 4-enemy layout's rightmost slot rather
+/// than attempting to cram a 5th position into the same two rows -
+/// matches the original code's own handling of that case, not a new
+/// limitation.
 fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
     if count <= 1 {
         return (3.0, 1.0);
     }
-    const ROW: f32 = 1.9;
+    const ROW_BACK: f32 = 1.9;
+    const ROW_FRONT: f32 = 2.3;
     const LEFT: f32 = 1.4;
     const RIGHT: f32 = 3.8;
     let effective_count = count.min(4);
     let effective_index = index.min(effective_count - 1);
     let step = (RIGHT - LEFT) / (effective_count - 1) as f32;
-    (LEFT + step * effective_index as f32, ROW)
+    let col = LEFT + step * effective_index as f32;
+    let row = if effective_index % 2 == 0 { ROW_BACK } else { ROW_FRONT };
+    (col, row)
 }
 
 /// HUD_CONSOLE (col, row) for enemy #`index` (of `count`)'s own name/HP-
@@ -1354,12 +1364,17 @@ impl State {
 
         const BOX_X: i32 = 44;
         // Anchored to the player's own portrait top edge (see the doc
-        // comment below) in the common case, but pushed down further
-        // whenever there are 3+ enemies - the bottom tier of that
-        // formation (see enemy_portrait_position) reaches down to around
-        // row 39-42 of this same console, which would otherwise land
-        // right under this box's own top edge.
-        let box_y_base = if battle.enemies.len() >= 3 { 44 } else { 40 };
+        // comment below) for a single enemy, but pushed down further
+        // for 2+ - enemy_portrait_position's ROW_FRONT (2.3, the zigzag
+        // formation's lower row - see its own doc comment) puts an
+        // enemy's own name/HP text as low as row 67 of the 100-row
+        // FINE_TEXT_CONSOLE (67% down the screen), which in THIS
+        // console's own 67-row scale is row ~45 - BOX_Y_BASE needs to
+        // clear that with margin regardless of whether the fight has 2,
+        // 3, or 4 enemies, since any of them can put an enemy on
+        // ROW_FRONT (only single-enemy fights never use the zigzag at
+        // all, so they alone keep the higher/earlier value).
+        let box_y_base = if battle.enemies.len() <= 1 { 40 } else { 47 };
         const BOX_COL_WIDTH: i32 = 20;
         let box_width = BOX_COL_WIDTH * 2 + 3;
         let box_content_rows = main_actions.len().max(other_actions.len()) as i32;
