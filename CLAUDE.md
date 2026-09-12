@@ -291,3 +291,16 @@ of these three sheets. The two most expensive-to-relearn lessons:
   to its own column count — reusing another sheet's mapping has caused
   the tiled-portrait bug (see the glyph-32 gotcha above) twice for real,
   on two different sheets.
+- **Before compositing ANY new PixelLab batch into a sheet, do a real
+  pixel-health pass over every source frame first** — don't assume a
+  batch is clean just because an earlier one was. 2026-09-11's full
+  animation batch was initially assumed to need no segmentation work
+  (clean binary alpha, no near-black content), but the user then spotted
+  real stray transparent pixels in Hunter's frames specifically, and a
+  closer look found the same problem across most of the batch, not just
+  Hunter — a spot-check of "a couple classes look fine" isn't enough.
+  Check every frame for both known failure modes: pure-black (or
+  near-black) OPAQUE pixels needing the usual floor (see the glyph-32-
+  adjacent near-black-pixel gotcha above), and pixels that are
+  transparent but shouldn't be — real holes/gaps inside the character's
+  own silhouette, as opposed to the actual background around it.
