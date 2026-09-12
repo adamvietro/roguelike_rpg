@@ -9,7 +9,64 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-9/11/26: real painted battle-arena backgrounds for Forest/Dungeon/Sewer,
+9/11/26, branch `title-screen-upgrades`: found and fixed the real cause of
+the battle-backdrop white cracks reported live (bracket-terminal's
+WITH-bg console shader falls back to the flat background color for any
+near-black-or-non-opaque texture pixel, same rule CLAUDE.md already
+documents for `_no_bg` consoles - the art was never floored the way
+every other sprite sheet in this project already is; fixed by flooring
+every channel to >=30 across all three images and switching the
+fallback color to black as defense-in-depth). Then a new branch for two
+requested fixes:
+
+- **Camera never had any bounds awareness.** Added `Camera::
+  clamped_top_left`, a shared helper used by both `Camera::new` (the
+  title screen's one-shot placement, previously centered on whatever
+  random point a map architect picked as `player_start`) and
+  `on_player_move` (every real step), so the fixed `DISPLAY_WIDTH x
+  DISPLAY_HEIGHT` window never extends past the map's own `SCREEN_WIDTH
+  x SCREEN_HEIGHT` bounds - fixes the black-void bug both on the title
+  screen and during real dungeon-crawl play near any edge (confirmed by
+  the user this should be one shared fix, not two separate ones).
+  Exposed a real wrinkle in `components::camera_render_offset` (the
+  glide's sub-pixel smoothing), whose own doc comment said it was
+  written to deliberately match Camera's un-clamped math exactly - fixed
+  by interpolating between the clamped camera position at BOTH ends of
+  a glide instead of the player's raw position minus a constant offset.
+  Verified with an exhaustive test (every possible target point on the
+  map, not just samples), removed after confirming per the usual
+  write-then-delete convention.
+- **Title-screen background enemies read as frozen, not walking in
+  place.** Root cause: `tick_idle_animation_system` only ran once every
+  `BACKGROUND_MOVE_INTERVAL_MS` (400ms), and each time only added that
+  one triggering frame's real elapsed time, not the ~400ms that had
+  actually passed - an idle frame took ~9 real seconds to advance.
+  Fixed by moving `tick_animations`/`tick_idle_animation` out of the
+  throttled movement schedule and into the schedule that already runs
+  every real frame, decoupling "how often does it step" from "how
+  smoothly does it animate." Verified for real with screenshots 80ms
+  apart - a stationary background goblin visibly cycled several walk-
+  in-place poses within under half a second, then stepped to its next
+  tile right on schedule. Also ran a real Schedule.execute() against
+  this newly-combined system group (mirrors hud.rs's own
+  hud_system_execution_tests pattern) to rule out an AccessDenied
+  panic, since this was the first time these animation systems ever
+  ran alongside map_render/entity_render together - passed, removed
+  after confirming, same convention as the camera test above.
+- **Not fixed, deliberately out of scope**: a user screenshot of a real
+  2-enemy fight showed `enemy_portrait_position`'s fixed coarse-grid
+  coordinates landing an enemy against the new backdrop art's own fence/
+  wall scenery (tuned back when the background had nothing near the
+  edges) - logged in `docs/ideas.md` instead of scope-creeping this
+  branch, per the user's own call.
+
+Full narrative in `docs/journal.md`'s 9/11/26 entries.
+
+---
+
+## Previous session (9/11/26) — Real painted battle-arena backgrounds
+
+Real painted battle-arena backgrounds for Forest/Dungeon/Sewer,
 replacing the old flat-tinted-glyph-plus-vignette fill - see
 `docs/journal.md`'s own 9/11/26 entry for the full narrative (art
 iteration, prompt tuning, the clone-stamp fixes). Technical summary:

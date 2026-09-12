@@ -3828,3 +3828,38 @@ Hit the classic glyph-32 crash again, in a new shape: a single-column font sheet
 
 ### Verification: source-confirmed, screenshot-partial
 Traced bracket-terminal's own `calc_step`/`rebuild_vertices` source directly (not just inferred from behavior) to confirm a console's grid always stretches to fill the entire window based purely on its own cols/rows, completely independent of its font's tile pixel size - confirming the "1x1 console = one glyph spanning the whole screen" design actually works the way BATTLE_PORTRAIT_COLS/ROWS's existing coarse-grid trick already relies on. Got a real screenshot of the title screen post-renumbering (via the same ad hoc python-xlib driver from prior sessions) confirming no crash and no regression to the console range below the insertion point. Could not get a screenshot of a live battle or Class Select specifically - the same WSLg synthetic-input unreliability documented in a prior session's own notes (screenshots work regardless of focus; synthetic keyboard/mouse input doesn't reliably reach the game window) - left the game running and asked the user to check those two screens directly with real input instead of sinking more time re-attempting the same xlib approach.
+<br />
+
+### The white-crack bug - a shader I mis-modeled, not a new mystery
+The user's own live screenshots (all three themes, mid-battle) showed jagged white cracks tracing the darkest lines in every scene - mortar lines, canopy gaps, shadow edges. First instinct was to suspect the huge 7680x4800 texture or WSLg's virtualized GPU, but tracing bracket-terminal's actual `CONSOLE_WITH_BG_FS` shader source settled it directly: even a WITH-background console falls back to the flat per-vertex background color for any texture pixel whose RGB is all <=0.1 (~25/255) or whose alpha isn't fully opaque - the exact same rule CLAUDE.md already documents for a `_no_bg` console, which the "WITH bg avoids this" assumption in this session's own earlier design writeup turned out to be wrong about. The battle art was never floored the way every other sprite sheet in this project already is (`>=30/channel` on near-black pixels) - every shadow was tripping the shader's fallback and rendering as solid white (the fallback color chosen for the backdrop draw call).
+<br />
+
+Fixed by reprocessing all three images with every channel floored to `>=30` (imperceptible - verified against the patched Forest image, both clone-stamp fixes held up) and switching the fallback color from white to black as defense-in-depth, so any pixel that somehow still slips through blends into a dark scene instead of standing out. Added this as a documented third variant of the glyph-32-adjacent near-black-pixel gotcha in both CLAUDE.md and DEVLOG.md, since it's the same underlying rule biting a new asset type (a full-scene backdrop) that nobody had reason to think needed the same treatment as a character sprite sheet.
+<br />
+
+# Title screen upgrades - a new branch, camera clamping, and the frozen background enemies
+Merged the battle-background work into `master` directly (no branch this time), then started a genuinely new branch for the next ask: "the enemies on the title screen should walk in place too" plus a related camera bug the user had separately noticed - visible black space around the map's edges, both on the title screen and, it turned out, during real dungeon-crawl play too.
+<br />
+
+### Diagnosing both bugs before touching code
+Investigated first rather than guessing. The "frozen" enemies turned out to already have idle animation wired up correctly - the actual bug was a throttling mismatch: `tick_idle_animation_system` only ran once every `BACKGROUND_MOVE_INTERVAL_MS` (400ms, the enemy-wandering pace), and each time it ran it only added that single triggering frame's real elapsed time (a few ms), not the ~400ms that had actually passed - so an idle frame took roughly 9 real seconds to advance. The class-select portrait right next to these enemies looked alive because it ticks its own timer directly, every frame, with no such throttle.
+<br />
+
+The black-void bug traced back to `Camera` never having any bounds awareness at all - it's just a fixed `DISPLAY_WIDTH x DISPLAY_HEIGHT` window centered exactly on a target point, with no clamp against the map's own `SCREEN_WIDTH x SCREEN_HEIGHT`. The title screen's own one-shot camera placement made this obvious fast, since it centers on whatever random point a map architect happened to pick as "player start" (only one of three architects even picks something centered) and never updates afterward - but the exact same fixed-window-no-clamp math runs during real gameplay too, meaning walking close to any map edge shows the identical black void mid-run. Confirmed with the user that this was worth fixing centrally rather than patching the title screen alone: "the same logic should keep it within the dungeon map" for both.
+<br />
+
+### The fix, and the wrinkle it exposed
+Added a shared `Camera::clamped_top_left` helper - the same clamp math used by both `Camera::new` (title screen's one-shot placement) and `on_player_move` (every real step). Wrote an exhaustive test (every possible target point on the map, not just a few samples) confirming the window never extends past bounds anywhere, then removed it per the usual "verify, then delete" convention - the math itself doesn't need a permanent test.
+<br />
+
+The clamp exposed a real wrinkle in `camera_render_offset` (the sub-pixel smoothing during a glide): its own doc comment already said it was written to "deliberately match Camera::new/on_player_move's own math exactly," which stopped being true the moment that math started clamping. Fixed by having it interpolate between the ALREADY-clamped camera position at both ends of a glide (the tile moved from, and the tile moved to) instead of interpolating the player's raw position and subtracting a constant half-window offset - the two only ever disagreed near a map edge, exactly where it would have mattered.
+<br />
+
+For the enemy animation, moved `tick_animations`/`tick_idle_animation` out of the title screen's throttled 400ms movement schedule and into the schedule that already runs every real rendered frame - decoupling "how often does this enemy decide to take a new step" (still 400ms) from "how smoothly does its animation progress" (every frame, matching real gameplay). Verified for real with a burst of screenshots 80ms apart: a stationary background goblin visibly cycled through several distinct walk-in-place poses within under half a second, then stepped to its next tile right on the 400ms schedule - both halves working independently, as intended.
+<br />
+
+Also ran the exact `hud_system_execution_tests`-style check (build a real Schedule, `.execute()` it against a real World, confirm no `AccessDenied` panic) against the newly-combined schedule, since this was the first time `tick_animations`/`tick_idle_animation` ever ran alongside `map_render`/`entity_render` in the same place - passed, removed afterward per the same non-permanent-test convention.
+<br />
+
+### One more thing found along the way, deliberately not fixed here
+A user screenshot of a real 2-enemy Forest fight showed the second enemy pushed against the frame's right edge, and the first overlapping the background's own fence rail - `enemy_portrait_position`'s fixed coarse-grid coordinates were tuned back when the arena background was a flat procedural fill with nothing near the edges, and don't account for the new painted backdrops' own perimeter scenery. Correctly flagged by the user as out of scope for the title-screen branch - logged in `docs/ideas.md` as a follow-up instead of scope-creeping this branch.

@@ -1452,21 +1452,32 @@ pub fn gliding_position(ecs: &SubWorld, entity: Entity) -> Option<(f32, f32)> {
 /// to subtract one from a Point/(i32,i32) pair. Callers build the final
 /// PointF themselves after doing that subtraction in plain f32 math.
 ///
-/// Uses `(DISPLAY_WIDTH / 2)` / `(DISPLAY_HEIGHT / 2)` - integer
-/// division, then cast to f32 - rather than dividing as floats, to
-/// deliberately match Camera::new/on_player_move's own math exactly:
-/// DISPLAY_HEIGHT is odd (25), so integer division rounds down to 12
-/// while float division would give 12.5. Using the float version here
-/// would make this function disagree with Camera's own left_x/top_y by
-/// half a cell at the exact moments a glide starts and ends - precisely
-/// when the two are supposed to hand off to each other seamlessly.
+/// Interpolates between `Camera::clamped_top_left` of the glide's start
+/// and end tile (the same clamp `Camera::new`/`on_player_move` apply),
+/// rather than the player's own eased position minus a constant half-
+/// window offset - the two only agree when neither endpoint is close
+/// enough to a map edge for the clamp to actually do anything. Near an
+/// edge, using the player's raw position would visibly disagree with
+/// where the discrete camera actually lands the instant this glide
+/// commits (see `Camera::clamped_top_left`'s own doc comment); lerping
+/// the two ALREADY-clamped corners instead means this always agrees with
+/// the real camera, whether the clamp is active for the whole step, only
+/// part of it (the step that first reaches an edge), or not at all.
 pub fn camera_render_offset(ecs: &SubWorld) -> Option<(f32, f32)> {
     let mut player = <(Entity, &Point)>::query().filter(component::<Player>());
     let player_entity = player.iter(ecs).nth(0).map(|(e, _)| *e)?;
-    let (fx, fy) = gliding_position(ecs, player_entity)?;
-    let half_w = (DISPLAY_WIDTH / 2) as f32;
-    let half_h = (DISPLAY_HEIGHT / 2) as f32;
-    Some((fx - half_w, fy - half_h))
+    let entry = ecs.entry_ref(player_entity).ok()?;
+    let anim = entry.get_component::<MovingAnimation>().ok()?;
+    if anim.elapsed_ms >= MOVE_ANIM_DURATION_MS {
+        return None;
+    }
+    let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
+    let (start_left, start_top) = Camera::clamped_top_left(anim.start);
+    let (end_left, end_top) = Camera::clamped_top_left(anim.end);
+    Some((
+        lerp(start_left as f32, end_left as f32, t),
+        lerp(start_top as f32, end_top as f32, t),
+    ))
 }
 
 /// Which sprite sheet/console a tile_render_at glyph is a cell in - the

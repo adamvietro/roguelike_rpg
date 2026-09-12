@@ -73,7 +73,7 @@ Roughly in the order they've come up:
    - **Reconsider the arena's static background/scenery** now that the
      characters themselves are this much more dynamic - it hasn't changed
      since the original theme-tinted-floor-and-border implementation.
-     **(2026-09-11: implemented, pending final live confirmation.)** Real
+     **(2026-09-11: implemented, confirmed live in a real fight.)** Real
      painted full-scene backdrops for Forest/Dungeon/Sewer
      (`resources/battle_backgrounds.png`, one 1280x800 scene per theme,
      JRPG-battle-backdrop style rather than tileable map-tile art -
@@ -97,6 +97,21 @@ Roughly in the order they've come up:
      <=0.1 (~25/255), not just on a `_no_bg` console. Fixed by flooring
      every channel to >=30 across all three images. Full write-up in
      `docs/journal.md`'s 2026-09-11 entry.
+     - **Follow-up needed: multi-enemy portrait positions don't account
+       for the new backdrop art's own perimeter scenery** (found
+       2026-09-11, via a real 2-enemy screenshot). `enemy_portrait_
+       position` (`screens/battle.rs`) places enemies at fixed coarse-
+       grid coordinates on a 5x5 grid - e.g. a 2-enemy fight puts the
+       second enemy at column 4 of 5 (80% across) - tuned back when the
+       background was a flat procedural fill with nothing near the
+       edges. Against the real painted backgrounds, that same fixed
+       position can land an enemy overlapping or cut off by the art's own
+       fence/tree/wall framing (confirmed: Orc pushed against the right
+       edge, Goblin overlapping a fence rail, both in the same Forest
+       fight). Needs a real look at whether the coarse grid's own
+       coordinates should just move inward, or whether enemy placement
+       should reference each theme's own "safe" interior zone instead of
+       a one-size-fits-all grid.
 5. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
    Rogue, Amazon, Hunter, Mage) plus the hidden "Debug" dev/test class now
    have real PixelLab.ai art across every sheet. Full row-mapping
@@ -194,10 +209,17 @@ Roughly in the order they've come up:
    - Add more animations per class/enemy (Breathing_Idle, directional
      rotations - needs the facing-architecture conversation above first
      for anything beyond `south`).
-   - **Enemies should walk in place on the title screen too** (added
-     2026-09-11) - currently only wander/animate a certain way there;
-     bring them in line with however the player classes already animate
-     on that screen.
+   - **Enemies should walk in place on the title screen too.** (added
+     2026-09-11, **fixed same day** on the `title-screen-upgrades`
+     branch) - they already had real idle-animation frames wired up; the
+     actual bug was `tick_idle_animation_system` only running once every
+     400ms (the enemy-wander throttle) and only getting that one
+     triggering frame's real elapsed time each time, not the ~400ms that
+     had actually passed - so a frame took ~9 real seconds to advance.
+     Fixed by moving animation ticking into the schedule that already
+     runs every real frame, decoupling it from the movement throttle.
+     Verified with real screenshots 80ms apart showing a stationary
+     enemy visibly cycle several poses before its next scheduled step.
    - **Real moving animations, not just idle-in-place** (added
      2026-09-11) - right now a character/enemy plays its idle loop
      whether it's standing still or actually walking between tiles; a
@@ -241,19 +263,22 @@ Roughly in the order they've come up:
    rethinking of map generation/tile assignment, but `map_builder`'s
    architects still bake in some single-tile-set assumptions worth
    revisiting once that's been lived with for a while.
-9. **Camera/map framing shows black space outside the map's own bounds**
-   (added 2026-09-11) - relates to the existing "a custom-sized Camera
-   doesn't shrink what renders around a small map" gotcha in CLAUDE.md.
-   Two related asks:
-   - Center the title screen's background map view on the map's own
-     center - there are times the black area outside the map is visible
-     there.
-   - More generally, don't let the camera move outside the map's bounds
-     during normal play either - clamp it so the black border is never
-     visible at any map edge. Means the player's own on-screen position
-     can no longer always be dead-center - it'll need to stop recentering
-     once the camera itself has hit an edge of the map, same idea as a
-     typical 2D platformer/RPG camera clamp.
+9. **Camera/map framing shows black space outside the map's own bounds.**
+   (added 2026-09-11, **fixed same day** on the `title-screen-upgrades`
+   branch) - relates to the existing "a custom-sized Camera doesn't
+   shrink what renders around a small map" gotcha in CLAUDE.md. Fixed
+   centrally rather than as two separate patches, per the user's own
+   call ("the same logic should keep it within the dungeon map" for
+   both the title screen and real play): a new shared `Camera::
+   clamped_top_left` clamps the fixed `DISPLAY_WIDTH x DISPLAY_HEIGHT`
+   window so it never extends past the map's own bounds, used by both
+   `Camera::new` (the title screen's one-shot placement) and
+   `on_player_move` (every real step). The player's own on-screen
+   position is no longer always dead-center as a result - it shifts
+   off-center near an edge instead of ever showing black past the map's
+   real bounds, same idea as a typical 2D platformer/RPG camera clamp.
+   Verified with an exhaustive test (every possible position on the map,
+   not just samples) that the window can never extend past bounds.
 
 ## Refactoring opportunities
 
