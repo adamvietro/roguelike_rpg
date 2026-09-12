@@ -49,7 +49,7 @@ StartingKits(
             // Templates::spawn_named_item), so "Next Level" x2 is simply
             // listed twice - no special count field needed.
             class: "Debug",
-            items: [ "Victory", "Defeat", "Next Level", "Next Level" ],
+            items: [ "Victory", "Defeat", "Next Level", "Next Level", "Battle 4" ],
         ),
         StartingKit(
             // Amazon starts with one of each of its two out-of-combat

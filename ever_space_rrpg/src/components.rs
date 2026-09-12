@@ -119,6 +119,13 @@ pub enum ProvidesEffect {
     /// State::advance_level runs when stepping on a real Exit tile (see
     /// systems/end_turn.rs / main.rs's TurnState::NextLevel dispatch).
     DebugNextLevel,
+    /// Debug-class item: instantly starts a real Battle against 4 fresh
+    /// Goblins, spawned right next to the user - added specifically so
+    /// the multi-enemy battle-screen formation (enemy_portrait_position,
+    /// screens/battle.rs) can be tested on demand instead of needing to
+    /// find/herd a real 4-enemy encounter in normal play. See
+    /// systems/use_items.rs.
+    DebugBattle4,
     /// Amazon's Throw Spear: damages the nearest currently-visible (in the
     /// player's FieldOfView - real line-of-sight, not just distance, see
     /// systems/fov.rs) enemy for the player's normal attack damage plus

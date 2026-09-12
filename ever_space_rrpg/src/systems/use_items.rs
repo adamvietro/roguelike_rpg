@@ -21,6 +21,7 @@ pub fn use_items(
     #[resource] map: &mut Map,
     #[resource] turn_state: &mut TurnState,
     #[resource] stats: &mut Stats,
+    #[resource] battle: &mut Option<Battle>,
 ) {
     let mut healing_to_apply = Vec::<(Entity, i32)>::new();
     // Amazon's Throw Spear - collected here (during the read-only pass
@@ -107,6 +108,40 @@ pub fn use_items(
                         }
                         ProvidesEffect::DebugNextLevel => {
                             *turn_state = TurnState::NextLevel;
+                        }
+                        // Debug class only - see components::
+                        // ProvidesEffect::DebugBattle4. Spawns 4 fresh
+                        // Goblins one tile off the user in each cardinal
+                        // direction (never directly on the user's own
+                        // tile), then starts a real Battle against them
+                        // exactly the way walking into an enemy does
+                        // (see player_input.rs's own Battle::new call) -
+                        // just skipping the "actually find 4 enemies and
+                        // herd them together" part.
+                        ProvidesEffect::DebugBattle4 => {
+                            if let Ok(user) = ecs.entry_ref(activate.used_by) {
+                                if let Ok(&pos) = user.get_component::<Point>() {
+                                    let offsets = [
+                                        Point::new(0, -1),
+                                        Point::new(0, 1),
+                                        Point::new(-1, 0),
+                                        Point::new(1, 0),
+                                    ];
+                                    let roster: Vec<(Entity, String)> = offsets
+                                        .iter()
+                                        .filter_map(|offset| {
+                                            spawn_named_enemy_via_commands(
+                                                "Goblin",
+                                                pos + *offset,
+                                                commands,
+                                            )
+                                            .map(|e| (e, "Goblin".to_string()))
+                                        })
+                                        .collect();
+                                    *battle = Some(Battle::new(activate.used_by, roster));
+                                    *turn_state = TurnState::InBattle;
+                                }
+                            }
                         }
                         // Amazon's Throw Spear - finds the nearest enemy
                         // currently within the user's FieldOfView (real

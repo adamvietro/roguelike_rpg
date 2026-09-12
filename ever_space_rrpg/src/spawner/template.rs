@@ -419,6 +419,29 @@ impl Templates {
         }
     }
 
+    /// Spawns one exact NAMED enemy (not a random weighted pick from a
+    /// level's pool) via CommandBuffer, for the same "only a SubWorld +
+    /// CommandBuffer are available, not a real &mut World" reason
+    /// spawn_named_item_via_commands exists just above. Used by the
+    /// Debug class's "Battle 4" cheat (systems/use_items.rs) to spawn a
+    /// fixed roster for testing the battle screen's multi-enemy
+    /// formation, rather than needing a real level's random enemy pool.
+    /// Returns None (no spawn, no panic) if no Enemy-type template
+    /// matches `name` - same "don't spawn, don't crash" shape
+    /// spawn_prefab_chest_guards falls back to when nothing matches.
+    pub fn spawn_named_enemy_via_commands(
+        &self,
+        name: &str,
+        pt: Point,
+        commands: &mut CommandBuffer,
+    ) -> Option<Entity> {
+        let template = self
+            .entities
+            .iter()
+            .find(|t| t.name == name && t.entity_type == EntityType::Enemy)?;
+        Some(self.spawn_entity(&pt, template, commands))
+    }
+
     /// Places a lightweight shop-counter marker at `pt`: just enough to
     /// display and track it (Point + Render + Name + ShopStock + Price),
     /// NOT a real usable Item - it has no Effect/Technique/Weapon/Carried

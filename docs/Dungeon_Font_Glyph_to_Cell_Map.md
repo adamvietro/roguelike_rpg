@@ -352,6 +352,7 @@ The glyph order matches the **CP437 0–255 ordering** used by the original dung
 | `6`   | Bow tier 0                                                    |    3 |    6 | (192,96)–(223,127)  |
 | `7`   | Bow tier 1                                                    |    3 |    7 | (224,96)–(255,127)  |
 | `8`   | Bow tier 2 (gold, w/ sparkle flare)                           |    3 |    8 | (256,96)–(287,127)  |
+| `9`   | Battle 4 (Debug, codepoint reservation only - no art yet)     |    3 |    9 | (288,96)–(319,127)  |
 | `X`   | Spear tier 0 (official mapping)                               |    5 |    8 | (256,160)–(287,191) |
 | `Y`   | Spear tier 1 (tribal/tasseled, official mapping)              |    5 |    9 | (288,160)–(319,191) |
 | `Z`   | Spear tier 2 (gold, custom spearhead added, official mapping) |    5 |   10 | (320,160)–(351,191) |
@@ -644,7 +645,7 @@ in the Complete 256-cell map below, marked Unused.
 |   54 | `6`     |    3 |    6 | (192,96)–(223,127)  | Bow tier 0                                                                          |                     |
 |   55 | `7`     |    3 |    7 | (224,96)–(255,127)  | Bow tier 1                                                                          |                     |
 |   56 | `8`     |    3 |    8 | (256,96)–(287,127)  | Bow tier 2 (sparkle flare)                                                          |                     |
-|   57 | `9`     |    3 |    9 | (288,96)–(319,127)  | standard glyph                                                                      |                     |
+|   57 | `9`     |    3 |    9 | (288,96)–(319,127)  | Battle 4 (Debug, codepoint reservation only)                                        |                     |
 |   58 | `:`     |    3 |   10 | (320,96)–(351,127)  | standard glyph                                                                      |                     |
 |   59 | `;`     |    3 |   11 | (352,96)–(383,127)  | standard glyph                                                                      |                     |
 |   60 | `<`     |    3 |   12 | (384,96)–(415,127)  | standard glyph                                                                      |                     |

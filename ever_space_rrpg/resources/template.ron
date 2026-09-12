@@ -314,6 +314,21 @@ Templates(
             description: Some("Debug: instantly advances to the next dungeon level, as if the Exit tile had just been reached.")
         ),
         Template(
+            // Sets TurnState::InBattle against 4 fresh Goblins - see
+            // components::ProvidesEffect::DebugBattle4. Glyph '9' - every
+            // other ASCII digit (0-8) is already claimed by a weapon
+            // tier (Mage Staffs/Rogue Daggers/Hunter Bows), see
+            // docs/Dungeon_Font_Glyph_to_Cell_Map.md's master table - '9'
+            // is the one still genuinely free, same reasoning Debug's
+            // other icons (N/L/M) already followed.
+            entity_type: Item,
+            name : "Battle 4", glyph: '9', levels: [ ],
+            effect: Some(DebugBattle4),
+            frequency: 0,
+            class: Some("Debug"),
+            description: Some("Debug: instantly starts a battle against 4 Goblins, for testing the multi-enemy battle screen.")
+        ),
+        Template(
             // Amazon's weapon tier, parallel to the Swords/Staffs/Daggers
             // above - same guaranteed prefab slot, same level gating, but
             // class: Amazon. Glyphs w/x/y continue the placeholder

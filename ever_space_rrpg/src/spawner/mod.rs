@@ -282,6 +282,19 @@ pub fn spawn_named_item_via_commands(
     template.spawn_named_item_via_commands(name, player, commands);
 }
 
+/// Spawns one exact named enemy via a CommandBuffer - see
+/// Templates::spawn_named_enemy_via_commands. Used by the Debug class's
+/// "Battle 4" cheat (systems/use_items.rs), which only has a SubWorld +
+/// CommandBuffer to work with, not a real `&mut World`.
+pub fn spawn_named_enemy_via_commands(
+    name: &str,
+    pt: Point,
+    commands: &mut legion::systems::CommandBuffer,
+) -> Option<Entity> {
+    let template = Templates::load();
+    template.spawn_named_enemy_via_commands(name, pt, commands)
+}
+
 /// Whether `name`'s template is a weapon - see Templates::item_is_weapon.
 pub fn item_is_weapon(name: &str) -> bool {
     let template = Templates::load();
