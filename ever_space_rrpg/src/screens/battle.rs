@@ -27,35 +27,48 @@ struct EnemyPortrait {
 }
 
 /// Fractional (col, row) position, in the coarse BATTLE_PORTRAIT_COLS x
-/// BATTLE_PORTRAIT_ROWS grid, for enemy #`index` of `count` total - a
-/// deliberate formation per count rather than a plain vertical stack
-/// (which is what the old enemy_portrait_row did, and it visually
-/// collided with the Actions box the moment 3+ enemies were actually on
-/// screen - see the screenshot that prompted this rework). Whole-number
-/// draw_portrait can't express most of these (a "1.2 spaces up" shift
-/// isn't one of the 5 whole rows) - see render_helpers.rs's
-/// draw_portrait_fancy/draw_wiggling_portrait, both fractional now.
+/// BATTLE_PORTRAIT_ROWS grid, for enemy #`index` of `count` total.
+/// Whole-number draw_portrait can't express these - see
+/// render_helpers.rs's draw_portrait_fancy/draw_wiggling_portrait, both
+/// fractional for exactly this reason.
 ///
-/// The formation, one count at a time:
-/// - 1: the classic single-enemy spot, unchanged - (3, 1).
-/// - 2: side by side at (2, 1) and (4, 1) - straddling column 3, so the
-///   midpoint between the two lands exactly on the classic spot.
-/// - 3: that same side-by-side pair, shifted up to row 0.6 (staying
-///   clear of row 0 itself - see enemy_text_position's own note on why
-///   that row is treated as unsafe), plus a third enemy below and
-///   centered at (3, 1.8) - a 1.2-row gap between the two tiers.
-/// - 4: the count-3 formation plus a fourth enemy immediately to the
-///   right of the bottom-center one, at (4, 1.8).
+/// Retuned 2026-09-11 for the real painted battle backgrounds
+/// (resources/battle_backgrounds.png) - the original 2-tier "pyramid"
+/// formation (a pair up top, a pair below) was tuned back when the arena
+/// background was a flat procedural fill with nothing near the edges.
+/// Against the real art it broke two ways at once, confirmed by a real
+/// 2-enemy screenshot: the rightmost column (4.0, cell spanning 80-100%
+/// of the screen width) sat flush against the frame's own right edge on
+/// EVERY theme, and the upper tier (row 0.6, cell top at 12% of screen
+/// height) reached up into Forest's own tree/fence perimeter art
+/// specifically (Dungeon/Sewer have a much thinner top wall band and
+/// had more headroom to spare).
+///
+/// Fixed by checking all three themes' actual art directly (crop each
+/// theme's cell out of the real sheet, overlay the candidate grid,
+/// look) rather than re-guessing coordinates blind a second time.
+/// Landed on a single row (not a 2-tier pyramid) at ROW = 1.9 (cell
+/// spans 38-58% of screen height) - clear of Forest's perimeter on every
+/// column tested, comfortably above the Actions box (starts ~66% down)
+/// - with enemies spread evenly between LEFT/RIGHT (28-96% of screen
+/// width, well clear of both the left/right treeline in Forest and the
+/// frame's own edges). Single-enemy fights are untouched (3.0, 1.0) -
+/// not the bug that was reported, and already confirmed fine live.
+/// 5+ enemies (not currently a normal battle size) reuse the 4-enemy
+/// layout's rightmost slot rather than attempting to cram a 5th
+/// position into the same row - matches the original code's own
+/// handling of that case, not a new limitation.
 fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
-    match (count, index) {
-        (0, _) | (1, _) => (3.0, 1.0),
-        (2, 0) => (2.0, 1.0),
-        (2, _) => (4.0, 1.0),
-        (_, 0) => (2.0, 0.6),
-        (_, 1) => (4.0, 0.6),
-        (_, 2) => (3.0, 1.8),
-        _ => (4.0, 1.8),
+    if count <= 1 {
+        return (3.0, 1.0);
     }
+    const ROW: f32 = 1.9;
+    const LEFT: f32 = 1.4;
+    const RIGHT: f32 = 3.8;
+    let effective_count = count.min(4);
+    let effective_index = index.min(effective_count - 1);
+    let step = (RIGHT - LEFT) / (effective_count - 1) as f32;
+    (LEFT + step * effective_index as f32, ROW)
 }
 
 /// HUD_CONSOLE (col, row) for enemy #`index` (of `count`)'s own name/HP-
