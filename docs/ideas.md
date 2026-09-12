@@ -4,6 +4,20 @@ Working list of what's still ahead, and a running record of what's already
 shipped. Pull individual "Working" items into a real session when ready to
 build them — nothing there is scoped or scheduled just by being listed.
 
+**Standing rule: every still-open item lives in the numbered "Near-term
+priorities" list below, no exceptions.** When adding something new, either
+give it its own next number, or fold it as a sub-bullet into an existing
+number if it genuinely fits that number's category (the way individual
+animation tasks all live under one "Animation work" number, or individual
+refactor ideas all live under one "Refactoring opportunities" number).
+Never leave a new item as a bare bullet in some other section with no
+number of its own - that's exactly what made items easy to lose track of
+before this list got reorganized (2026-09-11). Once a numbered item (or a
+specific sub-bullet within one) is actually finished, move its writeup to
+the matching spot in "Done" below rather than leaving a "(fixed)" note
+in place here - the numbered list should always reflect what's honestly
+still left to do, not a mix of open and closed work.
+
 ---
 
 # Working
@@ -46,201 +60,80 @@ Roughly in the order they've come up:
 3. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
-4. **Battle screen redesign — now that classes have real animated art**
+4. **Multi-enemy portrait positions don't account for the new battle
+   backdrop art's perimeter scenery** (found 2026-09-11, via a real
+   2-enemy screenshot). `enemy_portrait_position` (`screens/battle.rs`)
+   places enemies at fixed coarse-grid coordinates on a 5x5 grid - e.g. a
+   2-enemy fight puts the second enemy at column 4 of 5 (80% across) -
+   tuned back when the arena background was a flat procedural fill with
+   nothing near the edges. Against the real painted backgrounds (see
+   "Battle arena backgrounds" in Done below), that same fixed position
+   can land an enemy overlapping or cut off by the art's own fence/tree/
+   wall framing (confirmed: Orc pushed against the right edge, Goblin
+   overlapping a fence rail, both in the same Forest fight). Needs a real
+   look at whether the coarse grid's own coordinates should just move
+   inward, or whether enemy placement should reference each theme's own
+   "safe" interior zone instead of a one-size-fits-all grid.
+5. **Battle screen redesign — now that classes have real animated art**
    (added 2026-09-08, explicit ask: "we can do soooo much better now").
    Not scoped yet - needs a real design conversation before code, per
-   CLAUDE.md's convention for anything this size - but candidate
-   directions worth putting on the table:
-   - **Give enemies their own attack animations to match the player's.**
-     Right now only the PLAYER's own techniques get a real played-once
-     animation (`character_technique.png`) - an enemy landing a hit still
-     just shows its ordinary Fight_Stance_Idle loop the whole time,
-     which reads as increasingly static now that the player's side is
-     this much more alive.
-   - **Enemy Death animations.** An enemy currently just vanishes from
-     the arena the instant it's killed - no animation at all, unlike the
-     player's new Death pose. Would need its own sheet (`enemy_death.png`?)
-     and a moment to actually play it before removing the entity/awarding
-     loot, both new.
+   CLAUDE.md's convention for anything this size. The background piece
+   already shipped (see "Battle arena backgrounds" in Done below) and
+   the enemy-animation pieces are folded into "Animation work" below;
+   what's left on the table:
    - **A hit-impact effect timed to `HitQueue`'s own per-hit landing**
      (`battle::damage::tick_hit_queue`) - screen shake, a flash, eventually
-     a sound (see item 5 below) - right now a landed hit only shows the
-     floating damage number, no impact feedback synced to the moment it
-     actually connects.
+     a sound (see the Music & sound effects item below) - right now a
+     landed hit only shows the floating damage number, no impact feedback
+     synced to the moment it actually connects.
    - **Visual projectiles for ranged techniques** (Arrow Volley, Javelin
      Volley, Blizzard) that travel from caster to target instead of only
      animating the caster in place.
-   - **Reconsider the arena's static background/scenery** now that the
-     characters themselves are this much more dynamic - it hasn't changed
-     since the original theme-tinted-floor-and-border implementation.
-     **(2026-09-11: implemented, confirmed live in a real fight.)** Real
-     painted full-scene backdrops for Forest/Dungeon/Sewer
-     (`resources/battle_backgrounds.png`, one 1280x800 scene per theme,
-     JRPG-battle-backdrop style rather than tileable map-tile art -
-     picked specifically to avoid needing ever-more themed tile variety)
-     replace the old flat-tinted-glyph-plus-vignette fill via a new
-     `MapTheme::battle_background_row`; a theme without real art yet
-     still falls back to the old procedural fill unchanged. Needed a
-     genuinely new console (`BATTLE_BACKDROP_CONSOLE`) inserted below the
-     battle screen's own text/portraits, which - for the first time in
-     this project's four prior "insert a console early" moves - forced
-     two long-bare-literal consoles (`2`/`3`) to finally become real
-     named constants (`FINE_TEXT_CONSOLE`/`BATTLE_PORTRAIT_CONSOLE`).
-     Two real bugs found and fixed along the way: a launch crash from a
-     new shape of the glyph-32 gotcha (a single-column "one glyph = one
-     full image" sheet needs 33+ total cells just to contain index 32,
-     which a 6x6 grid solves far more sanely than a 1x33 one would), and
-     - caught only by the user's own screenshot - near-black pixels in
-     the art (shadows, mortar lines, canopy gaps) rendering as stark
-     white cracks, since bracket-terminal's WITH-bg console shader falls
-     back to the background color for any texture pixel whose RGB is all
-     <=0.1 (~25/255), not just on a `_no_bg` console. Fixed by flooring
-     every channel to >=30 across all three images. Full write-up in
-     `docs/journal.md`'s 2026-09-11 entry.
-     - **Follow-up needed: multi-enemy portrait positions don't account
-       for the new backdrop art's own perimeter scenery** (found
-       2026-09-11, via a real 2-enemy screenshot). `enemy_portrait_
-       position` (`screens/battle.rs`) places enemies at fixed coarse-
-       grid coordinates on a 5x5 grid - e.g. a 2-enemy fight puts the
-       second enemy at column 4 of 5 (80% across) - tuned back when the
-       background was a flat procedural fill with nothing near the
-       edges. Against the real painted backgrounds, that same fixed
-       position can land an enemy overlapping or cut off by the art's own
-       fence/tree/wall framing (confirmed: Orc pushed against the right
-       edge, Goblin overlapping a fence rail, both in the same Forest
-       fight). Needs a real look at whether the coarse grid's own
-       coordinates should just move inward, or whether enemy placement
-       should reference each theme's own "safe" interior zone instead of
-       a one-size-fits-all grid.
-5. **Idle/walk/battle animation art** — all 5 playable classes (Barbarian,
-   Rogue, Amazon, Hunter, Mage) plus the hidden "Debug" dev/test class now
-   have real PixelLab.ai art across every sheet. Full row-mapping
-   reference and every confirmed gotcha now live in `docs/
-   Dungeon_Font_Glyph_to_Cell_Map.md` (the master doc for this system,
-   not just the dungeon font); full session-by-session history in
-   `docs/journal.md`; condensed standing rules in `CLAUDE.md`. Current
-   state:
-   - `resources/character_idle.png` (6 cols x 8 rows) drives the dungeon/
-     Battle Arena/Class-Select walk-in-place loop, real Walk/south frames
-     for all 6 classes. Row 5 permanently blank (glyph-32 collision on
-     this sheet's column count); one free row (7) left before a resize
-     is needed.
-   - `resources/character_battle.png` (8 cols x 8 rows) drives the
-     battle-screen portrait animation, real Fight_Stance_Idle/east
-     frames for all 6 classes. Player-only for now - enemies keep their
-     static dungeonfont portraits. Row 4 permanently blank (same
-     collision, different row for this sheet's column count); one free
-     row (7) left.
-   - `resources/character_portrait.png` (6 cols x 8 rows, column 0 only)
-     drives every still-icon site (Class Select's non-highlighted row,
-     the dungeon HUD portrait, both in-battle and run-ending Victory
-     screens, the Game Over screen's rotated fallen pose), real
-     rotations/south.png for all 6 classes. Every old dungeonfont-glyph
-     fallback in these lookup paths is now dead code in practice - no
-     class currently falls through to it - but kept as the fallback for
-     any future class added without art yet. Two free rows (6, 7) left.
-   - Only a fraction of what each zip actually contains is in use so far
-     (Breathing_Idle and every rotation but `south` are still unused per
-     class). Directional facing (8-way rotations) is a real, unscoped
-     architecture change (the game has no concept of entity facing at
-     all today) - worth a design conversation before starting.
-   - **Played-once Death/Victory/technique animations (2026-09-08,
-     merged into `master` the same day).** A new
-     `OneShotAnimation` type (components.rs) - plays through its frames
-     once and holds the last one (or loops, for a multi-hit/AOE
-     technique - see below) - on three more sheets, each still just
-     `EXTRA_ANIM_COLS` (9) wide: `resources/character_death.png` and
-     `resources/character_victory.png` (all 6 classes now have a row -
-     Rogue, Debug, Hunter, Barbarian, Amazon, Mage - replacing the old
-     rotated-glyph Game Over pose and static Victory portrait for every
-     one of them) and `resources/character_technique.png` (keyed by
-     COMPOUND `(class, technique name)` since a class can end up with
-     several - currently Rogue/Flurry, Hunter/Arrow Volley, Barbarian/
-     Whirlwind, Amazon/Javelin Volley, Mage/Blizzard; Debug has none,
-     since its "techniques" are cheat items, not real attacks). A
-     multi-hit/AOE technique's animation loops for as long as its
-     `HitQueue` is still landing damage instead of freezing on frame 1;
-     every technique animation runs much faster than the idle loop's own
-     pace (`TECHNIQUE_FRAME_DURATION_MS`, 80ms vs. 350ms) and never gets
-     the "Attacking" flash's usual wiggle-shake layered on top of it -
-     both explicit user feedback after seeing Flurry in a real fight.
-     Full technical detail in `docs/DEVLOG.md` and `docs/
-     Dungeon_Font_Glyph_to_Cell_Map.md`'s "One-shot animation sheets"
-     section. Not yet verified with a live screenshot (blocked by an
-     X11 input-driver issue that session, see DEVLOG's Known Environment
-     Quirks) - worth a real playthrough check before calling this fully
-     proven.
-   - **Enemy art (2026-09-08): all 8 enemies done, including a since-
-     fixed Orc Warlord.** Enemies get their own dedicated sheets
-     (`resources/enemy_idle.png`, `resources/enemy_battle.png`, both 9
-     rows) rather than more rows on the character sheets above - see the
-     design conversation and full row-mapping in `docs/
-     Dungeon_Font_Glyph_to_Cell_Map.md`'s "Enemy sheets" section. Done:
-     Goblin, Orc, Ogre, Ettin, Goblin Chieftain, Orc Warlord, Ogre
-     Warlord, Ettin Overlord. Verified end-to-end with real screenshots
-     (Goblin and Orc both checked live) in the dungeon walk loop and in
-     real fights - clean, no bleed, no leftover placeholder art.
-     - **"Ogre Warlord" is a brand-new enemy**, not a reused name - a
-       second possible boss for BOTH Level 1 (alongside Orc Warlord) and
-       Level 2 (alongside Ettin Overlord), per a design conversation
-       (`Templates::spawn_boss` already supported multiple `boss_only`
-       templates per level with zero code changes needed). Placeholder
-       stats (hp 13/dmg 3/speed 4) deliberately sit between its two
-       fellow bosses. Not yet playtested live for balance - same
-       "placeholder, real balance pass later" status as the original 3
-       bosses.
-     - **Orc Warlord's redo (2026-09-08) fixed the earlier defect** - its
-       first batch's Walk/Fight_Stance_Idle both came back as a genuine
-       PixelLab generation defect (a thin off-model sliver, not a full
-       character); the regenerated batch came back clean, confirmed by
-       screenshot, and now occupies row 6 on both sheets. Its Walk/south
-       came back with 8 frames, more than the idle sheet's own 6-column
-       ceiling (`MAX_IDLE_FRAMES`) - 6 of the 8 were evenly sampled
-       rather than truncated, so the cycle doesn't skip its back half.
-   - Redo Amazon's Walk animation specifically - flagged as needing a
-     fresh PixelLab pass, independent of the canvas-size/leftover-art
-     bugs already fixed for it this session. Still outstanding - not
-     part of the 2026-09-08 Death/Victory/technique batch above, which
-     only touched the three new sheets.
-   - **Redo the enemy battle sprites** (`enemy_battle.png`, now 9
-     rows) - a quality/style call, not a bug like Orc Warlord's or
-     Amazon's own redo above; the user isn't happy with how they look
-     and wants another pass once there's time.
-   - Add more animations per class/enemy (Breathing_Idle, directional
-     rotations - needs the facing-architecture conversation above first
-     for anything beyond `south`).
-   - **Enemies should walk in place on the title screen too.** (added
-     2026-09-11, **fixed same day** on the `title-screen-upgrades`
-     branch) - they already had real idle-animation frames wired up; the
-     actual bug was `tick_idle_animation_system` only running once every
-     400ms (the enemy-wander throttle) and only getting that one
-     triggering frame's real elapsed time each time, not the ~400ms that
-     had actually passed - so a frame took ~9 real seconds to advance.
-     Fixed by moving animation ticking into the schedule that already
-     runs every real frame, decoupling it from the movement throttle.
-     Verified with real screenshots 80ms apart showing a stationary
-     enemy visibly cycle several poses before its next scheduled step.
-   - **Real moving animations, not just idle-in-place** (added
-     2026-09-11) - right now a character/enemy plays its idle loop
-     whether it's standing still or actually walking between tiles; a
-     genuine walk-cycle synced to movement is a separate, not-yet-built
-     thing. Could cover all directions of movement, not just south, if
-     needed - ties into the directional-facing architecture question
-     already noted above (the game has no concept of entity facing
-     today).
-   - **Animations for every ability, including out-of-combat ones**
-     (added 2026-09-11) - technique animations only exist for in-battle
-     techniques today (`character_technique.png`); out-of-combat class
-     Abilities have no animation at all. Needs real animation-state
-     switching logic outside of battle (currently the dungeon view only
-     ever shows the walk/idle loop) so an ability use can briefly
-     override it, not just add more art.
-6. **Music & sound effects** — no crate picked yet (`rodio` is the
+6. **Animation work** — everything still outstanding now that the user is
+   assembling a full new animation batch for every class and enemy. What
+   already shipped (idle/walk art for all 6 classes and 8 enemies, the
+   played-once Death/Victory/Technique framework, the title-screen fix)
+   lives in "Character & enemy animation" in Done below - full row-
+   mapping reference in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
+   session-by-session history in `docs/journal.md`, condensed standing
+   rules in `CLAUDE.md`. Still open:
+   - **Enemy attack animations to match the player's.** Only the
+     PLAYER's own techniques get a real played-once animation
+     (`character_technique.png`) - an enemy landing a hit still just
+     shows its ordinary Fight_Stance_Idle loop the whole time.
+   - **Enemy Death animations.** An enemy currently just vanishes the
+     instant it's killed - no animation at all, unlike the player's
+     Death pose. Needs its own sheet (`enemy_death.png`?) and a moment to
+     actually play it before removing the entity/awarding loot.
+   - **Redo Amazon's Walk animation** - flagged as needing a fresh
+     PixelLab pass, independent of the canvas-size/leftover-art bugs
+     already fixed for it in an earlier session.
+   - **Redo the enemy battle sprites** (`enemy_battle.png`, 9 rows) - a
+     quality/style call, not a bug; the user isn't happy with how they
+     look and wants another pass.
+   - **More animations per class/enemy** (Breathing_Idle, directional
+     rotations) - needs a facing-architecture design conversation first
+     for anything beyond `south` (the game has no concept of entity
+     facing at all today). Only a fraction of what each PixelLab zip
+     actually contains is in use so far.
+   - **Real moving animations, not just idle-in-place** - right now a
+     character/enemy plays its idle loop whether standing still or
+     actually walking between tiles; a genuine walk-cycle synced to
+     movement is separate, not-yet-built work. Could cover all
+     directions of movement, not just south, if needed - ties into the
+     same facing-architecture question above.
+   - **Animations for every ability, including out-of-combat ones** -
+     technique animations only exist for in-battle techniques today;
+     out-of-combat class Abilities have no animation at all. Needs real
+     animation-state-switching logic outside of battle (the dungeon view
+     only ever shows the walk/idle loop today) so an ability use can
+     briefly override it, not just more art.
+7. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
-   The new `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
+   The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
    ~150ms apart) is a ready-made hook point for a per-hit sound once a
    crate is picked - see the Battle screen redesign item above too.
-7. **More class abilities** — pull a few real ones out of the "Future
+8. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -257,126 +150,108 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
-8. **A refactor for how maps get made and tiles are set** (added
+9. **A refactor for how maps get made and tiles are set** (added
    2026-09-08) — supporting more than one tile set (see "Map tile
    themes" in Done below, merged 2026-09-08) already required some
    rethinking of map generation/tile assignment, but `map_builder`'s
    architects still bake in some single-tile-set assumptions worth
    revisiting once that's been lived with for a while.
-9. **Camera/map framing shows black space outside the map's own bounds.**
-   (added 2026-09-11, **fixed same day** on the `title-screen-upgrades`
-   branch) - relates to the existing "a custom-sized Camera doesn't
-   shrink what renders around a small map" gotcha in CLAUDE.md. Fixed
-   centrally rather than as two separate patches, per the user's own
-   call ("the same logic should keep it within the dungeon map" for
-   both the title screen and real play): a new shared `Camera::
-   clamped_top_left` clamps the fixed `DISPLAY_WIDTH x DISPLAY_HEIGHT`
-   window so it never extends past the map's own bounds, used by both
-   `Camera::new` (the title screen's one-shot placement) and
-   `on_player_move` (every real step). The player's own on-screen
-   position is no longer always dead-center as a result - it shifts
-   off-center near an edge instead of ever showing black past the map's
-   real bounds, same idea as a typical 2D platformer/RPG camera clamp.
-   Verified with an exhaustive test (every possible position on the map,
-   not just samples) that the window can never extend past bounds.
-
-## Refactoring opportunities
-
-A read-through of the codebase looking specifically for what a refactor
-could improve, not a bug hunt - nothing here is a correctness problem,
-and nothing here has been touched. Pull individual items into a real
-session when ready; several are natural pairings (e.g. the two
-duplication items below rhyme with the shop-room/tooltip cleanup already
-done this session - these are the ones that were left behind).
-
-- **`arena_begin_wave` still duplicates the reveal-rectangle/frozen-FOV
-  block** that `build_shop_room` just got extracted from. It builds a
-  wave map, not a shop, so it was out of scope for that specific helper
-  - but the "move the player, reveal a no-fog-of-war rectangle, freeze
-  their FieldOfView" logic itself is identical code in both places.
-  Worth pulling into its own smaller helper (e.g.
-  `reveal_and_freeze_fov(&mut self, player, reveal_x, reveal_y, reveal_w,
-  reveal_h)`) shared by `build_shop_room` and `arena_begin_wave` both.
-- **`apply_prefab` and `apply_chest` (`map_builder/prefab.rs`) share the
-  same Dijkstra-based random-placement-attempt loop** (10 attempts, the
-  same 20.0/2000.0 distance thresholds, the same
-  `monster_spawns.retain`) - `apply_chest`'s own doc comment already
-  says outright that it "reuses the exact same...loop as apply_prefab."
-  Only the part that actually stamps a template's characters onto the
-  map differs between them (guard/weapon markers vs. guard/chest
-  markers). A shared `find_prefab_placement(mb, rng, width, height) ->
-  Option<Point>` helper would leave each function with just its own
-  stamping logic.
-- **`main.rs` doesn't follow its own established convention for where
-  `State`'s methods live.** Every dungeon/menu screen (`screens/pause.rs`,
-  `screens/battle.rs`, `screens/item_menu.rs`, `screens/chest.rs`, ...)
-  already adds its own methods to `State` from its own file - Rust
-  privacy lets a descendant module see an ancestor's private fields, so
-  this works with no `pub` needed. Battle Arena's own orchestration
-  (`start_arena`, `arena_begin_wave`, `arena_advance_to_next_shop`,
-  `arena_spawn_boss_on_current_map`, `handle_arena_kill`,
-  `arena_transition_tick`, `arena_wave_cleared_tick`,
-  `boost_arena_enemy_fov`, `arena_rebuild_keep_player` - nine methods)
-  never got the same treatment and still lives directly in `main.rs`,
-  which is now 1392 lines partly because of it. Moving these into their
-  own file (an `arena_state.rs`, say) would cut main.rs down to general
-  State bootstrap/dispatch plus Dungeon Crawl's own two methods
-  (`advance_level`, `dungeon_shop_transition`) - a much smaller, more
-  focused file.
-- **`screens/battle.rs`'s `battle_tick` is about 735 lines** - by a wide
-  margin the single largest function in the codebase - handling both
-  rendering AND input for every `BattleTurn` state (`PlayerMenu`,
-  `Filling`, `ActionResult` for both the player and each enemy) in one
-  function. Worth splitting into one handler per state.
-- **Pure battle-resolution logic and battle rendering share one file**
-  (`screens/battle.rs`). `resolve_player_action`/`trigger_enemy_action`/
-  `dismiss_action_result`/`record_enemy_kill`/`finish_battle` never touch
-  `ctx` at all - they're plain logic - while `battle_tick`/
-  `draw_battle_arena`/`battle_victory_tick` are rendering-heavy. This
-  session's own headless class-survivability simulation needed exactly
-  this split to exist (it calls the logic functions directly and can
-  never call the rendering ones, which need a real window's console
-  registry) - formalizing it into two files (e.g. a `battle/resolve.rs`
-  for the logic half) would make that reuse pattern the obvious one
-  instead of something that only worked because both happened to live in
-  the same module.
-- **`components.rs` (1066 lines) is a grab-bag of several unrelated
-  domains**, not really "components" in a narrow sense: plain data
-  components (`Health`, `Gold`, `Speed`, ...), a genuine UI subsystem
-  (`ability_bar_slots`/`battle_bar_slots`/`item_bar_slots`/
-  `usable_menu_items`/`group_items`/`build_roster_slots` and friends -
-  real algorithmic logic, not data), animation/camera math
-  (`gliding_position`, `camera_render_offset`), and tile-rendering
-  helpers (`tile_render_at`). Splitting by domain (e.g. a
-  `components/bars.rs` for the UI-bar-slot logic alone) would make each
-  piece easier to find and reason about independently.
-- **`battle/mod.rs` (1085 lines) has similarly distinguishable groups**
-  worth splitting: entity-stat accessors (`entity_damage`/`entity_speed`/
-  `entity_evasion`/`entity_health`/`carried_weapon_damage`/...), core
-  combat resolution (`resolve_enemy_attack`/`apply_damage`/
-  `apply_player_technique`/`tick_dot`/`heal_entity`), and menu/display
-  concerns (`available_actions`/`action_name`/`MenuCursor`/
-  `hp_bar_string`) all currently live in the one file.
-- **No shared "find the player" helper exists**, despite the same query
-  shape (something like `<(Entity, &Point)>::query().filter(component::
-  <Player>())`) being hand-rolled at 8+ call sites across systems/*.rs
-  and main.rs. This session's real `buy_nearby_item` bug was exactly a
-  missing `.filter(component::<Player>())` on one such hand-rolled query
-  - a single shared `find_player(ecs) -> Option<(Entity, Point)>` (or
-  similar) helper would make that whole class of mistake structurally
-  impossible in new code, not just fixed in the one place it was
-  actually found.
-
-## Content / world
-
-- **More winnable item variety** — right now a chest/shop can only ever
-  contain Gold, a Dungeon Map, or a Healing Potion. Not scoped - could be
-  equipment, trinkets, or anything else worth finding.
-- **Quest system** — not scoped at all yet: no design conversation has
-  happened on objectives, tracking/UI, rewards, or whatever NPC/dialogue
-  hook would hand them out. Worth a real design discussion (per
-  CLAUDE.md's convention for architectural-sized changes) before any code
-  gets written.
+10. **Refactoring opportunities** — a read-through of the codebase
+    looking specifically for what a refactor could improve, not a bug
+    hunt - nothing here is a correctness problem, and nothing here has
+    been touched. Several are natural pairings (e.g. the two duplication
+    items below rhyme with a shop-room/tooltip cleanup already done in an
+    earlier session - these are the ones that were left behind).
+    - **`arena_begin_wave` still duplicates the reveal-rectangle/
+      frozen-FOV block** that `build_shop_room` just got extracted from.
+      It builds a wave map, not a shop, so it was out of scope for that
+      specific helper - but the "move the player, reveal a no-fog-of-war
+      rectangle, freeze their FieldOfView" logic itself is identical code
+      in both places. Worth pulling into its own smaller helper (e.g.
+      `reveal_and_freeze_fov(&mut self, player, reveal_x, reveal_y,
+      reveal_w, reveal_h)`) shared by `build_shop_room` and
+      `arena_begin_wave` both.
+    - **`apply_prefab` and `apply_chest` (`map_builder/prefab.rs`) share
+      the same Dijkstra-based random-placement-attempt loop** (10
+      attempts, the same 20.0/2000.0 distance thresholds, the same
+      `monster_spawns.retain`) - `apply_chest`'s own doc comment already
+      says outright that it "reuses the exact same...loop as
+      apply_prefab." Only the part that actually stamps a template's
+      characters onto the map differs between them (guard/weapon markers
+      vs. guard/chest markers). A shared `find_prefab_placement(mb, rng,
+      width, height) -> Option<Point>` helper would leave each function
+      with just its own stamping logic.
+    - **`main.rs` doesn't follow its own established convention for
+      where `State`'s methods live.** Every dungeon/menu screen
+      (`screens/pause.rs`, `screens/battle.rs`, `screens/item_menu.rs`,
+      `screens/chest.rs`, ...) already adds its own methods to `State`
+      from its own file - Rust privacy lets a descendant module see an
+      ancestor's private fields, so this works with no `pub` needed.
+      Battle Arena's own orchestration (`start_arena`, `arena_begin_wave`,
+      `arena_advance_to_next_shop`, `arena_spawn_boss_on_current_map`,
+      `handle_arena_kill`, `arena_transition_tick`,
+      `arena_wave_cleared_tick`, `boost_arena_enemy_fov`,
+      `arena_rebuild_keep_player` - nine methods) never got the same
+      treatment and still lives directly in `main.rs`, which is now 1392
+      lines partly because of it. Moving these into their own file (an
+      `arena_state.rs`, say) would cut main.rs down to general State
+      bootstrap/dispatch plus Dungeon Crawl's own two methods
+      (`advance_level`, `dungeon_shop_transition`) - a much smaller, more
+      focused file.
+    - **`screens/battle.rs`'s `battle_tick` is about 735 lines** - by a
+      wide margin the single largest function in the codebase - handling
+      both rendering AND input for every `BattleTurn` state
+      (`PlayerMenu`, `Filling`, `ActionResult` for both the player and
+      each enemy) in one function. Worth splitting into one handler per
+      state.
+    - **Pure battle-resolution logic and battle rendering share one
+      file** (`screens/battle.rs`). `resolve_player_action`/
+      `trigger_enemy_action`/`dismiss_action_result`/`record_enemy_kill`/
+      `finish_battle` never touch `ctx` at all - they're plain logic -
+      while `battle_tick`/`draw_battle_arena`/`battle_victory_tick` are
+      rendering-heavy. The headless class-survivability simulation needed
+      exactly this split to exist (it calls the logic functions directly
+      and can never call the rendering ones, which need a real window's
+      console registry) - formalizing it into two files (e.g. a
+      `battle/resolve.rs` for the logic half) would make that reuse
+      pattern the obvious one instead of something that only worked
+      because both happened to live in the same module.
+    - **`components.rs` (1066 lines) is a grab-bag of several unrelated
+      domains**, not really "components" in a narrow sense: plain data
+      components (`Health`, `Gold`, `Speed`, ...), a genuine UI subsystem
+      (`ability_bar_slots`/`battle_bar_slots`/`item_bar_slots`/
+      `usable_menu_items`/`group_items`/`build_roster_slots` and friends
+      - real algorithmic logic, not data), animation/camera math
+      (`gliding_position`, `camera_render_offset`), and tile-rendering
+      helpers (`tile_render_at`). Splitting by domain (e.g. a
+      `components/bars.rs` for the UI-bar-slot logic alone) would make
+      each piece easier to find and reason about independently.
+    - **`battle/mod.rs` (1085 lines) has similarly distinguishable
+      groups** worth splitting: entity-stat accessors
+      (`entity_damage`/`entity_speed`/`entity_evasion`/`entity_health`/
+      `carried_weapon_damage`/...), core combat resolution
+      (`resolve_enemy_attack`/`apply_damage`/`apply_player_technique`/
+      `tick_dot`/`heal_entity`), and menu/display concerns
+      (`available_actions`/`action_name`/`MenuCursor`/`hp_bar_string`)
+      all currently live in the one file.
+    - **No shared "find the player" helper exists**, despite the same
+      query shape (something like `<(Entity, &Point)>::query().filter(
+      component::<Player>())`) being hand-rolled at 8+ call sites across
+      systems/*.rs and main.rs. A real `buy_nearby_item` bug was exactly
+      a missing `.filter(component::<Player>())` on one such hand-rolled
+      query - a single shared `find_player(ecs) -> Option<(Entity,
+      Point)>` (or similar) helper would make that whole class of mistake
+      structurally impossible in new code, not just fixed in the one
+      place it was actually found.
+11. **Content / world**
+    - **More winnable item variety** — right now a chest/shop can only
+      ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
+      could be equipment, trinkets, or anything else worth finding.
+    - **Quest system** — not scoped at all yet: no design conversation
+      has happened on objectives, tracking/UI, rewards, or whatever NPC/
+      dialogue hook would hand them out. Worth a real design discussion
+      (per CLAUDE.md's convention for architectural-sized changes) before
+      any code gets written.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -662,6 +537,155 @@ tracking, its own shop map/UI.
 ## Player / dungeon
 - Auto-pickup, smooth camera scrolling, idle animation infrastructure,
   map-generation and Amulet-of-Yala bug fixes — all from prior sessions.
+- **Camera now clamps to the map's own bounds** (2026-09-11,
+  `title-screen-upgrades` branch) — `Camera` previously had no bounds
+  awareness at all: a fixed `DISPLAY_WIDTH x DISPLAY_HEIGHT` window
+  centered exactly on a target point, with black space showing wherever
+  that window extended past the map's real `SCREEN_WIDTH x
+  SCREEN_HEIGHT` edges. Most visible on the title screen (its one-shot
+  camera placement centers on whatever random point a map architect
+  picked as `player_start`, rarely the map's actual center), but the
+  identical bug affected real dungeon-crawl play near any map edge too.
+  Fixed centrally with a new shared `Camera::clamped_top_left`, used by
+  both `Camera::new` and `on_player_move`, per the user's own call to
+  fix both places with one shared fix rather than patching the title
+  screen alone. The player's on-screen position is no longer always
+  dead-center as a result - it shifts off-center near an edge instead of
+  ever showing black past the map's real bounds. `components::
+  camera_render_offset` (the glide's sub-pixel smoothing) needed a
+  matching update, since its old math assumed an unclamped camera that
+  always centers exactly on the target - now interpolates between the
+  clamped camera position at both ends of a glide instead. Verified with
+  an exhaustive test (every possible position on the map, not just
+  samples) that the window can never extend past bounds.
+
+## Battle arena backgrounds — real painted scenes for Forest/Dungeon/Sewer
+Replaced the original theme-tinted-floor-and-border implementation (a
+flat tinted CP437 glyph fill plus a vignette and one of two generic
+scenery overlays, unchanged since before the game had any real pixel
+art) with one full painted scene per theme
+(`resources/battle_backgrounds.png`, 1280x800 per theme) - a JRPG-
+battle-backdrop style deliberately picked over more `map_tiles.png`-
+style tiling, since tiling would need ever-more themed tile variety to
+avoid looking stale. Driven by a new `MapTheme::battle_background_row`
+(mirrors `tile_row`'s exact `Option<u16>` shape/fallback); a theme
+without real art yet still falls back to the old procedural fill
+unchanged. Confirmed live in a real fight, all three themes.
+- **Getting the art right took real iteration.** Sourced externally
+  (PixelLab is built for character sprites, not full painted scenes) -
+  Dungeon and Sewer worked on the first attempt; Forest took four
+  rounds (breaking a diffusion model's default mirror-symmetry, removing
+  hidden creature figures the prompt explicitly excluded, then getting
+  it to read as an enclosed "stage" rather than an open woodland
+  clearing). Two small hidden creatures that slipped through in the
+  final version were patched out locally with a feathered clone-stamp
+  instead of spending another generation on them.
+- **Needed a genuinely new console, `BATTLE_BACKDROP_CONSOLE`** - has to
+  sit below the battle screen's own text and creature portraits, which
+  were still bare literals (`2`/`3`) since the very start, never touched
+  by any of this project's four previous "insert a console early, renumber
+  everything after" moves (all of which only ever needed to go below the
+  HUD). Promoted both to named constants (`FINE_TEXT_CONSOLE`/
+  `BATTLE_PORTRAIT_CONSOLE`) as part of the insertion; every console
+  index in `main.rs` shifted by exactly 1 - a fully mechanical,
+  grep-verified change.
+- **Two real bugs found and fixed.** A launch crash from a new shape of
+  the glyph-32 gotcha (a single-column "one glyph = one full image"
+  sheet needs 33+ total cells just to contain index 32, which a 6x6 grid
+  solves far more sanely than a 1x33 one would - see CLAUDE.md's
+  standing gotchas for the full writeup). And - caught only by the
+  user's own live screenshot - near-black pixels in the art (shadows,
+  mortar lines, canopy gaps) rendering as stark white cracks, since
+  bracket-terminal's WITH-bg console shader falls back to the background
+  color for any texture pixel whose RGB is all <=0.1 (~25/255) or whose
+  alpha isn't fully opaque - the exact same rule already documented for
+  a `_no_bg` console, which this session's own design assumptions had
+  gotten wrong. Fixed by flooring every channel to >=30 across all three
+  images (imperceptible visually) and switching the fallback color from
+  white to black as defense-in-depth. Full write-up in `docs/
+  journal.md`'s 2026-09-11 entries.
+
+## Character & enemy animation
+All 5 playable classes (Barbarian, Rogue, Amazon, Hunter, Mage) plus the
+hidden "Debug" dev/test class have real PixelLab.ai idle/walk art across
+every sheet, and all 8 enemies have their own dedicated idle/battle
+sheets. Full row-mapping reference and every confirmed gotcha live in
+`docs/Dungeon_Font_Glyph_to_Cell_Map.md`; full session-by-session history
+in `docs/journal.md`; condensed standing rules in `CLAUDE.md`. See
+"Animation work" in Working above for everything still outstanding now
+that a full new animation batch is being assembled.
+- `resources/character_idle.png` (6 cols x 8 rows) drives the dungeon/
+  Battle Arena/Class-Select/title-screen walk-in-place loop, real Walk/
+  south frames for all 6 classes. Row 5 permanently blank (glyph-32
+  collision on this sheet's column count); one free row (7) left before
+  a resize is needed.
+- `resources/character_battle.png` (8 cols x 8 rows) drives the
+  battle-screen portrait animation, real Fight_Stance_Idle/east frames
+  for all 6 classes. Player-only - enemies use their own dedicated
+  sheets below. Row 4 permanently blank (same collision, different row
+  for this sheet's column count); one free row (7) left.
+- `resources/character_portrait.png` (6 cols x 8 rows, column 0 only)
+  drives every still-icon site (Class Select's non-highlighted row, the
+  dungeon HUD portrait, both in-battle and run-ending Victory screens,
+  the Game Over screen's rotated fallen pose), real rotations/south.png
+  for all 6 classes. Every old dungeonfont-glyph fallback in these
+  lookup paths is dead code in practice - no class currently falls
+  through to it - but kept as the fallback for any future class added
+  without art yet. Two free rows (6, 7) left.
+- **Played-once Death/Victory/technique animations (2026-09-08).** A new
+  `OneShotAnimation` type (components.rs) - plays through its frames once
+  and holds the last one (or loops, for a multi-hit/AOE technique) - on
+  three more sheets, each `EXTRA_ANIM_COLS` (9) wide:
+  `resources/character_death.png` and `resources/character_victory.png`
+  (all 6 classes have a row, replacing the old rotated-glyph Game Over
+  pose and static Victory portrait) and `resources/character_
+  technique.png` (keyed by COMPOUND `(class, technique name)` since a
+  class can end up with several - currently Rogue/Flurry, Hunter/Arrow
+  Volley, Barbarian/Whirlwind, Amazon/Javelin Volley, Mage/Blizzard;
+  Debug has none, since its "techniques" are cheat items). A multi-hit/
+  AOE technique's animation loops for as long as its `HitQueue` is still
+  landing damage instead of freezing on frame 1; every technique
+  animation runs much faster than the idle loop's own pace
+  (`TECHNIQUE_FRAME_DURATION_MS`, 80ms vs. 350ms) and never gets the
+  "Attacking" flash's usual wiggle-shake layered on top of it. Full
+  technical detail in `docs/DEVLOG.md` and `docs/
+  Dungeon_Font_Glyph_to_Cell_Map.md`'s "One-shot animation sheets"
+  section.
+- **Enemy art (2026-09-08): all 8 enemies done.** Enemies get their own
+  dedicated sheets (`resources/enemy_idle.png`, `resources/
+  enemy_battle.png`, both 9 rows) rather than more rows on the character
+  sheets above - see the design conversation and full row-mapping in
+  `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Enemy sheets" section.
+  Done: Goblin, Orc, Ogre, Ettin, Goblin Chieftain, Orc Warlord, Ogre
+  Warlord, Ettin Overlord. Verified end-to-end with real screenshots
+  (Goblin and Orc both checked live) in the dungeon walk loop and in
+  real fights - clean, no bleed, no leftover placeholder art.
+  - **"Ogre Warlord" is a brand-new enemy**, not a reused name - a
+    second possible boss for BOTH Level 1 (alongside Orc Warlord) and
+    Level 2 (alongside Ettin Overlord), per a design conversation
+    (`Templates::spawn_boss` already supported multiple `boss_only`
+    templates per level with zero code changes needed). Placeholder
+    stats (hp 13/dmg 3/speed 4) deliberately sit between its two fellow
+    bosses - not yet playtested live for balance.
+  - **Orc Warlord's redo (2026-09-08) fixed a real defect** - its first
+    batch's Walk/Fight_Stance_Idle both came back as a genuine PixelLab
+    generation defect (a thin off-model sliver, not a full character);
+    the regenerated batch came back clean, confirmed by screenshot, and
+    now occupies row 6 on both sheets. Its Walk/south came back with 8
+    frames, more than the idle sheet's own 6-column ceiling
+    (`MAX_IDLE_FRAMES`) - 6 of the 8 were evenly sampled rather than
+    truncated, so the cycle doesn't skip its back half.
+- **Title-screen enemies now actually walk in place (2026-09-11,
+  `title-screen-upgrades` branch).** They already had real idle-
+  animation frames wired up - the bug was `tick_idle_animation_system`
+  only running once every 400ms (the enemy-wander throttle) and only
+  getting that one triggering frame's real elapsed time each time, not
+  the ~400ms that had actually passed, so a frame took ~9 real seconds
+  to advance. Fixed by moving animation ticking into the schedule that
+  already runs every real frame, decoupling it from the movement
+  throttle. Verified with real screenshots 80ms apart showing a
+  stationary enemy visibly cycle several poses before its next scheduled
+  step.
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5
