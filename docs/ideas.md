@@ -270,6 +270,18 @@ Roughly in the order they've come up:
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
+13. **The stairs and the shop counter still only render while the player
+    is moving, not while standing still** (added 2026-09-11) — same
+    SYMPTOM as an earlier session's real off-by-one bug (`Camera::
+    bottom_y` clipping the bottom map row while stationary, only
+    reappearing for the ~220ms of a glide via a different, bounds-check-
+    free render path - see journal.md), which was fixed and merged to
+    master. The user is reporting it's still happening (or happening
+    again), so treat this as a fresh investigation rather than assuming
+    the identical root cause - don't just re-apply the old fix without
+    confirming what's actually clipping this time (could be a related
+    but distinct off-by-one, e.g. a horizontal analogue, or a genuine
+    regression from a later camera-adjacent change).
 
 ## Future Class Ability Ideas (brainstorm only)
 
