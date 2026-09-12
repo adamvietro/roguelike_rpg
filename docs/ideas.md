@@ -252,6 +252,13 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
+12. **Defeat and Victory screens need to be redone** (added 2026-09-11) —
+    not scoped yet, no design conversation has happened on what "redone"
+    means concretely (layout, new art, something else). They already have
+    real played-once Death/Victory animations (see "Character & enemy
+    animation" in Done), so this is about something beyond the animation
+    itself - worth a real design conversation before touching code, per
+    CLAUDE.md's convention for anything this size.
 
 ## Future Class Ability Ideas (brainstorm only)
 
