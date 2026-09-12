@@ -745,11 +745,23 @@ impl Battle {
         });
     }
 
-    /// Sets `target`'s post-action flash - see EnemyCombatant::flash. A
-    /// no-op if `target` isn't (or is no longer) in this battle.
+    /// Sets `target`'s post-action flash to the default duration - see
+    /// EnemyCombatant::flash. A no-op if `target` isn't (or is no longer)
+    /// in this battle.
     pub fn set_enemy_flash(&mut self, target: Entity, kind: FlashKind) {
+        self.set_enemy_flash_for(target, kind, PORTRAIT_FLASH_DURATION_MS);
+    }
+
+    /// Same as `set_enemy_flash`, but with an explicit duration instead of
+    /// the default `PORTRAIT_FLASH_DURATION_MS` - used by
+    /// `damage::strike_enemy`/`damage::strike_player` to line a hit's
+    /// flash up with whichever real one-shot Attack animation is actually
+    /// playing for that hit (see `OneShotAnimation::total_duration_ms`),
+    /// so the flash fades exactly as the swing itself finishes instead of
+    /// cutting out partway through a much longer animation.
+    pub fn set_enemy_flash_for(&mut self, target: Entity, kind: FlashKind, duration_ms: f32) {
         if let Some(enemy) = self.enemy_mut(target) {
-            enemy.flash = Some((kind, PORTRAIT_FLASH_DURATION_MS));
+            enemy.flash = Some((kind, duration_ms));
         }
     }
 }

@@ -1248,6 +1248,18 @@ impl OneShotAnimation {
             .unwrap_or_default()
     }
 
+    /// This animation's full one-time playthrough length, in ms - used to
+    /// line up a combatant's post-hit color flash (see
+    /// `Battle::player_flash`/`EnemyCombatant::flash`,
+    /// `PORTRAIT_FLASH_DURATION_MS`) with the actual swing it belongs to,
+    /// rather than the flash's own much shorter default duration fading
+    /// out mid-swing. Meaningless for a `repeat` animation (which has no
+    /// real "total" length) - not called for one today, since only multi-
+    /// hit/AOE techniques repeat and those don't drive a flash this way.
+    pub fn total_duration_ms(&self) -> f32 {
+        self.frames.len() as f32 * self.frame_duration_ms
+    }
+
     /// True once this animation has reached its last frame and has
     /// nothing left to advance to - always false for a `repeat` one,
     /// which by definition never reaches a permanent end.
