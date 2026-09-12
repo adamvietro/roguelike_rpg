@@ -60,21 +60,7 @@ Roughly in the order they've come up:
 3. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
-4. **Multi-enemy portrait positions don't account for the new battle
-   backdrop art's perimeter scenery** (found 2026-09-11, via a real
-   2-enemy screenshot). `enemy_portrait_position` (`screens/battle.rs`)
-   places enemies at fixed coarse-grid coordinates on a 5x5 grid - e.g. a
-   2-enemy fight puts the second enemy at column 4 of 5 (80% across) -
-   tuned back when the arena background was a flat procedural fill with
-   nothing near the edges. Against the real painted backgrounds (see
-   "Battle arena backgrounds" in Done below), that same fixed position
-   can land an enemy overlapping or cut off by the art's own fence/tree/
-   wall framing (confirmed: Orc pushed against the right edge, Goblin
-   overlapping a fence rail, both in the same Forest fight). Needs a real
-   look at whether the coarse grid's own coordinates should just move
-   inward, or whether enemy placement should reference each theme's own
-   "safe" interior zone instead of a one-size-fits-all grid.
-5. **Battle screen redesign — now that classes have real animated art**
+4. **Battle screen redesign — now that classes have real animated art**
    (added 2026-09-08, explicit ask: "we can do soooo much better now").
    Not scoped yet - needs a real design conversation before code, per
    CLAUDE.md's convention for anything this size. The background piece
@@ -89,7 +75,7 @@ Roughly in the order they've come up:
    - **Visual projectiles for ranged techniques** (Arrow Volley, Javelin
      Volley, Blizzard) that travel from caster to target instead of only
      animating the caster in place.
-6. **Animation work** — everything still outstanding now that the user is
+5. **Animation work** — everything still outstanding now that the user is
    assembling a full new animation batch for every class and enemy. What
    already shipped (idle/walk art for all 6 classes and 8 enemies, the
    played-once Death/Victory/Technique framework, the title-screen fix)
@@ -128,12 +114,12 @@ Roughly in the order they've come up:
      animation-state-switching logic outside of battle (the dungeon view
      only ever shows the walk/idle loop today) so an ability use can
      briefly override it, not just more art.
-7. **Music & sound effects** — no crate picked yet (`rodio` is the
+6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
    ~150ms apart) is a ready-made hook point for a per-hit sound once a
    crate is picked - see the Battle screen redesign item above too.
-8. **More class abilities** — pull a few real ones out of the "Future
+7. **More class abilities** — pull a few real ones out of the "Future
     Class Ability Ideas" brainstorm list below and actually build them.
     Each class only has a handful of real abilities/techniques right now
     (see spawner::class_effect_names/class_technique_names); the
@@ -150,13 +136,13 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
-9. **A refactor for how maps get made and tiles are set** (added
+8. **A refactor for how maps get made and tiles are set** (added
    2026-09-08) — supporting more than one tile set (see "Map tile
    themes" in Done below, merged 2026-09-08) already required some
    rethinking of map generation/tile assignment, but `map_builder`'s
    architects still bake in some single-tile-set assumptions worth
    revisiting once that's been lived with for a while.
-10. **Refactoring opportunities** — a read-through of the codebase
+9. **Refactoring opportunities** — a read-through of the codebase
     looking specifically for what a refactor could improve, not a bug
     hunt - nothing here is a correctness problem, and nothing here has
     been touched. Several are natural pairings (e.g. the two duplication
@@ -243,7 +229,7 @@ Roughly in the order they've come up:
       Point)>` (or similar) helper would make that whole class of mistake
       structurally impossible in new code, not just fixed in the one
       place it was actually found.
-11. **Content / world**
+10. **Content / world**
     - **More winnable item variety** — right now a chest/shop can only
       ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
       could be equipment, trinkets, or anything else worth finding.
@@ -252,7 +238,7 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-12. **Defeat and Victory screens need to be redone** (added 2026-09-11) —
+11. **Defeat and Victory screens need to be redone** (added 2026-09-11) —
     not scoped yet, no design conversation has happened on what "redone"
     means concretely (layout, new art, something else). They already have
     real played-once Death/Victory animations (see "Character & enemy
@@ -611,6 +597,47 @@ unchanged. Confirmed live in a real fight, all three themes.
   images (imperceptible visually) and switching the fallback color from
   white to black as defense-in-depth. Full write-up in `docs/
   journal.md`'s 2026-09-11 entries.
+
+## Battle arena enemy positions - a zigzag formation, per-theme rows, and a debug shortcut to test it
+`enemy_portrait_position`'s old fixed coarse-grid coordinates (tuned back
+when the arena background was a flat procedural fill with nothing near
+the edges) broke against the real painted backgrounds - confirmed by a
+real 2-enemy screenshot showing the rightmost column sitting flush
+against the frame's own right edge, and an upper tier reaching into
+Forest's tree/fence perimeter. Took four rounds of real live feedback to
+land, each verified against the actual theme art (crop each theme's cell
+out of `resources/battle_backgrounds.png`, overlay the candidate grid,
+check for overlap) rather than guessed blind:
+- **Single row, evenly spread** - fixed the edge-clipping and fence-
+  overlap, but read as visually flat/robotic once seen live ("I dont
+  like the line of enemies").
+- **Shallow zigzag** between a back row and a front row, alternating by
+  index parity (a 3-enemy fight reads as a wedge, 2/4-enemy as a
+  diagonal/zigzag) - fixed the "flat line" complaint. Needed the
+  Actions box's own position (`box_y_base`) pushed down to match, since
+  the front row puts an enemy's text lower than the old single row did.
+- **Shifted right** (`LEFT`/`RIGHT` from 1.4/3.8 to 1.9/3.9) after live
+  feedback the formation still read as too close to the player/too
+  central - close to the practical ceiling before re-clipping the frame
+  edge.
+- **Per-theme row values** (`MapTheme::enemy_formation_rows`, same
+  `Option`-free default/override shape as `tile_row`/
+  `battle_background_row`) after "we need to move them up" - Forest's
+  fence genuinely caps how high the back row can go (screenshot-
+  verified: 1.7 re-clipped it), but Dungeon/Sewer's much thinner top
+  wall/pipe band has real headroom (tested as high as 0.9 before
+  clipping Dungeon's window sill/torch/crate; landed on 1.5/1.9 as clean
+  on both, with Sewer having room to spare beyond that). Forest keeps
+  the original 1.9/2.3 as the trait's own conservative default.
+- **Debug "Battle 4" cheat** - a new Debug-class item (glyph `9`,
+  `ProvidesEffect::DebugBattle4`) that spawns 4 fresh Goblins next to the
+  user and starts a real Battle against them instantly, added
+  specifically because "trying to run an instance and finding 4 enemies
+  and then trying to round them up" made this whole formation hard to
+  test in normal play. New `Templates::spawn_named_enemy_via_commands`
+  (mirrors the existing `spawn_named_item_via_commands`) spawns one
+  exact named enemy via `CommandBuffer` rather than a random weighted
+  pick - the same "only a SubWorld + CommandBuffer available" shape.
 
 ## Character & enemy animation
 All 5 playable classes (Barbarian, Rogue, Amazon, Hunter, Mage) plus the

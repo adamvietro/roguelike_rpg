@@ -9,7 +9,57 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-9/11/26, branch `title-screen-upgrades`: found and fixed the real cause of
+9/11/26: a real off-by-one regression found and fixed, then a new branch
+for the multi-enemy battle-screen formation.
+
+- **Camera viewport was silently dropping its own bottom row while the
+  player stood still.** `Camera::new`/`on_player_move` (from the
+  previous session's clamping work) defined `bottom_y` as `top_y +
+  DISPLAY_HEIGHT`, matching `right_x`'s own formula - but
+  `map_render.rs`/`entity_render.rs` consume `left_x..right_x`
+  (EXCLUSIVE) and `top_y..=bottom_y` (INCLUSIVE), so `bottom_y` needed
+  to be one less than that pattern. The old pre-clamp formula (`player.y
+  +/- DISPLAY_HEIGHT/2`) happened to give a correct 25-row span purely
+  because `DISPLAY_HEIGHT` (25) is odd - masking that the Y-loop was
+  ever inclusive at all. `SimpleConsole::set` bounds-checks and drops
+  out-of-range writes with no panic, so nothing crashed - the bottom row
+  just silently never drew while at rest, and only reappeared for the
+  ~220ms of a glide (a `FlexiConsole`/`set_fancy` path with no such
+  bounds check). Reported live as "we only see the counter and the
+  stairs when the character is moving" - not actually specific to those
+  two tile types, just whatever happened to be sitting on the clipped
+  row. Fixed with `bottom_y: top_y + DISPLAY_HEIGHT - 1`; verified with
+  an exhaustive test (every corner/edge/center target point), removed
+  after confirming.
+- **Branch `enemy-portrait-positions`: a zigzag multi-enemy formation,
+  per-theme row values, and a debug shortcut to test it** - see
+  `docs/ideas.md`'s "Battle arena enemy positions" (Done) for the full
+  four-round writeup (single row -> zigzag -> shifted right -> per-theme
+  rows), each verified against the real theme art before shipping, not
+  guessed blind from a screenshot. Added a new Debug-class cheat,
+  "Battle 4" (glyph `9`), that instantly starts a real Battle against 4
+  fresh Goblins - specifically because reliably finding/herding 4 real
+  enemies into one fight for testing was itself the bottleneck. New
+  `Templates::spawn_named_enemy_via_commands` (mirrors the existing
+  `spawn_named_item_via_commands`) spawns one exact named enemy via
+  `CommandBuffer`. Verified for real: `use_items`'s newly-added
+  `#[resource] battle` parameter executed through a real Schedule (no
+  `AccessDenied` panic), the RON data loading with the right fields, and
+  the effect actually producing a 4-enemy `Battle` - all via temporary
+  tests, removed after confirming per the usual convention.
+- Also restructured `docs/ideas.md`'s numbering after realizing several
+  already-finished items were still sitting in the "Working" list with
+  "(fixed)" annotations instead of moving to Done - see the doc's own
+  new standing rule at its header.
+
+Full narrative in `docs/journal.md`'s 9/11/26 entries (multiple, same
+day).
+
+---
+
+## Previous session (9/11/26) — Title screen upgrades: camera clamp + frozen animation fix
+
+Branch `title-screen-upgrades`: found and fixed the real cause of
 the battle-backdrop white cracks reported live (bracket-terminal's
 WITH-bg console shader falls back to the flat background color for any
 near-black-or-non-opaque texture pixel, same rule CLAUDE.md already
