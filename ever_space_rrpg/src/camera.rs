@@ -1,5 +1,26 @@
 use crate::prelude::*;
 
+/// `right_x`/`bottom_y` are each other's exclusive/inclusive opposite by
+/// convention, not a typo: `map_render.rs`/`entity_render.rs` consume
+/// `left_x..right_x` (EXCLUSIVE - `right_x = left_x + DISPLAY_WIDTH`
+/// gives exactly `DISPLAY_WIDTH` columns) but `top_y..=bottom_y`
+/// (INCLUSIVE - so `bottom_y` must be `top_y + DISPLAY_HEIGHT - 1`, one
+/// LESS than the X-axis pattern, to give exactly `DISPLAY_HEIGHT` rows).
+/// Confirmed as a real, shipped regression (2026-09-11): `bottom_y` was
+/// briefly defined the same way as `right_x` (`top_y + DISPLAY_HEIGHT`,
+/// no `- 1`) when the camera-clamping rework replaced the old symmetric
+/// `player.y +/- DISPLAY_HEIGHT/2` formula - that old formula happened
+/// to produce a correct 25-row span purely because `DISPLAY_HEIGHT` (25)
+/// is odd, masking that `map_render.rs`'s Y-loop was ever inclusive at
+/// all. The off-by-one silently dropped the camera viewport's entire
+/// bottom row while the player stood still - `SimpleConsole::set`
+/// bounds-checks and drops out-of-range writes with no panic, so nothing
+/// crashed - and only that row's own tiles/entities re-appeared for the
+/// ~220ms of any glide, since the mid-glide render path uses a
+/// `FlexiConsole`/`set_fancy`, which has no such bounds check. Reported
+/// live as "we only see the counter and the stairs when the character is
+/// moving" - not actually specific to those two tile types, just
+/// whatever happened to be sitting on the clipped row at the time.
 pub struct Camera {
     pub left_x: i32,
     pub right_x: i32,
@@ -14,7 +35,7 @@ impl Camera {
             left_x,
             right_x: left_x + DISPLAY_WIDTH,
             top_y,
-            bottom_y: top_y + DISPLAY_HEIGHT,
+            bottom_y: top_y + DISPLAY_HEIGHT - 1,
         }
     }
 
@@ -23,7 +44,7 @@ impl Camera {
         self.left_x = left_x;
         self.right_x = left_x + DISPLAY_WIDTH;
         self.top_y = top_y;
-        self.bottom_y = top_y + DISPLAY_HEIGHT;
+        self.bottom_y = top_y + DISPLAY_HEIGHT - 1;
     }
 
     /// The camera's top-left corner if centered on `target`, clamped so
