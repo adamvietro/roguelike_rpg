@@ -114,6 +114,24 @@ Roughly in the order they've come up:
      animation-state-switching logic outside of battle (the dungeon view
      only ever shows the walk/idle loop today) so an ability use can
      briefly override it, not just more art.
+   - **Pixel-health audit across every animation frame, every class and
+     enemy, every ability + general (Walk/Idle/Attack/Defend/etc.) -
+     pure-black opaque pixels AND stray/unintended transparency.** This
+     batch was assumed clean binary alpha with no near-black content
+     needing the usual floor (unlike every earlier hand-supplied
+     reference image this project has processed) - the user spotted real
+     transparent pixels in Hunter's animations specifically, so that
+     assumption doesn't hold for the whole batch and needs checking
+     frame-by-frame rather than assumed. Two separate things to look
+     for, per CLAUDE.md's sprite-sheet gotchas: (1) opaque pixels at or
+     near true black, which a plain console's shader silently culls
+     entirely (any RGB channel <=0.1) even at full alpha; (2) pixels that
+     are transparent but shouldn't be (holes/gaps in a character's own
+     silhouette), as distinct from PixelLab's normal fully-transparent
+     background. Should happen before/alongside the out-of-combat and
+     movement-animation work below, since both are about to pull in a
+     lot of frames (effect sheets, 4-directional Walk) that haven't been
+     individually checked yet.
 6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
