@@ -9,8 +9,77 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-9/11/26: a real off-by-one regression found and fixed, then a new branch
-for the multi-enemy battle-screen formation.
+9/11-9/12/26, branch `new-animation-batch` (not yet merged to master): a
+much fuller PixelLab export per class/enemy - Attack, Defend,
+Idle_Battle_Stance refresh, 4-directional Walk, 8-way rotations, and a
+named animation for nearly every real battle Technique - landed across
+several sessions, plus two real bugs found and fixed along the way.
+
+- **Battle screen: Attack/Defend animations, every remaining technique,
+  enemy attacks.** Two new sheets (`character_attack.png`/
+  `character_defend.png`) replace the old "just keep showing
+  Idle_Battle_Stance" behavior for a plain Attack/Defend action;
+  `character_technique.png` widened 8→20 rows (18 populated, up from 5);
+  a new `enemy_attack.png` gives enemies a one-shot attack animation for
+  the first time. `Battle::player_technique_animation` renamed
+  `player_action_animation`, shared by all three (mutually exclusive per
+  turn) via a new `PlayerActionKind` field so rendering knows which of
+  the three sheets a glyph resolves against.
+- **Out-of-combat effect animations - the first animation system outside
+  the battle screen.** All 7 out-of-combat class Abilities (Ice Armor,
+  Invisible Cloak, Stealth, Throw Spear, Trap, Freeze Trap, Shoot) now
+  play a real one-shot animation in the dungeon view. New sheet
+  `character_effect.png`, new `EffectAnimation` component (set the
+  instant one of these effects applies in `use_items.rs`), and a new
+  `CHARACTER_EFFECT_CONSOLE` trio that needed a genuine mid-chain console
+  renumbering (23 constants shifted by 3, done via a name-anchored script
+  rather than by hand) to sit below the HUD/Ability Bar.
+- **Hit-flash timing synced to the real attack animation.** The
+  Attacking/Hit color flash used a fixed 150ms regardless of the ~700ms
+  swing playing alongside it, so it faded out well before the animation
+  finished. Both `damage::strike_enemy`/`strike_player` now read the
+  currently-playing action animation's own length and match it.
+- **Real directional movement animation, and the "player/enemies become
+  static while moving" bug fixed.** `MovingAnimation` only ever tweened
+  position - there was never a real per-frame walk cycle under it, and
+  `tick_idle_animation` deliberately paused during a glide on the
+  (wrong) assumption movement already had its own animation. Removed
+  that pause, and wired up the 4-directional Walk art every class/enemy
+  has had sitting unused since the very first batch: a new 4-way
+  `Direction` enum, computed once per committed move in
+  `systems/movement.rs`, rebuilds the mover's `IdleAnimation.frames` in
+  place for its new facing. `character_idle.png`/`enemy_idle.png` both
+  widened from 1 row per class/enemy to 4 (25/33 rows).
+- **A real pixel-health bug, found by measuring instead of assuming.**
+  The user flagged transparent pixels in Hunter's art; a full scan of
+  all 1549 source frames found the alpha channel genuinely clean
+  everywhere, but 6-12% of every character's OPAQUE pixels were
+  near-black - this session's own build script had never actually
+  applied the near-black floor CLAUDE.md's own PixelLab gotcha calls
+  for. Fixed and every sheet built this session rebuilt/re-verified.
+  Also fixed Ettin Overlord's ~4700 transparent pixels with leftover
+  non-black RGB (would render as a solid block on a plain console).
+- **`enemy_idle.png` tiling Goblin Chieftain across the whole screen** -
+  the build script reused the 8-column `enemy_battle.png` row dict for
+  this 6-column sheet, landing real content on its own forbidden
+  glyph-32 row. Third confirmed real-world hit of this bug class.
+- Three new **permanent** legion-access regression tests added this
+  batch: `systems::effect_animation_access_tests`,
+  `systems::movement::facing_access_tests`.
+- **Still open**: enemy Death animations (user assembling separately,
+  boss-only), 8-way diagonal facing/rotations, `Breathing_Idle`, and a
+  human visual pass over "enclosed transparent hole" frames (mostly
+  legitimate negative space, not defects, per a scan - see
+  `docs/ideas.md`).
+
+Full narrative in `docs/journal.md`'s 9/11-9/12/26 entries.
+
+---
+
+## Previous session (9/11/26) — Camera bottom-row fix + enemy-portrait-positions branch
+
+A real off-by-one regression found and fixed, then a new branch for the
+multi-enemy battle-screen formation.
 
 - **Camera viewport was silently dropping its own bottom row while the
   player stood still.** `Camera::new`/`on_player_move` (from the
