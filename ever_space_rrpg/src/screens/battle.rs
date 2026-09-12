@@ -65,14 +65,28 @@ struct EnemyPortrait {
 /// than attempting to cram a 5th position into the same two rows -
 /// matches the original code's own handling of that case, not a new
 /// limitation.
+///
+/// Third pass (same day): shifted LEFT/RIGHT right by 0.5 (1.4->1.9,
+/// 3.8->3.9) after live feedback that the formation as a whole still
+/// read as too close to the player/too central - "move it up and to the
+/// right". RIGHT only had ~0.1 unit of headroom left before re-clipping
+/// the frame edge (the original reported bug), so 3.9 is close to the
+/// practical ceiling, not a round number picked for looks. ROW_BACK/
+/// ROW_FRONT are UNCHANGED - re-tested pushing ROW_BACK up to 1.7 and it
+/// immediately clipped Forest's fence again on both sides (screenshot-
+/// verified against the real art, not assumed); 1.9 is a hard ceiling
+/// for that theme specifically, not an arbitrary choice, so "up" wasn't
+/// achievable this round without either accepting a Forest regression or
+/// giving this theme its own row values - flagged back to the user
+/// rather than silently picking one.
 fn enemy_portrait_position(count: usize, index: usize) -> (f32, f32) {
     if count <= 1 {
         return (3.0, 1.0);
     }
     const ROW_BACK: f32 = 1.9;
     const ROW_FRONT: f32 = 2.3;
-    const LEFT: f32 = 1.4;
-    const RIGHT: f32 = 3.8;
+    const LEFT: f32 = 1.9;
+    const RIGHT: f32 = 3.9;
     let effective_count = count.min(4);
     let effective_index = index.min(effective_count - 1);
     let step = (RIGHT - LEFT) / (effective_count - 1) as f32;
