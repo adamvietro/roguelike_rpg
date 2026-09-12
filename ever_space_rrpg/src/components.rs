@@ -854,6 +854,17 @@ pub enum IdleSpriteSheet {
     Dungeon,
     CharacterIdle,
     EnemyIdle,
+    /// `resources/character_effect.png`'s own console trio
+    /// (CHARACTER_EFFECT_CONSOLE/_SCROLL_/_GLIDE_) - added 2026-09-11
+    /// alongside `EffectAnimation`. Not actually read off `IdleAnimation`
+    /// like the other three variants are (`idle_sheet` in
+    /// entity_render.rs returns this directly whenever an entity has an
+    /// `EffectAnimation`, checked before it ever looks at `IdleAnimation`
+    /// at all) - included in this enum anyway rather than a separate
+    /// one, since it's still exactly the same "which console does this
+    /// frame's glyph index belong to" question every other variant here
+    /// answers.
+    CharacterEffect,
 }
 
 /// The "walking in place" idle loop: a small set of glyphs a stationary
@@ -1513,6 +1524,73 @@ pub fn technique_animation_for(
         repeat,
     })
 }
+
+/// Which row a (class, out-of-combat ability name) pair occupies on
+/// `resources/character_effect.png` - the dungeon-view equivalent of
+/// `technique_animation_row`, added 2026-09-11 for the 7 out-of-combat
+/// class Abilities that had real PixelLab art sitting unused (technique
+/// animations only ever covered in-battle Techniques). Same compound-key
+/// shape as the technique sheet, for the same reason: `RangedStrike`
+/// alone covers both Amazon's Throw Spear and Hunter's Shoot with
+/// completely different art, so a lookup keyed by `ProvidesEffect`
+/// variant alone would collide - keyed by the real `template.ron` item
+/// name instead, same as every other per-name row function in this file.
+/// Row 3 is this sheet's own forbidden row (32 / 9 == 3, `EXTRA_ANIM_COLS`
+/// shared with the technique/death/victory/attack/defend sheets).
+fn effect_animation_row(class: &str, ability: &str) -> Option<u16> {
+    match (class, ability) {
+        ("Rogue", "Stealth") => Some(0),
+        ("Amazon", "Throw Spear") => Some(1),
+        ("Amazon", "Trap") => Some(2),
+        // Row 3 deliberately skipped - see this fn's own doc comment.
+        ("Hunter", "Freeze Trap") => Some(4),
+        ("Hunter", "Shoot") => Some(5),
+        ("Mage", "Ice Armor") => Some(6),
+        ("Mage", "Invisible Cloak") => Some(7),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` for `class` using `ability` (its
+/// out-of-combat Effect item's real name) - `None` if that pair has no
+/// row yet. Always plays once and holds its last frame (no `repeat` -
+/// unlike a multi-hit technique, none of these 7 abilities have a
+/// landing-over-time mechanic to keep pace with), same
+/// `TECHNIQUE_FRAME_DURATION_MS` pace as every other one-shot animation
+/// in this project. See `EffectAnimation` (this component holds the
+/// result) and `systems::use_items` (where this gets called, the instant
+/// one of these 7 effects actually applies).
+pub fn effect_animation_for(class: &str, ability: &str) -> Option<OneShotAnimation> {
+    let row = effect_animation_row(class, ability)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: TECHNIQUE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
+/// A played-once animation override for a stationary dungeon-view entity
+/// mid-out-of-combat-ability-use (Ice Armor, Invisible Cloak, Stealth,
+/// Throw Spear, Trap, Freeze Trap, Shoot) - the dungeon-view equivalent
+/// of `Battle::player_action_animation`. Added to `activate.used_by` in
+/// `systems::use_items` the instant one of those 7 effects actually
+/// applies (see `effect_animation_for`), ticked every real frame by
+/// `systems::animation::tick_effect_animation`, and removed by that same
+/// system via `CommandBuffer` once `OneShotAnimation::finished()` - at
+/// which point `entity_render`'s `idle_glyph`/`idle_sheet` fall back to
+/// this entity's ordinary `IdleAnimation` loop again, same as
+/// `Battle::player_action_animation` falling back to
+/// `character_battle_glyph` once cleared. A plain component rather than
+/// a `Battle`-style resource field, since (unlike a Battle, which only
+/// ever has one player) any number of dungeon-view entities could in
+/// principle be mid-effect at once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectAnimation(pub OneShotAnimation);
 
 /// Wall-clock milliseconds since the last frame (see BTerm::frame_time_ms),
 /// inserted as a resource every tick so animation systems advance at a

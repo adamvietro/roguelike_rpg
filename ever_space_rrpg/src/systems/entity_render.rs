@@ -31,6 +31,7 @@ const GLIDE_CONSOLE_Y_ANCHOR_OFFSET: f32 = 1.0;
 #[read_component(Frozen)]
 #[read_component(MovingAnimation)]
 #[read_component(IdleAnimation)]
+#[read_component(EffectAnimation)]
 pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut renderables = <(Entity, &Point, &Render)>::query();
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
@@ -55,12 +56,16 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             character_batch.target(CHARACTER_IDLE_CONSOLE);
             let mut enemy_batch = DrawBatch::new();
             enemy_batch.target(ENEMY_IDLE_CONSOLE);
+            let mut effect_batch = DrawBatch::new();
+            effect_batch.target(CHARACTER_EFFECT_CONSOLE);
             let mut glide_batch = DrawBatch::new();
             glide_batch.target(GLIDE_CONSOLE);
             let mut character_glide_batch = DrawBatch::new();
             character_glide_batch.target(CHARACTER_IDLE_GLIDE_CONSOLE);
             let mut enemy_glide_batch = DrawBatch::new();
             enemy_glide_batch.target(ENEMY_IDLE_GLIDE_CONSOLE);
+            let mut effect_glide_batch = DrawBatch::new();
+            effect_glide_batch.target(CHARACTER_EFFECT_GLIDE_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -75,6 +80,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                                 IdleSpriteSheet::Dungeon => &mut glide_batch,
                                 IdleSpriteSheet::CharacterIdle => &mut character_glide_batch,
                                 IdleSpriteSheet::EnemyIdle => &mut enemy_glide_batch,
+                                IdleSpriteSheet::CharacterEffect => &mut effect_glide_batch,
                             };
                             draw_glyph_fancy(
                                 batch,
@@ -94,6 +100,9 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                             IdleSpriteSheet::EnemyIdle => {
                                 enemy_batch.set(*pos - offset, color, glyph);
                             }
+                            IdleSpriteSheet::CharacterEffect => {
+                                effect_batch.set(*pos - offset, color, glyph);
+                            }
                         },
                     }
                 });
@@ -101,9 +110,11 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             draw_batch.submit(5000).expect("Batch error");
             character_batch.submit(5050).expect("Batch error");
             enemy_batch.submit(5075).expect("Batch error");
+            effect_batch.submit(5080).expect("Batch error");
             glide_batch.submit(5100).expect("Batch error");
             character_glide_batch.submit(5150).expect("Batch error");
             enemy_glide_batch.submit(5175).expect("Batch error");
+            effect_glide_batch.submit(5180).expect("Batch error");
         }
         Some((ox, oy)) => {
             // The camera itself is panning - the player is mid-glide
@@ -130,6 +141,8 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             character_scroll_batch.target(CHARACTER_IDLE_SCROLL_CONSOLE);
             let mut enemy_scroll_batch = DrawBatch::new();
             enemy_scroll_batch.target(ENEMY_IDLE_SCROLL_CONSOLE);
+            let mut effect_scroll_batch = DrawBatch::new();
+            effect_scroll_batch.target(CHARACTER_EFFECT_SCROLL_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -143,6 +156,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                         IdleSpriteSheet::Dungeon => &mut scroll_batch,
                         IdleSpriteSheet::CharacterIdle => &mut character_scroll_batch,
                         IdleSpriteSheet::EnemyIdle => &mut enemy_scroll_batch,
+                        IdleSpriteSheet::CharacterEffect => &mut effect_scroll_batch,
                     };
                     draw_glyph_fancy(batch, fx - ox, fy - oy, color, glyph);
                 });
@@ -150,6 +164,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             scroll_batch.submit(5000).expect("Batch error");
             character_scroll_batch.submit(5050).expect("Batch error");
             enemy_scroll_batch.submit(5075).expect("Batch error");
+            effect_scroll_batch.submit(5080).expect("Batch error");
         }
     }
 }
@@ -183,33 +198,48 @@ fn draw_glyph_fancy(
     );
 }
 
-/// The glyph to actually draw for this entity this frame: its current
-/// IdleAnimation frame if it has one (see that component's own doc
-/// comment - today this is always identical to `base`, since no
-/// per-frame art exists yet, but the lookup is real and will start
-/// mattering the instant real frames are authored), otherwise just
-/// `base` unchanged. Items/scenery with no IdleAnimation component at
-/// all (weapons, potions, etc.) always take this fallback.
+/// The glyph to actually draw for this entity this frame: an in-flight
+/// EffectAnimation's current glyph if it has one (an out-of-combat
+/// ability's brief animation override - see that component's own doc
+/// comment), else its current IdleAnimation frame if it has one, else
+/// just `base` unchanged. Items/scenery with no IdleAnimation component
+/// at all (weapons, potions, etc.) always take the final fallback.
 fn idle_glyph(ecs: &SubWorld, entity: Entity, base: FontCharType) -> FontCharType {
-    ecs.entry_ref(entity)
+    let entry = match ecs.entry_ref(entity) {
+        Ok(e) => e,
+        Err(_) => return base,
+    };
+    if let Ok(effect) = entry.get_component::<EffectAnimation>() {
+        return effect.0.current_glyph();
+    }
+    entry
+        .get_component::<IdleAnimation>()
         .ok()
-        .and_then(|e| {
-            e.get_component::<IdleAnimation>()
-                .ok()
-                .map(IdleAnimation::current_glyph)
-        })
+        .map(IdleAnimation::current_glyph)
         .unwrap_or(base)
 }
 
 /// Which console `idle_glyph`'s returned glyph should actually be drawn
-/// on - see IdleSpriteSheet's own doc comment in components.rs. Defaults
-/// to Dungeon for anything with no IdleAnimation at all (items/scenery),
-/// matching idle_glyph's own fallback-to-`base` behavior for the same
-/// entities - `base` is always a dungeonfont glyph for those.
+/// on - see IdleSpriteSheet's own doc comment in components.rs. An
+/// in-flight EffectAnimation always wins (CharacterEffect), checked
+/// before IdleAnimation for the same reason idle_glyph checks it first -
+/// both need to agree on which entity/frame source is authoritative this
+/// frame. Defaults to Dungeon for anything with neither component at all
+/// (items/scenery), matching idle_glyph's own fallback-to-`base`
+/// behavior for the same entities - `base` is always a dungeonfont glyph
+/// for those.
 fn idle_sheet(ecs: &SubWorld, entity: Entity) -> IdleSpriteSheet {
-    ecs.entry_ref(entity)
+    let entry = match ecs.entry_ref(entity) {
+        Ok(e) => e,
+        Err(_) => return IdleSpriteSheet::Dungeon,
+    };
+    if entry.get_component::<EffectAnimation>().is_ok() {
+        return IdleSpriteSheet::CharacterEffect;
+    }
+    entry
+        .get_component::<IdleAnimation>()
         .ok()
-        .and_then(|e| e.get_component::<IdleAnimation>().ok().map(|i| i.sheet))
+        .map(|i| i.sheet)
         .unwrap_or(IdleSpriteSheet::Dungeon)
 }
 

@@ -66,3 +66,38 @@ pub fn tick_idle_animation(
         idle.frame_index = (idle.frame_index + 1) % idle.frames.len();
     }
 }
+
+/// Advances any in-flight EffectAnimation (an out-of-combat ability's
+/// brief dungeon-view animation override - see that component's own doc
+/// comment) and removes it once it finishes, so entity_render's
+/// idle_glyph/idle_sheet fall back to the entity's ordinary IdleAnimation
+/// loop again. A plain #[system] with an explicit query (not
+/// `#[system(for_each)]` like tick_idle_animation above) since this one
+/// needs a CommandBuffer to remove the component once done, and no
+/// for_each system elsewhere in this project has been proven to accept
+/// one directly - mirrors systems/traps.rs's own explicit-query shape
+/// for the same reason. Collects finished entities into a local Vec
+/// before issuing any commands, rather than removing mid-iteration -
+/// same "don't mutate through a CommandBuffer while still iterating the
+/// query it would affect" caution as every other CommandBuffer use in
+/// this project.
+#[system]
+#[write_component(EffectAnimation)]
+pub fn tick_effect_animation(
+    ecs: &mut SubWorld,
+    commands: &mut CommandBuffer,
+    #[resource] frame_time: &FrameTime,
+) {
+    let mut finished = Vec::new();
+    <(Entity, &mut EffectAnimation)>::query()
+        .iter_mut(ecs)
+        .for_each(|(entity, effect)| {
+            effect.0.tick(frame_time.0);
+            if effect.0.finished() {
+                finished.push(*entity);
+            }
+        });
+    for entity in finished {
+        commands.remove_component::<EffectAnimation>(entity);
+    }
+}

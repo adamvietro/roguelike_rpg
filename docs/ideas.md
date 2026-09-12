@@ -108,12 +108,6 @@ Roughly in the order they've come up:
      movement is separate, not-yet-built work. Could cover all
      directions of movement, not just south, if needed - ties into the
      same facing-architecture question above.
-   - **Animations for every ability, including out-of-combat ones** -
-     technique animations only exist for in-battle techniques today;
-     out-of-combat class Abilities have no animation at all. Needs real
-     animation-state-switching logic outside of battle (the dungeon view
-     only ever shows the walk/idle loop today) so an ability use can
-     briefly override it, not just more art.
    - **Pixel-health audit across every animation frame, every class and
      enemy, every ability + general (Walk/Idle/Attack/Defend/etc.) -
      pure-black opaque pixels AND stray/unintended transparency.** This
@@ -128,10 +122,11 @@ Roughly in the order they've come up:
      entirely (any RGB channel <=0.1) even at full alpha; (2) pixels that
      are transparent but shouldn't be (holes/gaps in a character's own
      silhouette), as distinct from PixelLab's normal fully-transparent
-     background. Should happen before/alongside the out-of-combat and
-     movement-animation work below, since both are about to pull in a
-     lot of frames (effect sheets, 4-directional Walk) that haven't been
-     individually checked yet.
+     background. Now also covers `character_effect.png`'s 7 new rows
+     (out-of-combat ability animations, shipped 2026-09-11 - see
+     "Character & enemy animation" in Done) and the still-upcoming
+     4-directional Walk sheets for real movement animation - none of
+     these have been individually checked yet either.
 6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
@@ -789,6 +784,32 @@ that a full new animation batch is being assembled.
   the deferred work) and renamed Amazon's `Spear_Volley`/`War_Cry`/
   `Spear_Throw` art folders to match their real `template.ron` names
   (`Javelin_Volley`/`Battle_Cry`/`Throw_Spear`).
+- **Out-of-combat effect animations for all 7 class Abilities (2026-09-11,
+  `new-animation-batch` branch).** Ice Armor, Invisible Cloak, Stealth,
+  Throw Spear, Trap, Freeze Trap, and Shoot now play a real one-shot
+  animation in the DUNGEON VIEW - the first animation system in this
+  project that isn't the battle screen. New sheet
+  `resources/character_effect.png` (9 cols, 8 rows, one row per (class,
+  ability) pair - keyed by the real item name, not by `ProvidesEffect`
+  variant, since `RangedStrike` alone covers both Amazon's Throw Spear
+  and Hunter's Shoot with different art). New component `EffectAnimation`
+  gets attached the instant one of these 7 effects applies
+  (`systems/use_items.rs`) and ticks/clears itself
+  (`systems::animation::tick_effect_animation`); `entity_render.rs`'s
+  `idle_glyph`/`idle_sheet` - the two functions every dungeon-view render
+  path already funnels through - check for one before ever looking at the
+  ordinary `IdleAnimation` loop, so no render path needed touching
+  individually. New `CHARACTER_EFFECT_CONSOLE`/`_SCROLL_`/`_GLIDE_` trio
+  in `main.rs`, inserted (not appended - a real mid-chain shift, every
+  console from `HUD_CONSOLE` on moved up by 3) at the same z-order tier as
+  `CHARACTER_IDLE_CONSOLE`'s own trio, so it stays below the HUD/Ability
+  Bar. Verified with a permanent legion-access regression test (see
+  CLAUDE.md) rather than a remove-after-verifying one, matching
+  `hud_system_execution_tests`'s own precedent. Full detail in
+  `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Out-of-combat effect
+  animations" section. Still open: the movement-animation work (real
+  walk-cycle synced to actual movement, 4-directional facing) - see
+  "Animation work" above.
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5

@@ -320,6 +320,76 @@ work) folded in:
   Ogre Warlord, Ettin Overlord); the four basic enemies (Goblin, Orc,
   Ogre, Ettin) will not get one. Tracked in `docs/ideas.md`.
 
+### Out-of-combat effect animations (`character_effect.png`)
+
+Added right after the batch above, same session: the 7 out-of-combat
+class Abilities (Ice Armor, Invisible Cloak, Stealth, Throw Spear, Trap,
+Freeze Trap, Shoot) had real PixelLab art sitting unused since technique
+animations only ever covered in-battle Techniques. This is the FIRST
+animation system that plays in the **dungeon view**, not the battle
+screen - a genuinely different rendering pipeline (see "Architecture"
+below).
+
+`character_effect.png` (9 cols/`EXTRA_ANIM_COLS`, 8 rows, row 3 the
+sheet's usual forbidden row) - one row per (class, ability) pair, `south`
+direction (these are used standing in the dungeon, not facing east like
+a battle stance):
+
+| Row | Class | Ability | Art folder |
+| ---: | --- | --- | --- |
+| 0 | Rogue | Stealth | `Vanish-Stealth` |
+| 1 | Amazon | Throw Spear | `Throw_Spear` |
+| 2 | Amazon | Trap | `Trap` |
+| 3 | *(forbidden)* | — | — |
+| 4 | Hunter | Freeze Trap | `Freeze_Trap` |
+| 5 | Hunter | Shoot | `Shoot` |
+| 6 | Mage | Ice Armor | `Ice_Armor` |
+| 7 | Mage | Invisible Cloak | `Cloak_of_Invisibility` |
+
+Row-lookup: `effect_animation_row`/`effect_animation_for` in
+`components.rs` - same compound-key shape as `technique_animation_row`,
+for the same reason: `ProvidesEffect::RangedStrike` alone covers BOTH
+Amazon's Throw Spear and Hunter's Shoot with completely different art,
+so the lookup is keyed by the real `template.ron` item name, not the
+effect variant.
+
+**Architecture** (this is the part that needed real design, not just a
+new sheet): a new component, `EffectAnimation(pub OneShotAnimation)`,
+gets attached to `activate.used_by` in `systems/use_items.rs` the moment
+one of these 7 effects actually applies (right where that function
+already reads the item's own `Name`/`Class` for stats recording - the
+exact same compound key `effect_animation_for` needs). A new system,
+`systems::animation::tick_effect_animation`, advances it every real frame
+and removes it via `CommandBuffer` once `OneShotAnimation::finished()` -
+a plain `#[system]` with an explicit query rather than
+`#[system(for_each)]` like `tick_idle_animation`, since this one needs a
+`CommandBuffer` to remove the component once done. `entity_render.rs`'s
+`idle_glyph`/`idle_sheet` - the two functions EVERY dungeon-view render
+path (plain/camera-scroll/glide, for both the plain ENTITY_CONSOLE tier
+and the CharacterIdle/EnemyIdle tiers) already funnels through - now
+check for an `EffectAnimation` FIRST, before ever looking at
+`IdleAnimation`, so no render path needed touching individually.
+
+A new `IdleSpriteSheet::CharacterEffect` variant routes to a new
+`CHARACTER_EFFECT_CONSOLE`/`_SCROLL_`/`_GLIDE_` trio in `main.rs`,
+registered immediately after `ENEMY_IDLE_GLIDE_CONSOLE` (still ahead of
+`HUD_CONSOLE`) - the same z-order tier as the `CHARACTER_IDLE_*`/
+`ENEMY_IDLE_*` trios, and for the same reason: this draws a real
+dungeon-view entity (the player), so it has to stay BELOW the HUD/
+Ability Bar layer, not paint over it. This was a genuine mid-chain
+insertion, not a safe append - every console constant from `HUD_CONSOLE`
+onward (23 of them) shifted up by 3. Registered in all three real
+gameplay schedulers (`build_input_scheduler`/`build_player_scheduler`/
+`build_monster_scheduler`) but deliberately NOT the title-background
+scheduler, since that decorative world's entities never run `use_items`.
+
+Verified with a **permanent** legion-access regression test (see
+CLAUDE.md's gotcha) - `systems::effect_animation_access_tests` executes
+`use_items` → `tick_effect_animation` → `entity_render` through a real
+`Schedule`, confirming both no `AccessDenied` panic and the real
+functional effect (using an item actually attaches and ticks a real
+`EffectAnimation`).
+
 ### Row assignments
 
 **Every sheet needs its OWN row function** — a shared mapping is only
