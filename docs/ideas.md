@@ -78,19 +78,19 @@ Roughly in the order they've come up:
 5. **Animation work** — everything still outstanding now that the user is
    assembling a full new animation batch for every class and enemy. What
    already shipped (idle/walk art for all 6 classes and 8 enemies, the
-   played-once Death/Victory/Technique framework, the title-screen fix)
+   played-once Death/Victory/Technique framework, the title-screen fix,
+   2026-09-11's Attack/Defend/full-technique-roster/enemy-attack batch)
    lives in "Character & enemy animation" in Done below - full row-
    mapping reference in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
    session-by-session history in `docs/journal.md`, condensed standing
    rules in `CLAUDE.md`. Still open:
-   - **Enemy attack animations to match the player's.** Only the
-     PLAYER's own techniques get a real played-once animation
-     (`character_technique.png`) - an enemy landing a hit still just
-     shows its ordinary Fight_Stance_Idle loop the whole time.
    - **Enemy Death animations.** An enemy currently just vanishes the
      instant it's killed - no animation at all, unlike the player's
      Death pose. Needs its own sheet (`enemy_death.png`?) and a moment to
-     actually play it before removing the entity/awarding loot.
+     actually play it before removing the entity/awarding loot. The user
+     is assembling these separately, **boss enemies only** (Goblin
+     Chieftain, Orc Warlord, Ogre Warlord, Ettin Overlord) - the four
+     basic enemies (Goblin, Orc, Ogre, Ettin) won't get one.
    - **Redo Amazon's Walk animation** - flagged as needing a fresh
      PixelLab pass, independent of the canvas-size/leftover-art bugs
      already fixed for it in an earlier session.
@@ -720,6 +720,38 @@ that a full new animation batch is being assembled.
   throttle. Verified with real screenshots 80ms apart showing a
   stationary enemy visibly cycle several poses before its next scheduled
   step.
+- **Attack/Defend animations, every remaining technique, enemy attack
+  animations, Idle_Battle_Stance refresh (2026-09-11, `new-animation-
+  batch` branch).** A much larger PixelLab export per class (all 5
+  playable classes + Debug + all 8 enemies) covering Attack, Defend,
+  Death, Victory, Idle_Battle_Stance, 4-directional Walk, 8-way
+  rotations, and a named animation for nearly every real battle
+  Technique. Shipped this pass ("ready now" - see "Animation work"
+  above for what's still deferred): two brand-new sheets,
+  `resources/character_attack.png`/`resources/character_defend.png`
+  (own consoles, `CHARACTER_ATTACK_CONSOLE`/`CHARACTER_DEFEND_CONSOLE`),
+  replacing the old "just keep showing Idle_Battle_Stance" behavior for
+  a plain Attack/Defend; `resources/character_technique.png` widened
+  from 8 to 20 rows to fit a real animation for every remaining
+  technique (18 rows populated, up from 5); a new enemy-side sheet,
+  `resources/enemy_attack.png` (`ENEMY_ATTACK_CONSOLE`, registered
+  fancy so a 2+ enemy fight's zigzag formation stays correct during an
+  enemy's own attack) - enemies previously had no one-shot-animation
+  concept at all; and a full `character_battle.png` Idle_Battle_Stance
+  refresh for every class, including Amazon (whose export used a
+  differently-named folder, `Idle_Battle_Animation`). `Battle::
+  player_technique_animation` renamed to `player_action_animation`,
+  now shared by Attack/Defend/Technique (mutually exclusive per turn),
+  with a new sibling `player_action_kind` field recording which of the
+  three separate sheets/consoles a glyph index resolves against. Full
+  row-mapping detail in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s
+  "2026-09-11's full animation batch" section. A mid-session follow-up
+  "v2" zip filled 3 gaps found during the initial inventory (Barbarian's
+  Counter Attack, added as technique row 18; Amazon's missing
+  Idle_Battle_Stance; Hunter's Shoot, an out-of-combat Effect held for
+  the deferred work) and renamed Amazon's `Spear_Volley`/`War_Cry`/
+  `Spear_Throw` art folders to match their real `template.ron` names
+  (`Javelin_Volley`/`Battle_Cry`/`Throw_Spear`).
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5

@@ -1151,6 +1151,46 @@ pub fn enemy_battle_glyph(name: &str, frame_index: usize) -> Option<FontCharType
     Some(row * ENEMY_BATTLE_COLS + col)
 }
 
+/// Which row an enemy occupies on `resources/enemy_attack.png` (added
+/// 2026-09-11's full animation batch, giving enemies their own real
+/// played-once attack animation instead of just their ordinary
+/// Idle_Battle_Stance loop the whole time - see docs/ideas.md's
+/// "Battle screen redesign" backlog item). Shares `enemy_battle_row`'s
+/// exact layout/forbidden-row (both sheets use ENEMY_BATTLE_COLS), kept
+/// as its own independent mapping per this file's usual convention.
+fn enemy_attack_row(name: &str) -> Option<u16> {
+    match name {
+        "Goblin" => Some(0),
+        "Orc" => Some(1),
+        "Ogre" => Some(2),
+        "Ettin" => Some(3),
+        // Row 4 deliberately skipped - see enemy_battle_row's own doc
+        // comment (identical reasoning, this sheet's own column count).
+        "Goblin Chieftain" => Some(5),
+        "Orc Warlord" => Some(6),
+        "Ogre Warlord" => Some(7),
+        "Ettin Overlord" => Some(8),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing enemy `name`'s attack
+/// animation - `None` if `name` has no row yet, in which case the
+/// caller keeps showing the ordinary Idle_Battle_Stance loop instead.
+pub fn attack_animation_for_enemy(name: &str) -> Option<OneShotAnimation> {
+    let row = enemy_attack_row(name)?;
+    let frames = (0..ENEMY_BATTLE_COLS)
+        .map(|col| row * ENEMY_BATTLE_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: TECHNIQUE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
 /// Builds a fresh IdleAnimation for an enemy, pulling real walk-cycle
 /// frames from `resources/enemy_idle.png` when `name` has a row there
 /// (see enemy_idle_row) - falls back to the plain dungeonfont placeholder
@@ -1251,6 +1291,79 @@ pub const EXTRA_ANIM_COLS: u16 = 9;
 /// not like a slow held pose.
 pub const TECHNIQUE_FRAME_DURATION_MS: f32 = 80.0;
 
+/// Which row a class occupies on `resources/character_attack.png` (the
+/// generic basic-Attack one-shot animation, added 2026-09-11's full
+/// animation batch - previously "Attack" just showed the ordinary
+/// Fight_Stance/Idle_Battle_Stance loop with no animation of its own).
+/// Same layout/forbidden-row convention as `character_battle_row`
+/// (shares its 8-row-sheet shape, row 3 skipped - 32 / 9 == 3, the
+/// EXTRA_ANIM_COLS column count this sheet actually uses, NOT
+/// CHARACTER_BATTLE_COLS's own row 4).
+fn character_attack_row(class: &str) -> Option<u16> {
+    match class {
+        "Barbarian" => Some(0),
+        "Rogue" => Some(1),
+        "Amazon" => Some(2),
+        // Row 3 deliberately skipped - see this fn's own doc comment.
+        "Hunter" => Some(4),
+        "Mage" => Some(5),
+        "Debug" => Some(6),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s generic Attack
+/// animation - `None` if `class` has no row yet, in which case the
+/// caller keeps showing the ordinary battle-idle loop instead, same
+/// fallback shape as `technique_animation_for`.
+pub fn attack_animation_for_class(class: &str) -> Option<OneShotAnimation> {
+    let row = character_attack_row(class)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: TECHNIQUE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
+/// Which row a class occupies on `resources/character_defend.png` (the
+/// generic Defend one-shot animation, added alongside `character_
+/// attack_row` in the same batch - same layout/forbidden-row reasoning).
+fn character_defend_row(class: &str) -> Option<u16> {
+    match class {
+        "Barbarian" => Some(0),
+        "Rogue" => Some(1),
+        "Amazon" => Some(2),
+        // Row 3 deliberately skipped - see character_attack_row's own
+        // doc comment for why (identical reasoning, this sheet's own
+        // column count).
+        "Hunter" => Some(4),
+        "Mage" => Some(5),
+        "Debug" => Some(6),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s generic Defend
+/// animation - `None` if `class` has no row yet.
+pub fn defend_animation_for_class(class: &str) -> Option<OneShotAnimation> {
+    let row = character_defend_row(class)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: TECHNIQUE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
 /// Which row a class occupies on `resources/character_death.png` -
 /// `None` for a class without one yet, same "grow as art arrives"
 /// shape as every other per-class sheet. Row 3 is this sheet's own
@@ -1336,14 +1449,27 @@ fn technique_animation_row(class: &str, technique: &str) -> Option<u16> {
         ("Hunter", "Arrow Volley") => Some(1),
         ("Barbarian", "Whirlwind") => Some(2),
         // Row 3 deliberately skipped - see this fn's own doc comment.
-        // Amazon's own PixelLab batch named this animation "Spear_Volley"
-        // (after the class's weapon) - the real item name in
-        // template.ron is "Javelin Volley", which is the string
-        // resolve_player_action actually looks this row up by (see
-        // entity_name), so that's the name matched here, not the zip's
-        // own folder name.
         ("Amazon", "Javelin Volley") => Some(4),
         ("Mage", "Blizzard") => Some(5),
+        // 2026-09-11's full animation batch added a real animation for
+        // every remaining technique at once - `resources/
+        // character_technique.png` widened from 8 rows to 20 to fit them
+        // (row 3 stays the sheet's one permanently forbidden row,
+        // unaffected by the extra height).
+        ("Barbarian", "Deathblow") => Some(6),
+        ("Barbarian", "Quick Attack") => Some(7),
+        ("Barbarian", "Rend") => Some(8),
+        ("Rogue", "Dodge") => Some(9),
+        ("Rogue", "Garrote") => Some(10),
+        ("Amazon", "Battle Cry") => Some(11),
+        ("Amazon", "Poison Spear") => Some(12),
+        ("Hunter", "Feint") => Some(13),
+        ("Hunter", "Poison Shot") => Some(14),
+        ("Hunter", "Stun") => Some(15),
+        ("Mage", "Fireball") => Some(16),
+        ("Mage", "Burn") => Some(17),
+        // A follow-up zip added this animation after the initial batch.
+        ("Barbarian", "Counter Attack") => Some(18),
         _ => None,
     }
 }

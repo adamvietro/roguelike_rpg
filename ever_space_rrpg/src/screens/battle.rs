@@ -24,6 +24,10 @@ struct EnemyPortrait {
     /// there can be more than one enemy at once.
     name: String,
     battle_idle_frame: usize,
+    /// This enemy's current one-shot attack-animation glyph, if it's
+    /// mid-attack this turn (EnemyCombatant::attack_animation) - checked
+    /// before falling back to the tiered enemy_battle_glyph lookup below.
+    attack_glyph: Option<FontCharType>,
 }
 
 /// Fractional (col, row) position, in the coarse BATTLE_PORTRAIT_COLS x
@@ -196,13 +200,17 @@ impl State {
     ///
     /// `technique_glyph`/`victory_glyph` each override that whole 3-tier
     /// fallback when Some - a live battle passes
-    /// `battle.player_technique_animation`'s current glyph (see
-    /// Battle::player_technique_animation's own doc comment) for the
-    /// duration of a technique's own ActionResult, and
+    /// `battle.player_action_animation`'s current glyph (see
+    /// Battle::player_action_animation's own doc comment) for the
+    /// duration of an Attack/Defend/Technique's own ActionResult, and
     /// battle_victory_tick passes BattleVictory::portrait_animation's
-    /// once the fight is won. Never both Some for the same call - a
-    /// technique animation only ever plays during a live battle, a
-    /// victory animation only once the battle is already over.
+    /// once the fight is won. Never both Some for the same call - an
+    /// action animation only ever plays during a live battle, a victory
+    /// animation only once the battle is already over. `action_kind`
+    /// (see Battle::player_action_kind) says which of the three separate
+    /// sheets/consoles `technique_glyph`'s index resolves against - only
+    /// meaningful when `technique_glyph` is Some, ignored otherwise (the
+    /// Victory screen's own call always passes `None` for both).
     fn draw_battle_arena(
         &mut self,
         enemies: &[EnemyPortrait],
@@ -211,6 +219,7 @@ impl State {
         player_class: Option<String>,
         player_idle_frame: Option<usize>,
         technique_glyph: Option<FontCharType>,
+        action_kind: Option<PlayerActionKind>,
         victory_glyph: Option<FontCharType>,
     ) {
         // --- Arena background. Two paths, chosen per the live dungeon
@@ -352,6 +361,21 @@ impl State {
         enemy_battle_idle.target(ENEMY_BATTLE_CONSOLE);
         let mut enemy_battle_wiggle = DrawBatch::new();
         enemy_battle_wiggle.target(ENEMY_BATTLE_WIGGLE_CONSOLE);
+        // A new top tier, checked before the two above: enemy_attack.png's
+        // played-once Attack animation (EnemyPortrait::attack_glyph, set
+        // whenever this enemy's most recent action has a row on
+        // components::attack_animation_for_enemy), for the duration of
+        // its own ActionResult. Deliberately never wiggled, same reasoning
+        // as the player's own technique/attack/defend tiers above - the
+        // animation already shows real motion. Drawn via draw_portrait_
+        // fancy (not the plain whole-cell draw_portrait) so a 2+ enemy
+        // fight's fractional zigzag position (enemy_portrait_position)
+        // still lines up correctly during the attack, same reason the
+        // existing enemy_battle_wiggle tier below needs a fancy console
+        // for its own >1-enemy case - registered as fancy in main.rs even
+        // though nothing here ever applies an actual wiggle offset to it.
+        let mut enemy_attack = DrawBatch::new();
+        enemy_attack.target(ENEMY_ATTACK_CONSOLE);
         let enemy_count = enemies.len();
         // See MapTheme::enemy_formation_rows' own doc comment - how far
         // up the screen this theme's own battle backdrop art lets the
@@ -365,6 +389,11 @@ impl State {
         for (index, enemy) in enemies.iter().enumerate() {
             let (col, row) = enemy_portrait_position(enemy_count, index, formation_rows);
             let color = flash_tint(enemy.render.color, enemy.flash);
+            if let Some(glyph) = enemy.attack_glyph {
+                let tinted = Render { color, glyph };
+                draw_portrait_fancy(&mut enemy_attack, col, row, tinted);
+                continue;
+            }
             match enemy_battle_glyph(&enemy.name, enemy.battle_idle_frame) {
                 Some(glyph) => {
                     let tinted = Render { color, glyph };
@@ -412,6 +441,10 @@ impl State {
         still_portrait.target(CHARACTER_PORTRAIT_BIG_CONSOLE);
         let mut technique = DrawBatch::new();
         technique.target(CHARACTER_TECHNIQUE_CONSOLE);
+        let mut attack = DrawBatch::new();
+        attack.target(CHARACTER_ATTACK_CONSOLE);
+        let mut defend = DrawBatch::new();
+        defend.target(CHARACTER_DEFEND_CONSOLE);
         let mut victory_portrait = DrawBatch::new();
         victory_portrait.target(CHARACTER_VICTORY_CONSOLE);
         if let Some(render) = player_render {
@@ -423,13 +456,24 @@ impl State {
             match (technique_glyph, victory_glyph, battle_glyph, portrait_glyph) {
                 (Some(glyph), _, _, _) => {
                     // Deliberately never wiggled, even during an
-                    // "Attacking" flash - the technique's own animation
+                    // "Attacking" flash - the action's own animation
                     // already shows real motion, so stacking the shake
                     // on top of it read as redundant/busy (explicit user
                     // feedback, 2026-09-08). Every other tier still gets
-                    // the wiggle.
+                    // the wiggle. Routed to whichever of the three
+                    // separate sheets/consoles this glyph index actually
+                    // belongs to (see Battle::player_action_kind) -
+                    // Technique is the fallback for the (should be
+                    // unreachable, since the two are always set together)
+                    // case action_kind is somehow still None here.
                     let tinted = Render { color, glyph };
-                    draw_portrait(&mut technique, 1, 3, tinted);
+                    match action_kind {
+                        Some(PlayerActionKind::Attack) => draw_portrait(&mut attack, 1, 3, tinted),
+                        Some(PlayerActionKind::Defend) => draw_portrait(&mut defend, 1, 3, tinted),
+                        Some(PlayerActionKind::Technique) | None => {
+                            draw_portrait(&mut technique, 1, 3, tinted)
+                        }
+                    }
                 }
                 (None, Some(glyph), _, _) => {
                     let tinted = Render { color, glyph };
@@ -468,6 +512,9 @@ impl State {
         enemy_battle_wiggle.submit(6).expect("Batch error");
         technique.submit(7).expect("Batch error");
         victory_portrait.submit(8).expect("Batch error");
+        attack.submit(9).expect("Batch error");
+        defend.submit(10).expect("Batch error");
+        enemy_attack.submit(11).expect("Batch error");
     }
 
     /// Records one enemy's death: stats, loot/gold (accumulated onto
@@ -626,6 +673,9 @@ impl State {
             return self.record_enemy_kill(battle, attacker, enter_held);
         }
 
+        if let Some(enemy) = battle.enemy_mut(attacker) {
+            enemy.attack_animation = attack_animation_for_enemy(&enemy.name);
+        }
         resolve_enemy_attack(&mut self.ecs, battle, attacker);
         battle.enter_result(Combatant::Enemy(attacker));
         false
@@ -663,6 +713,12 @@ impl State {
         // item here - adding a new class's technique needs no change here.
         match chosen {
             BattleAction::Attack => {
+                if let Some(class) = entity_class(&self.ecs, battle.player) {
+                    let anim = attack_animation_for_class(&class);
+                    battle.player_action_kind =
+                        anim.is_some().then(|| PlayerActionKind::Attack);
+                    battle.player_action_animation = anim;
+                }
                 if let Some(target) = target {
                     let mut dmg = player_attack_damage(&self.ecs, battle.player);
                     if battle.sneak_attack {
@@ -673,6 +729,12 @@ impl State {
                 }
             }
             BattleAction::Defend => {
+                if let Some(class) = entity_class(&self.ecs, battle.player) {
+                    let anim = defend_animation_for_class(&class);
+                    battle.player_action_kind =
+                        anim.is_some().then(|| PlayerActionKind::Defend);
+                    battle.player_action_animation = anim;
+                }
                 battle.player_defending = true;
                 battle.push_log("Defend.".to_string());
             }
@@ -708,8 +770,10 @@ impl State {
                         Some(TechniqueEffect::MultiHit(_))
                             | Some(TechniqueEffect::AoeMultiHit { .. })
                     );
-                    battle.player_technique_animation =
-                        technique_animation_for(&class, &name, repeats);
+                    let anim = technique_animation_for(&class, &name, repeats);
+                    battle.player_action_kind =
+                        anim.is_some().then(|| PlayerActionKind::Technique);
+                    battle.player_action_animation = anim;
                 }
                 // A self-buff technique (Heal/Evade/WarCry/Counter) just
                 // ignores `target` entirely inside apply_player_technique
@@ -799,11 +863,16 @@ impl State {
         }
 
         battle.turn = BattleTurn::Filling;
-        // Whatever technique animation was playing for the action just
-        // dismissed is done - clear it so draw_battle_arena falls back to
-        // the ordinary Fight_Stance_Idle loop for the next race, rather
-        // than holding on the technique's last frame indefinitely.
-        battle.player_technique_animation = None;
+        // Whatever action animation (Attack/Defend/Technique) was playing
+        // for the action just dismissed is done - clear it so
+        // draw_battle_arena falls back to the ordinary Fight_Stance_Idle
+        // loop for the next race, rather than holding on its last frame
+        // indefinitely. Same for every enemy's own attack animation.
+        battle.player_action_animation = None;
+        battle.player_action_kind = None;
+        for enemy in battle.enemies.iter_mut() {
+            enemy.attack_animation = None;
+        }
         ResultOutcome::Continue
     }
 
@@ -856,12 +925,12 @@ impl State {
             battle.player_idle_elapsed_ms -= IDLE_FRAME_DURATION_MS;
             battle.player_idle_frame += 1;
         }
-        // A played-once technique animation, if the player's most recent
-        // action set one (see resolve_player_action's BattleAction::
-        // Technique branch) - a no-op past its own last frame, and
+        // A played-once action animation (Attack/Defend/Technique), if the
+        // player's most recent action set one (see resolve_player_action's
+        // BattleAction branches) - a no-op past its own last frame, and
         // cleared entirely once dismiss_action_result returns turn to
         // Filling, so it never lingers into the next race.
-        if let Some(anim) = battle.player_technique_animation.as_mut() {
+        if let Some(anim) = battle.player_action_animation.as_mut() {
             anim.tick(ctx.frame_time_ms);
         }
         for enemy in battle.enemies.iter_mut() {
@@ -883,6 +952,12 @@ impl State {
             if enemy.battle_idle_elapsed_ms >= IDLE_FRAME_DURATION_MS {
                 enemy.battle_idle_elapsed_ms -= IDLE_FRAME_DURATION_MS;
                 enemy.battle_idle_frame += 1;
+            }
+            // This enemy's own played-once attack animation, if
+            // trigger_enemy_action set one - same no-op-past-last-frame/
+            // cleared-on-dismiss contract as the player's above.
+            if let Some(anim) = enemy.attack_animation.as_mut() {
+                anim.tick(ctx.frame_time_ms);
             }
         }
 
@@ -991,12 +1066,16 @@ impl State {
                     flash: e.flash,
                     name: e.name.clone(),
                     battle_idle_frame: e.battle_idle_frame,
+                    attack_glyph: e
+                        .attack_animation
+                        .as_ref()
+                        .map(OneShotAnimation::current_glyph),
                 })
             })
             .collect();
         let player_class = entity_class(&self.ecs, battle.player);
         let technique_glyph = battle
-            .player_technique_animation
+            .player_action_animation
             .as_ref()
             .map(OneShotAnimation::current_glyph);
         self.draw_battle_arena(
@@ -1006,6 +1085,7 @@ impl State {
             player_class,
             Some(battle.player_idle_frame),
             technique_glyph,
+            battle.player_action_kind,
             None,
         );
 
@@ -1638,6 +1718,7 @@ impl State {
             player_render,
             None,
             player_class,
+            None,
             None,
             None,
             victory_glyph,

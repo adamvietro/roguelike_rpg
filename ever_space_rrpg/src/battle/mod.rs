@@ -286,6 +286,16 @@ pub struct EnemyCombatant {
     /// a single shared field.
     pub battle_idle_frame: usize,
     pub battle_idle_elapsed_ms: f32,
+    /// This enemy's own played-once attack animation, when it has a row
+    /// on `resources/enemy_attack.png` (see components::
+    /// attack_animation_for_enemy) - the enemy equivalent of Battle::
+    /// player_action_animation, added in the same 2026-09-11 batch that
+    /// gave enemies real attack art instead of just their ordinary
+    /// Idle_Battle_Stance loop the whole time. None outside of its own
+    /// ActionResult display - set in trigger_enemy_action, ticked
+    /// alongside battle_idle_elapsed_ms above, and cleared back to None
+    /// in dismiss_action_result the same moment turn returns to Filling.
+    pub attack_animation: Option<OneShotAnimation>,
 }
 
 /// Which combatant is acting - Player, or a specific enemy (there can be
@@ -446,19 +456,46 @@ pub struct Battle {
     /// fight, same as every other per-battle field here).
     pub player_idle_frame: usize,
     pub player_idle_elapsed_ms: f32,
-    /// The player's own played-once technique animation, when their most
-    /// recent action was a (class, technique) pair with a row on
-    /// `resources/character_technique.png` (see components::
+    /// The player's own played-once animation for whatever their most
+    /// recent action was - Attack, Defend, or a (class, technique) pair,
+    /// whenever that specific action has a row on its own sheet (see
+    /// components::attack_animation_for_class/defend_animation_for_class/
     /// technique_animation_for) - None the rest of the time, including
     /// the ordinary Filling/PlayerMenu state between actions, in which
-    /// case draw_battle_arena keeps showing the ordinary
-    /// Fight_Stance_Idle loop via player_idle_frame above instead. Set in
-    /// resolve_player_action's BattleAction::Technique branch, ticked
-    /// alongside player_idle_elapsed_ms in battle_tick, and cleared back
-    /// to None in dismiss_action_result the same moment turn returns to
-    /// Filling - so it only ever plays for the duration of its own
-    /// ActionResult display, never lingering into the next race.
-    pub player_technique_animation: Option<OneShotAnimation>,
+    /// case draw_battle_arena keeps showing the ordinary Idle_Battle_
+    /// Stance loop via player_idle_frame above instead. Named generically
+    /// (not `player_technique_animation`, what this was called before
+    /// Attack/Defend got their own animations too in 2026-09-11's full
+    /// batch) since all three actions now share this exact same field -
+    /// they're mutually exclusive (only one action happens per turn), so
+    /// there was no reason to add parallel fields per action type. Set in
+    /// resolve_player_action's own match arm for whichever action was
+    /// chosen, ticked alongside player_idle_elapsed_ms in battle_tick,
+    /// and cleared back to None in dismiss_action_result the same moment
+    /// turn returns to Filling - so it only ever plays for the duration
+    /// of its own ActionResult display, never lingering into the next
+    /// race.
+    pub player_action_animation: Option<OneShotAnimation>,
+    /// Which sheet `player_action_animation`'s glyph indices resolve
+    /// against - Attack, Defend, and every technique now live on THREE
+    /// separate sheets (`character_attack.png`/`character_defend.png`/
+    /// `character_technique.png`), each bound to its own console/font
+    /// (main.rs's CHARACTER_ATTACK_CONSOLE/CHARACTER_DEFEND_CONSOLE/
+    /// CHARACTER_TECHNIQUE_CONSOLE), so draw_battle_arena needs to know
+    /// which one a glyph index came from even though the animation itself
+    /// is stored in one shared field above. `None` whenever
+    /// `player_action_animation` is also `None` - the two are always set
+    /// and cleared together (resolve_player_action's match arms,
+    /// dismiss_action_result's clear).
+    pub player_action_kind: Option<PlayerActionKind>,
+}
+
+/// See `Battle::player_action_kind`'s own doc comment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlayerActionKind {
+    Attack,
+    Defend,
+    Technique,
 }
 
 /// The battle menu's cursor position - which of the two columns (0 = the
@@ -574,6 +611,7 @@ impl Battle {
                 damage_popup: None,
                 battle_idle_frame: 0,
                 battle_idle_elapsed_ms: 0.0,
+                attack_animation: None,
             })
             .collect();
         Self {
@@ -598,7 +636,8 @@ impl Battle {
             menu_cursor_seeded: false,
             player_idle_frame: 0,
             player_idle_elapsed_ms: 0.0,
-            player_technique_animation: None,
+            player_action_animation: None,
+            player_action_kind: None,
         }
     }
 

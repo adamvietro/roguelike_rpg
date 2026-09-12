@@ -62,7 +62,9 @@ mod prelude {
     // CHARACTER_PORTRAIT_BIG_CONSOLE, 28 CHARACTER_PORTRAIT_HUD_CONSOLE, 29
     // END_SCREEN_FALLEN_PORTRAIT_CONSOLE, 30 ENEMY_BATTLE_CONSOLE, 31
     // ENEMY_BATTLE_WIGGLE_CONSOLE, 32 CHARACTER_DEATH_CONSOLE, 33
-    // CHARACTER_VICTORY_CONSOLE, 34 CHARACTER_TECHNIQUE_CONSOLE.
+    // CHARACTER_VICTORY_CONSOLE, 34 CHARACTER_TECHNIQUE_CONSOLE, 35
+    // CHARACTER_ATTACK_CONSOLE, 36 CHARACTER_DEFEND_CONSOLE, 37
+    // ENEMY_ATTACK_CONSOLE.
     //
     // NOTE: the verbose per-console doc comments below this point were
     // NOT individually rewritten for this shift - many still narrate
@@ -608,6 +610,30 @@ mod prelude {
     /// redundant/busy stacked on top of it (explicit user feedback,
     /// 2026-09-08).
     pub const CHARACTER_TECHNIQUE_CONSOLE: usize = 34;
+    /// Console 34: a plain console, same grid, sourced from a FOURTH new
+    /// sheet - `resources/character_attack.png` - the generic basic-Attack
+    /// one-shot animation added in 2026-09-11's full animation batch
+    /// (components::attack_animation_for_class). Previously "Attack" just
+    /// showed the ordinary Fight_Stance_Idle loop with no animation of its
+    /// own. Appended at the end like every other battle-only console -
+    /// no dungeon HUD to stay under.
+    pub const CHARACTER_ATTACK_CONSOLE: usize = 35;
+    /// Console 35: a plain console, same grid, sourced from a FIFTH new
+    /// sheet - `resources/character_defend.png` - Defend's own equivalent
+    /// of CHARACTER_ATTACK_CONSOLE above (components::
+    /// defend_animation_for_class).
+    pub const CHARACTER_DEFEND_CONSOLE: usize = 36;
+    /// Console 36: a FANCY console (unlike CHARACTER_ATTACK_CONSOLE/
+    /// CHARACTER_DEFEND_CONSOLE above) - the enemy-side equivalent of
+    /// those two, sourced from a new sheet, `resources/enemy_attack.png`
+    /// (components::attack_animation_for_enemy /
+    /// EnemyCombatant::attack_animation). Needs set_fancy's fractional
+    /// positioning (draw_portrait_fancy, not the plain whole-cell
+    /// draw_portrait) so a 2+ enemy fight's zigzag formation still lines
+    /// up correctly during an enemy's own Attack animation - same reason
+    /// ENEMY_BATTLE_WIGGLE_CONSOLE is fancy, even though nothing on this
+    /// particular console ever applies an actual wiggle/shake offset.
+    pub const ENEMY_ATTACK_CONSOLE: usize = 37;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -1674,6 +1700,12 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(CHARACTER_TECHNIQUE_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(CHARACTER_ATTACK_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(CHARACTER_DEFEND_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(ENEMY_ATTACK_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1794,6 +1826,9 @@ fn main() -> BError {
         .with_font("character_death.png", 32, 32)
         .with_font("character_victory.png", 32, 32)
         .with_font("character_technique.png", 32, 32)
+        .with_font("character_attack.png", 32, 32)
+        .with_font("character_defend.png", 32, 32)
+        .with_font("enemy_attack.png", 32, 32)
         .with_font("map_tiles.png", 32, 32)
         .with_font("battle_backgrounds.png", 1280, 800)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
@@ -1996,6 +2031,31 @@ fn main() -> BError {
             BATTLE_PORTRAIT_COLS,
             BATTLE_PORTRAIT_ROWS,
             "character_technique.png",
+        )
+        // Console 34 (CHARACTER_ATTACK_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_attack.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_attack.png",
+        )
+        // Console 35 (CHARACTER_DEFEND_CONSOLE): a plain console, same
+        // coarse grid as console 3, sourced from character_defend.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_defend.png",
+        )
+        // Console 36 (ENEMY_ATTACK_CONSOLE): a FANCY console (needs
+        // fractional set_fancy positioning, unlike the two plain consoles
+        // just above - see its own doc comment above), same coarse grid,
+        // sourced from enemy_attack.png.
+        .with_fancy_console(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "enemy_attack.png",
         )
         .with_vsync(false)
         .build()?;
