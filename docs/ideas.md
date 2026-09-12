@@ -108,25 +108,22 @@ Roughly in the order they've come up:
      movement is separate, not-yet-built work. Could cover all
      directions of movement, not just south, if needed - ties into the
      same facing-architecture question above.
-   - **Pixel-health audit across every animation frame, every class and
-     enemy, every ability + general (Walk/Idle/Attack/Defend/etc.) -
-     pure-black opaque pixels AND stray/unintended transparency.** This
-     batch was assumed clean binary alpha with no near-black content
-     needing the usual floor (unlike every earlier hand-supplied
-     reference image this project has processed) - the user spotted real
-     transparent pixels in Hunter's animations specifically, so that
-     assumption doesn't hold for the whole batch and needs checking
-     frame-by-frame rather than assumed. Two separate things to look
-     for, per CLAUDE.md's sprite-sheet gotchas: (1) opaque pixels at or
-     near true black, which a plain console's shader silently culls
-     entirely (any RGB channel <=0.1) even at full alpha; (2) pixels that
-     are transparent but shouldn't be (holes/gaps in a character's own
-     silhouette), as distinct from PixelLab's normal fully-transparent
-     background. Now also covers `character_effect.png`'s 7 new rows
-     (out-of-combat ability animations, shipped 2026-09-11 - see
-     "Character & enemy animation" in Done) and the still-upcoming
-     4-directional Walk sheets for real movement animation - none of
-     these have been individually checked yet either.
+   - **Enclosed-transparent-region review still needs a human pass.**
+     2026-09-11's pixel-health scan (see "Character & enemy animation" in
+     Done for the near-black/RGB-under-transparency half, now fixed) also
+     flood-filled every frame for TRANSPARENT pixels not connected to the
+     frame's own border - a real "hole" fully inside the silhouette,
+     as opposed to the normal background. Found in ~39% of frames
+     (607/1549) across almost every class/enemy, but a spot check showed
+     most are legitimate negative space (the inside curve of Hunter's
+     bow, gaps between limbs mid-stride) rather than defects - an
+     automated fill would risk destroying real linework, so this was
+     deliberately NOT auto-fixed. Needs an actual human look at the
+     worst offenders (the biggest was `Hunter_v2/Arrow_Volley/east/
+     frame_006.png`, 83 hole pixels) to separate genuine PixelLab
+     segmentation defects from correct art. Also still needs the
+     still-upcoming 4-directional Walk sheets (movement-animation work
+     below) checked once they exist - not built yet.
 6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
@@ -810,6 +807,33 @@ that a full new animation batch is being assembled.
   animations" section. Still open: the movement-animation work (real
   walk-cycle synced to actual movement, 4-directional facing) - see
   "Animation work" above.
+- **Pixel-health floor fixed and applied retroactively to every sheet
+  built this session (2026-09-11).** The user flagged transparent pixels
+  in Hunter's animations, which turned out to be two separate real
+  findings from a full scan of all 1549 source frames (every class +
+  enemy, every animation, every direction, both original and v2 zips):
+  (1) source alpha was confirmed genuinely clean everywhere (strictly
+  binary 0/255, no anti-aliasing) - NOT the issue; (2) 6-12% of every
+  character's OPAQUE pixels were near-black, and the build script's
+  `center_crop_32` had never actually applied the near-black floor
+  CLAUDE.md's own PixelLab gotcha already called for, despite being used
+  for every sheet built this session - a real gap, not a one-off. Fixed
+  by adding `floor_pixels` (floors near-black opaque pixels to
+  RGB>=30/channel, and defensively forces transparent pixels' RGB to
+  true black) into the one function every frame already passes through,
+  then rebuilding and re-verifying (a full re-scan of all 10 rebuilt
+  sheets confirmed zero near-black-opaque and zero non-black-transparent
+  pixels) and re-copying all 10 into `resources/`: `character_battle.png`
+  /`_death`/`_victory`/`_technique`/`_attack`/`_defend`/`_effect.png`,
+  `enemy_battle`/`_attack`/`_idle.png`. Also separately caught and fixed
+  by the same defensive floor: Ettin Overlord specifically had ~4700
+  transparent pixels with leftover non-black RGB (the OTHER real risk
+  the near-black gotcha describes - a plain console's shader is a pure
+  RGB colorkey that never reads alpha, so this would have rendered as a
+  solid wrongly-opaque block on that enemy specifically). A third check
+  (enclosed transparent "holes" not connected to the frame border) found
+  real holes in ~39% of frames but mostly legitimate negative space, not
+  defects - deliberately NOT auto-fixed, see the open item above.
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5
