@@ -403,8 +403,11 @@ impl State {
             // the plain static portrait every other row still gets - see
             // components::character_idle_glyph.
             if self.class_select_cursor == i as usize {
-                if let Some(glyph) = character_idle_glyph(entry.name, self.class_select_anim_frame)
-                {
+                if let Some(glyph) = character_idle_glyph(
+                    entry.name,
+                    self.class_select_anim_frame,
+                    Direction::South,
+                ) {
                     draw_portrait(
                         &mut animated_icon,
                         0,

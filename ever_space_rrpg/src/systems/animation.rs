@@ -26,36 +26,20 @@ pub fn tick_animations(anim: &mut MovingAnimation, #[resource] frame_time: &Fram
     anim.elapsed_ms += frame_time.0;
 }
 
-/// Advances any stationary entity's IdleAnimation ("walking in place" -
-/// see that component's own doc comment) by this frame's real elapsed
-/// time, wrapping back to frame 0 after the last frame. Deliberately does
-/// NOT advance while the entity is mid-glide (an in-flight
-/// MovingAnimation whose elapsed_ms hasn't yet reached
-/// MOVE_ANIM_DURATION_MS) - real movement already has its own animation,
-/// and the two would otherwise fight for the same glyph every frame.
-/// Reads MovingAnimation via entry_ref rather than matching it directly
-/// (mirrors movement.rs's own established pattern for "look up another
-/// component of an entity already in hand") since most entities won't
-/// have one in flight most of the time, and IdleAnimation is the only
-/// component this system actually needs to match on to find its targets.
+/// Advances every entity's IdleAnimation ("walking in place" - see that
+/// component's own doc comment) by this frame's real elapsed time,
+/// wrapping back to frame 0 after the last frame. Advances during an
+/// in-flight MovingAnimation (mid-glide) too, not just while standing
+/// still - changed 2026-09-11 alongside real directional Walk art (see
+/// IdleAnimation's own doc comment for the full reasoning): this used to
+/// deliberately pause here on the theory that "real movement already has
+/// its own animation," but the glide only ever tweened POSITION, never a
+/// per-frame pose, so pausing this just froze the character's pose for
+/// the whole glide - reported as "the player and enemies become static"
+/// while actually moving. No more MovingAnimation lookup needed here at
+/// all now that there's no special case to gate on.
 #[system(for_each)]
-#[read_component(MovingAnimation)]
-pub fn tick_idle_animation(
-    entity: &Entity,
-    idle: &mut IdleAnimation,
-    #[resource] frame_time: &FrameTime,
-    ecs: &SubWorld,
-) {
-    let is_gliding = ecs
-        .entry_ref(*entity)
-        .ok()
-        .and_then(|e| e.get_component::<MovingAnimation>().ok().copied())
-        .map(|anim| anim.elapsed_ms < MOVE_ANIM_DURATION_MS)
-        .unwrap_or(false);
-    if is_gliding {
-        return;
-    }
-
+pub fn tick_idle_animation(idle: &mut IdleAnimation, #[resource] frame_time: &FrameTime) {
     if idle.frames.is_empty() {
         return;
     }

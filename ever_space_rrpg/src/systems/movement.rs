@@ -11,6 +11,9 @@ use crate::prelude::*;
 #[read_component(DecorativeOnly)]
 #[read_component(Chest)]
 #[read_component(Gold)]
+#[read_component(IdleAnimation)]
+#[read_component(Class)]
+#[read_component(Name)]
 pub fn movement(
     entity: &Entity,
     want_move: &WantsToMove,
@@ -35,12 +38,12 @@ pub fn movement(
             .entry_ref(want_move.entity)
             .map(|e| e.get_component::<DecorativeOnly>().is_ok())
             .unwrap_or(false);
+        let start = ecs
+            .entry_ref(want_move.entity)
+            .ok()
+            .and_then(|e| e.get_component::<Point>().ok().copied());
         if !is_decorative {
-            if let Some(start) = ecs
-                .entry_ref(want_move.entity)
-                .ok()
-                .and_then(|e| e.get_component::<Point>().ok().copied())
-            {
+            if let Some(start) = start {
                 commands.add_component(
                     want_move.entity,
                     MovingAnimation {
@@ -49,6 +52,42 @@ pub fn movement(
                         elapsed_ms: 0.0,
                     },
                 );
+            }
+        }
+
+        // Rebuilds this mover's IdleAnimation frames for its new facing,
+        // if it actually turned - see Direction/IdleAnimation's own doc
+        // comments. Preserves frame_index/elapsed_ms from whatever it
+        // was already showing (same length either way -
+        // CHARACTER_IDLE_COLS/ENEMY_IDLE_COLS don't change per
+        // direction), so a walk cycle doesn't restart mid-step just
+        // because it turned a corner. Runs for every mover, including
+        // DecorativeOnly title-background entities - there's no
+        // GLIDE_CONSOLE-paint-over-the-UI risk here the way there is for
+        // MovingAnimation above, this is a plain frame-index rebuild.
+        if let Some(start) = start {
+            if let Some(direction) = Direction::from_move(start, want_move.destination) {
+                if let Ok(entry) = ecs.entry_ref(want_move.entity) {
+                    let current = entry.get_component::<IdleAnimation>().ok().cloned();
+                    let class = entry.get_component::<Class>().ok().cloned();
+                    let name = entry.get_component::<Name>().ok().cloned();
+                    if let Some(current) = current {
+                        let new_frames = class
+                            .and_then(|c| character_idle_frames(&c.0, direction))
+                            .or_else(|| name.and_then(|n| enemy_idle_frames(&n.0, direction)));
+                        if let Some(frames) = new_frames {
+                            commands.add_component(
+                                want_move.entity,
+                                IdleAnimation {
+                                    frames,
+                                    frame_index: current.frame_index,
+                                    elapsed_ms: current.elapsed_ms,
+                                    sheet: current.sheet,
+                                },
+                            );
+                        }
+                    }
+                }
             }
         }
 
@@ -218,4 +257,77 @@ pub fn movement(
         }
     }
     commands.remove(*entity);
+}
+
+#[cfg(test)]
+mod facing_access_tests {
+    use super::*;
+
+    /// A **permanent** regression test (see CLAUDE.md's legion-component-
+    /// access-mismatch gotcha) - actually EXECUTES movement ->
+    /// tick_idle_animation through a real Schedule, exercising the
+    /// Class/Name/IdleAnimation component-access declarations added to
+    /// `movement` for 2026-09-11's directional-facing work, plus
+    /// tick_idle_animation's own signature change (no longer reads
+    /// MovingAnimation at all). Confirms both: (1) no AccessDenied panic,
+    /// and (2) the real functional effect - a player moving north
+    /// actually rebuilds IdleAnimation.frames to Barbarian's own North
+    /// row, preserving frame_index, and a MovingAnimation glide gets
+    /// added too.
+    #[test]
+    fn movement_rebuilds_idle_animation_for_new_facing_without_a_panic() {
+        let mut world = World::default();
+        let mut resources = Resources::default();
+
+        let start = Point::new(5, 5);
+        let destination = Point::new(5, 4); // one step north
+        let mut idle = idle_frames_for_class("Barbarian", to_cp437('@'));
+        idle.frame_index = 2; // non-zero, to confirm it's preserved
+        let player = world.push((
+            Player { map_level: 0 },
+            Class("Barbarian".to_string()),
+            start,
+            FieldOfView::new(6),
+            idle,
+        ));
+        let mover = world.push((WantsToMove {
+            entity: player,
+            destination,
+        },));
+
+        resources.insert(Map::new());
+        resources.insert(Camera::new(start));
+        resources.insert(None::<ShoppingActive>);
+        resources.insert(None::<ArenaRun>);
+        resources.insert(None::<ChestLoot>);
+        resources.insert(TurnState::AwaitingInput);
+        resources.insert(FrameTime(16.0));
+
+        let mut schedule = Schedule::builder()
+            .add_system(movement_system())
+            .flush()
+            .add_system(crate::systems::animation::tick_idle_animation_system())
+            .build();
+        schedule.execute(&mut world, &mut resources);
+
+        // The WantsToMove entity removes itself once processed.
+        assert!(world.entry_ref(mover).is_err());
+
+        let entry = world.entry_ref(player).unwrap();
+        assert_eq!(entry.get_component::<Point>().copied().ok(), Some(destination));
+
+        let moving = entry
+            .get_component::<MovingAnimation>()
+            .expect("a real move should attach a MovingAnimation");
+        assert_eq!(moving.start, start);
+        assert_eq!(moving.end, destination);
+
+        let new_idle = entry.get_component::<IdleAnimation>().unwrap();
+        let expected_frames = character_idle_frames("Barbarian", Direction::North).unwrap();
+        assert_eq!(new_idle.frames, expected_frames);
+        assert_eq!(
+            new_idle.frame_index, 2,
+            "frame_index should carry over, not reset, on a facing change"
+        );
+    }
 }

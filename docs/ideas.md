@@ -79,8 +79,9 @@ Roughly in the order they've come up:
    assembling a full new animation batch for every class and enemy. What
    already shipped (idle/walk art for all 6 classes and 8 enemies, the
    played-once Death/Victory/Technique framework, the title-screen fix,
-   2026-09-11's Attack/Defend/full-technique-roster/enemy-attack batch)
-   lives in "Character & enemy animation" in Done below - full row-
+   2026-09-11's Attack/Defend/full-technique-roster/enemy-attack batch,
+   out-of-combat effect animations, and real directional movement) lives
+   in "Character & enemy animation" in Done below - full row-
    mapping reference in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
    session-by-session history in `docs/journal.md`, condensed standing
    rules in `CLAUDE.md`. Still open:
@@ -97,17 +98,16 @@ Roughly in the order they've come up:
    - **Redo the enemy battle sprites** (`enemy_battle.png`, 9 rows) - a
      quality/style call, not a bug; the user isn't happy with how they
      look and wants another pass.
-   - **More animations per class/enemy** (Breathing_Idle, directional
-     rotations) - needs a facing-architecture design conversation first
-     for anything beyond `south` (the game has no concept of entity
-     facing at all today). Only a fraction of what each PixelLab zip
-     actually contains is in use so far.
-   - **Real moving animations, not just idle-in-place** - right now a
-     character/enemy plays its idle loop whether standing still or
-     actually walking between tiles; a genuine walk-cycle synced to
-     movement is separate, not-yet-built work. Could cover all
-     directions of movement, not just south, if needed - ties into the
-     same facing-architecture question above.
+   - **More animations per class/enemy** (Breathing_Idle, 8-way static
+     `rotations`) - real 4-way movement facing now exists (see "Character
+     & enemy animation" in Done), but this game only ever derives a
+     cardinal `Direction` from a move, never a true 8-way diagonal one
+     (there's no diagonal movement to derive it from) - `rotations`'
+     4 diagonal poses (`north-east`/`south-east`/`south-west`/
+     `north-west`) still sit completely unused, along with
+     `Breathing_Idle` (deliberately unused per standing instruction -
+     doesn't read well as a battle-portrait loop). Only a fraction of
+     what each PixelLab zip actually contains is in use so far.
    - **Enclosed-transparent-region review still needs a human pass.**
      2026-09-11's pixel-health scan (see "Character & enemy animation" in
      Done for the near-black/RGB-under-transparency half, now fixed) also
@@ -834,6 +834,35 @@ that a full new animation batch is being assembled.
   (enclosed transparent "holes" not connected to the frame border) found
   real holes in ~39% of frames but mostly legitimate negative space, not
   defects - deliberately NOT auto-fixed, see the open item above.
+- **Real directional movement animation, and the "becomes static while
+  moving" bug fixed (2026-09-11, `new-animation-batch` branch).** The
+  player and enemies used to freeze their pose for the entire ~220ms of
+  every glide between tiles - `MovingAnimation` only ever tweened
+  position, there was never a real per-frame walk cycle under it, and
+  `tick_idle_animation` deliberately paused during a glide on the
+  (wrong) assumption that movement already had its own animation. Fixed
+  by removing that pause - `IdleAnimation` now advances continuously
+  whether an entity is standing still or mid-glide - and by finally
+  wiring up the 4-directional Walk art (`north`/`south`/`east`/`west`)
+  that's been sitting unused in every zip since the very first batch: a
+  new `Direction` enum (4-way only - no diagonal movement exists to
+  derive an 8-way facing from), computed once per committed move in
+  `systems/movement.rs` via `Direction::from_move`, which rebuilds the
+  mover's `IdleAnimation.frames` in place for the new facing (preserving
+  `frame_index`/`elapsed_ms`, so a walk cycle doesn't restart mid-stride
+  on a turn). `resources/character_idle.png`/`enemy_idle.png` both
+  widened from 1 row per class/enemy to 4 (25/33 rows respectively,
+  same forbidden-row-exception shape as every other sheet this project
+  has widened). Runs for the player, every real dungeon enemy, AND the
+  title-background's decorative wandering enemies alike - no separate
+  code path needed since `entity_render.rs`'s `idle_glyph`/`idle_sheet`
+  already just read whatever's currently in `IdleAnimation.frames`.
+  Verified with a permanent legion-access regression test
+  (`systems::movement::facing_access_tests`). Full detail in
+  `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Real directional movement
+  animation" section. Out-of-combat effect animations stay south-only/
+  undirected, unaffected by this - a stationary ability-use pose doesn't
+  need facing.
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5
