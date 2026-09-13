@@ -10,15 +10,19 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 ## Current state (as of the last full session)
 
 9/13/26, `master` (the `enemy-death-victory-backgrounds` branch merged in
-earlier the same day): Victory/Defeat screens now use real per-theme
+earlier the same day) plus a second branch, `refactor-item-9-cleanup`
+(not yet merged): Victory/Defeat screens now use real per-theme
 painted backgrounds instead of a generic mode-based pick, a 12-zip
 animation batch closed out enemy Death animations plus the Shopkeeper's
 first-ever art, a new Theme Select screen makes testing a specific
-dungeon theme practical without re-rolling runs, and a real recurring
+dungeon theme practical without re-rolling runs, a real recurring
 rendering bug (the dungeon stairs/shop counter going solid black at
-rest) got fixed after a long investigation. The game also has a decided
-new name, "Five Blades Deep," not yet actually applied anywhere in code
-or docs (see `docs/ideas.md`'s numbered backlog).
+rest) got fixed after a long investigation, `CLAUDE.md` got restructured
+for scannability, and a Stage 1 refactor pass closed out three real
+code-duplication items plus a large comment-reduction pass. The game
+also has a decided new name, "Five Blades Deep," not yet actually
+applied anywhere in code or docs (see `docs/ideas.md`'s numbered
+backlog).
 
 - **Victory/Defeat backgrounds keyed to the run's own `MapTheme`
   (Forest/Dungeon/Sewer), not a generic Dungeon-Crawl bucket.** Replanned
@@ -105,9 +109,38 @@ or docs (see `docs/ideas.md`'s numbered backlog).
   through the working (fancy) console unconditionally, rather than only
   while the camera pans; console 0 is no longer used by map rendering at
   all as a result.
-- **Still open**: `enemy_battle.png`'s own style redo (quality call, not
-  a bug), 8-way diagonal facing/rotations (deprioritized), the real UI
-  art itself once an API token is available.
+- **`CLAUDE.md` restructured for scannability, one real error fixed.**
+  Added a "Read this first" block at the top for the rules most likely
+  to get missed, compressed several of the longest Standing gotchas
+  down to their essential facts (full narratives archived here in Known
+  Environment Quirks instead). Also corrected a stale gotcha: the
+  DijkstraMap entry claimed the fix was special-casing the literal
+  target, but that patch was tried and abandoned in favor of a full BFS
+  replacement (see this file's own note on it, above) - flagged
+  `systems/chasing.rs` as carrying the same unconfirmed patch as a
+  latent risk. Added "never `git push`" as a real project rule - it had
+  only ever lived in this assistant's private cross-session memory.
+- **Refactor Stage 1 (branch `refactor-item-9-cleanup`, not yet
+  merged): closing out backlog item 9.** An Explore-agent survey found
+  ~39% of the codebase's ~19,000 lines are comments, with `main.rs`/
+  `components.rs` alone carrying 57% of that volume. Trimmed `main.rs`'s
+  console-constant `prelude` module from ~720 to ~320 lines (it carried
+  a full "was slot N, then M, then P" renumbering history its own text
+  admitted was stale), collapsed 45 hand-written `ctx.set_active_console
+  (X); ctx.cls();` pairs into a loop over one `ALL_CONSOLES` array,
+  de-duplicated `components.rs`'s repeated glyph-32-gotcha derivations,
+  deleted six one-off watermark-history comments, and cut `battle.rs`'s
+  `enemy_portrait_position` tuning diary down to its final rule. Closed
+  three concrete duplication items: a shared `find_player` helper (~13
+  call sites across 5 files), a shared `reveal_and_freeze_fov`
+  (`build_shop_room`/`arena_begin_wave`), and a shared
+  `find_prefab_placement` (`apply_prefab`/`apply_chest`). Verified with
+  more than a build each step - reran both headless class-survivability
+  simulations after each of the three logic changes, all consistent
+  with prior numbers. Net six files, ~556 fewer lines. Five bigger
+  structural splits (Arena orchestration out of `main.rs`, `battle_tick`,
+  battle logic/rendering, `components.rs`, `battle/mod.rs`) remain,
+  deliberately left for a Stage 2 decision.
 
 Full narrative in `docs/journal.md`'s 9/13/26 entry.
 
