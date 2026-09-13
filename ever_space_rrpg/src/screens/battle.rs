@@ -875,10 +875,31 @@ impl State {
         // draw_battle_arena falls back to the ordinary Fight_Stance_Idle
         // loop for the next race, rather than holding on its last frame
         // indefinitely. Same for every enemy's own attack animation.
+        //
+        // player_flash/enemy.flash are cleared here too, not just left to
+        // decay on their own timer - a real bug found 2026-09-13: this
+        // fires the instant ANY key is pressed (see battle_tick's own
+        // `ctx.key.is_some() || battle.result_timer_ms <= 0.0` check), not
+        // only once flash_ms's duration (deliberately synced to the
+        // animation's own length - see strike_enemy/strike_player) has
+        // actually run out. Dismissing early cleared the animation but
+        // left an active Attacking flash behind with real time still on
+        // it; the very next frame's draw_battle_arena call then saw NO
+        // animation glyph (falling through to the ordinary idle-portrait
+        // tier) but STILL an active Attacking flash, and that tier - unlike
+        // the animation tier - applies the old pre-real-animation wiggle
+        // for exactly that flash. Result: a brief, leftover wiggle on the
+        // idle portrait right after dismissing an action, reproducible
+        // only when a key happens to be pressed before the flash would
+        // have decayed on its own - which is why it never fired
+        // consistently. Clearing both together here keeps them in sync
+        // regardless of how (or how early) the result was dismissed.
         battle.player_action_animation = None;
         battle.player_action_kind = None;
+        battle.player_flash = None;
         for enemy in battle.enemies.iter_mut() {
             enemy.attack_animation = None;
+            enemy.flash = None;
         }
         ResultOutcome::Continue
     }
