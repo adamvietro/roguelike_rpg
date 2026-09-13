@@ -127,29 +127,17 @@ Roughly in the order they've come up:
    revisiting once that's been lived with for a while.
 9. **Refactoring opportunities** — a read-through of the codebase
     looking specifically for what a refactor could improve, not a bug
-    hunt - nothing here is a correctness problem, and nothing here has
-    been touched. Several are natural pairings (e.g. the two duplication
-    items below rhyme with a shop-room/tooltip cleanup already done in an
-    earlier session - these are the ones that were left behind).
-    - **`arena_begin_wave` still duplicates the reveal-rectangle/
-      frozen-FOV block** that `build_shop_room` just got extracted from.
-      It builds a wave map, not a shop, so it was out of scope for that
-      specific helper - but the "move the player, reveal a no-fog-of-war
-      rectangle, freeze their FieldOfView" logic itself is identical code
-      in both places. Worth pulling into its own smaller helper (e.g.
-      `reveal_and_freeze_fov(&mut self, player, reveal_x, reveal_y,
-      reveal_w, reveal_h)`) shared by `build_shop_room` and
-      `arena_begin_wave` both.
-    - **`apply_prefab` and `apply_chest` (`map_builder/prefab.rs`) share
-      the same Dijkstra-based random-placement-attempt loop** (10
-      attempts, the same 20.0/2000.0 distance thresholds, the same
-      `monster_spawns.retain`) - `apply_chest`'s own doc comment already
-      says outright that it "reuses the exact same...loop as
-      apply_prefab." Only the part that actually stamps a template's
-      characters onto the map differs between them (guard/weapon markers
-      vs. guard/chest markers). A shared `find_prefab_placement(mb, rng,
-      width, height) -> Option<Point>` helper would leave each function
-      with just its own stamping logic.
+    hunt. **Stage 1 done (2026-09-13, branch `refactor-item-9-cleanup`):
+    the three concrete duplication fixes below, plus a broader comment-
+    reduction pass** (this codebase runs ~39% comment lines to code -
+    `main.rs`'s console-constant block alone carried ~400 lines of stale
+    "was slot N, then M, then P" renumbering history that its own text
+    admitted was outdated; trimmed to the facts that matter, and the
+    45-pair per-frame `ctx.cls()` sweep collapsed into a loop over one
+    `ALL_CONSOLES` array. Net six files, ~556 fewer lines, all three
+    headless simulations rerun clean after each change - see
+    `docs/journal.md`'s 2026-09-13 entry for the full list). What's
+    still open, all bigger structural moves not attempted yet:
     - **`main.rs` doesn't follow its own established convention for
       where `State`'s methods live.** Every dungeon/menu screen
       (`screens/pause.rs`, `screens/battle.rs`, `screens/item_menu.rs`,
@@ -161,7 +149,7 @@ Roughly in the order they've come up:
       `handle_arena_kill`, `arena_transition_tick`,
       `arena_wave_cleared_tick`, `boost_arena_enemy_fov`,
       `arena_rebuild_keep_player` - nine methods) never got the same
-      treatment and still lives directly in `main.rs`, which is now 1392
+      treatment and still lives directly in `main.rs`, which is ~1850
       lines partly because of it. Moving these into their own file (an
       `arena_state.rs`, say) would cut main.rs down to general State
       bootstrap/dispatch plus Dungeon Crawl's own two methods
@@ -185,7 +173,7 @@ Roughly in the order they've come up:
       `battle/resolve.rs` for the logic half) would make that reuse
       pattern the obvious one instead of something that only worked
       because both happened to live in the same module.
-    - **`components.rs` (1066 lines) is a grab-bag of several unrelated
+    - **`components.rs` (~2300 lines) is a grab-bag of several unrelated
       domains**, not really "components" in a narrow sense: plain data
       components (`Health`, `Gold`, `Speed`, ...), a genuine UI subsystem
       (`ability_bar_slots`/`battle_bar_slots`/`item_bar_slots`/
@@ -195,7 +183,7 @@ Roughly in the order they've come up:
       helpers (`tile_render_at`). Splitting by domain (e.g. a
       `components/bars.rs` for the UI-bar-slot logic alone) would make
       each piece easier to find and reason about independently.
-    - **`battle/mod.rs` (1085 lines) has similarly distinguishable
+    - **`battle/mod.rs` (~1230 lines) has similarly distinguishable
       groups** worth splitting: entity-stat accessors
       (`entity_damage`/`entity_speed`/`entity_evasion`/`entity_health`/
       `carried_weapon_damage`/...), core combat resolution
@@ -203,15 +191,6 @@ Roughly in the order they've come up:
       `tick_dot`/`heal_entity`), and menu/display concerns
       (`available_actions`/`action_name`/`MenuCursor`/`hp_bar_string`)
       all currently live in the one file.
-    - **No shared "find the player" helper exists**, despite the same
-      query shape (something like `<(Entity, &Point)>::query().filter(
-      component::<Player>())`) being hand-rolled at 8+ call sites across
-      systems/*.rs and main.rs. A real `buy_nearby_item` bug was exactly
-      a missing `.filter(component::<Player>())` on one such hand-rolled
-      query - a single shared `find_player(ecs) -> Option<(Entity,
-      Point)>` (or similar) helper would make that whole class of mistake
-      structurally impossible in new code, not just fixed in the one
-      place it was actually found.
 10. **Content / world**
     - **More winnable item variety** — right now a chest/shop can only
       ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
@@ -683,7 +662,7 @@ land, each verified against the actual theme art (crop each theme's cell
 out of `resources/battle_backgrounds.png`, overlay the candidate grid,
 check for overlap) rather than guessed blind:
 - **Single row, evenly spread** - fixed the edge-clipping and fence-
-  overlap, but read as visually flat/robotic once seen live ("I dont
+  overlap, but read as visually flat/robotic once seen live ("I don't
   like the line of enemies").
 - **Shallow zigzag** between a back row and a front row, alternating by
   index parity (a 3-enemy fight reads as a wedge, 2/4-enemy as a

@@ -26,6 +26,8 @@ build), not by default.
 - A finished backlog item in `docs/ideas.md` moves to `# Done` — it
   doesn't stay in the numbered list with a "(fixed)" note. Renumber
   whatever shifts as a result.
+- When working on a new item from the Idea's todo list always make a new 
+  branch.
 
 ## Stack
 
