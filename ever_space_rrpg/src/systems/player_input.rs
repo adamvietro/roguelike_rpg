@@ -29,7 +29,6 @@ pub fn player_input(
     #[resource] mouse_left_just_pressed: &MouseLeftJustPressed,
     #[resource] ability_bar_mouse_pos: &AbilityBarMousePos,
 ) {
-    let mut players = <(Entity, &Point)>::query().filter(component::<Player>());
     let mut enemies = <(Entity, &Point)>::query().filter(component::<Enemy>());
 
     // A left-click on the Item Bar or Ability Bar (systems/hud.rs) -
@@ -102,8 +101,7 @@ pub fn player_input(
         // guaranteeing no such collision regardless of the player's own
         // keymap.
         if key == VirtualKeyCode::Space {
-            let player = players.iter(ecs).map(|(e, pos)| (*e, *pos)).next();
-            if let Some((player_entity, player_pos)) = player {
+            if let Some((player_entity, player_pos)) = find_player(ecs) {
                 let player_is_invisible = <(Entity, &Invisible)>::query()
                     .iter(ecs)
                     .any(|(e, _)| *e == player_entity);
@@ -233,9 +231,8 @@ pub fn player_input(
             },
         };
 
-        let (player_entity, destination) = players
-            .iter(ecs)
-            .find_map(|(entity, pos)| Some((*entity, *pos + delta)))
+        let (player_entity, destination) = find_player(ecs)
+            .map(|(entity, pos)| (entity, pos + delta))
             .unwrap();
 
         if delta.x != 0 || delta.y != 0 {
@@ -353,22 +350,9 @@ fn buy_nearby_item(
     commands: &mut CommandBuffer,
     shop_message: &mut Option<ShopMessage>,
 ) -> bool {
-    // Filtered to Player specifically - a shop scene also has a
-    // Shopkeeper NPC and a Point-tagged ShopStock counter entity per
-    // item on sale, so an unfiltered query here can silently grab one of
-    // THOSE instead of the real player, depending on legion's internal
-    // archetype iteration order. That's exactly what happened: it never
-    // visibly broke the Battle Arena shop (the player's archetype
-    // happened to iterate first there), but the Dungeon Crawl shop's
-    // different entity-creation order (arena_rebuild_keep_player first,
-    // Shopkeeper/ShopStock pushed after) surfaced it - shop_item_near
-    // silently found nothing near the WRONG position, so pressing Enter
-    // did nothing with no error shown at all.
-    let player = <(Entity, &Point)>::query()
-        .filter(component::<Player>())
-        .iter(ecs)
-        .find_map(|(entity, pos)| Some((*entity, *pos)));
-    let (player_entity, player_pos) = match player {
+    // The real bug find_player's own doc comment describes happened
+    // right here, in this exact function, before it was centralized.
+    let (player_entity, player_pos) = match find_player(ecs) {
         Some(p) => p,
         None => return false,
     };

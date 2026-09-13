@@ -366,6 +366,25 @@ pub struct ChestLoot {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Price(pub i32);
 
+/// The player entity and its current Point, or `None` if no entity
+/// carries `Player` (shouldn't happen in practice, but every caller
+/// already treated it as a possibility rather than unwrapping blind).
+/// A real bug once came from a hand-rolled query missing exactly this
+/// `.filter(component::<Player>())` - it silently matched a different,
+/// Point-tagged entity instead (a shop's Shopkeeper/ShopStock marker),
+/// depending on legion's internal archetype iteration order, and only
+/// surfaced once a different entity-creation order exposed it (see
+/// `player_input.rs`'s own `buy_nearby_item` history). Centralizing the
+/// query here makes that whole class of mistake structurally impossible
+/// in new code, not just fixed at the one call site it was found.
+pub fn find_player<T: EntityStore>(ecs: &T) -> Option<(Entity, Point)> {
+    <(Entity, &Point)>::query()
+        .filter(component::<Player>())
+        .iter(ecs)
+        .nth(0)
+        .map(|(entity, pos)| (*entity, *pos))
+}
+
 /// The ShopStock counter item currently on `pos`'s own tile or directly
 /// (orthogonally) adjacent to it, if any - (entity, remaining count,
 /// display name, price). Shared by player_input.rs's buy_nearby_item
@@ -2132,8 +2151,7 @@ pub fn gliding_position(ecs: &SubWorld, entity: Entity) -> Option<(f32, f32)> {
 /// the real camera, whether the clamp is active for the whole step, only
 /// part of it (the step that first reaches an edge), or not at all.
 pub fn camera_render_offset(ecs: &SubWorld) -> Option<(f32, f32)> {
-    let mut player = <(Entity, &Point)>::query().filter(component::<Player>());
-    let player_entity = player.iter(ecs).nth(0).map(|(e, _)| *e)?;
+    let (player_entity, _) = find_player(ecs)?;
     let entry = ecs.entry_ref(player_entity).ok()?;
     let anim = entry.get_component::<MovingAnimation>().ok()?;
     if anim.elapsed_ms >= MOVE_ANIM_DURATION_MS {

@@ -1948,11 +1948,7 @@ mod class_survivability_diagnostic {
     /// their own bfs_distance_field value - see that function's own doc
     /// comment for why this doesn't just trust a library pathfinder.
     fn step_toward(state: &mut State, target: Point) {
-        let player_pt = *<&Point>::query()
-            .filter(component::<Player>())
-            .iter(&state.ecs)
-            .next()
-            .unwrap();
+        let (_, player_pt) = find_player(&state.ecs).unwrap();
         let action = {
             let map = state.resources.get::<Map>().unwrap();
             let field = bfs_distance_field(&map, target);
@@ -2007,11 +2003,7 @@ mod class_survivability_diagnostic {
     /// Uses one carried Healing Potion, exactly like pressing its Item
     /// Bar slot would - returns false (does nothing) if none carried.
     fn use_potion(state: &mut State) -> bool {
-        let player = *<Entity>::query()
-            .filter(component::<Player>())
-            .iter(&state.ecs)
-            .next()
-            .unwrap();
+        let (player, _) = find_player(&state.ecs).unwrap();
         let potion = <(Entity, &Name, &Carried)>::query()
             .iter(&state.ecs)
             .find(|(_, n, c)| n.0 == "Healing Potion" && c.0 == player)
@@ -2239,11 +2231,7 @@ mod class_survivability_diagnostic {
     /// stock, or unaffordable), so the caller should move on to its next
     /// shopping priority.
     fn try_buy_item(state: &mut State, item_name: &str) -> bool {
-        let player_pos = *<&Point>::query()
-            .filter(component::<Player>())
-            .iter(&state.ecs)
-            .next()
-            .unwrap();
+        let (_, player_pos) = find_player(&state.ecs).unwrap();
         let found = <(&ShopStock, &Point, &Name, &Price)>::query()
             .iter(&state.ecs)
             .find(|(_, _, name, _)| name.0 == item_name)
@@ -2293,11 +2281,7 @@ mod class_survivability_diagnostic {
     /// head for the exit once neither is affordable or there's nothing
     /// left to buy.
     fn shop_step(state: &mut State) {
-        let player_entity = *<Entity>::query()
-            .filter(component::<Player>())
-            .iter(&state.ecs)
-            .next()
-            .unwrap();
+        let (player_entity, _) = find_player(&state.ecs).unwrap();
         let already_has_weapon = <(&Weapon, &Carried)>::query()
             .iter(&state.ecs)
             .any(|(_, c)| c.0 == player_entity);
@@ -2325,11 +2309,7 @@ mod class_survivability_diagnostic {
     /// Dijkstra pathing handles the actual route), triggering a real
     /// bump-battle exactly like a player walking into a monster would.
     fn wave_step(state: &mut State) {
-        let player_pos = *<&Point>::query()
-            .filter(component::<Player>())
-            .iter(&state.ecs)
-            .next()
-            .unwrap();
+        let (_, player_pos) = find_player(&state.ecs).unwrap();
         let target = <(&Enemy, &Point)>::query()
             .iter(&state.ecs)
             .map(|(_, p)| *p)

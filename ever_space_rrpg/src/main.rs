@@ -1011,11 +1011,7 @@ impl State {
     /// that needs a clean map but the SAME player/inventory: starting a
     /// new wave, and moving on to the next level's shop.
     fn arena_rebuild_keep_player(&mut self) -> Entity {
-        let player_entity = *<Entity>::query()
-            .filter(component::<Player>())
-            .iter(&self.ecs)
-            .nth(0)
-            .unwrap();
+        let (player_entity, _) = find_player(&self.ecs).unwrap();
 
         let mut entities_to_keep = std::collections::HashSet::new();
         entities_to_keep.insert(player_entity);
@@ -1339,11 +1335,7 @@ impl State {
     }
 
     fn advance_level(&mut self) {
-        let player_entity = *<Entity>::query()
-            .filter(component::<Player>())
-            .iter(&mut self.ecs)
-            .nth(0)
-            .unwrap();
+        let (player_entity, _) = find_player(&self.ecs).unwrap();
 
         use std::collections::HashSet;
         let mut entities_to_keep = HashSet::new();
