@@ -28,71 +28,65 @@ pub fn map_render(
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
     let player_fov = fov.iter(ecs).nth(0).unwrap();
 
-    match camera_render_offset(ecs) {
-        None => {
-            // Camera at rest - unchanged from before this session. The
-            // common case by far: every frame except the ~220ms the
-            // player is actually mid-step.
-            let mut draw_batch = DrawBatch::new();
-            draw_batch.target(0);
-            let mut tile_batch = DrawBatch::new();
-            tile_batch.target(MAP_TILE_CONSOLE);
-            let offset = Point::new(camera.left_x, camera.top_y);
-            for y in camera.top_y..=camera.bottom_y {
-                for x in camera.left_x..camera.right_x {
-                    let pt = Point::new(x, y);
-                    if let Some((color_pair, glyph, sheet)) =
-                        tile_render_at(map, theme.as_ref(), &player_fov.visible_tiles, pt)
-                    {
-                        let batch = match sheet {
-                            TileSpriteSheet::Dungeon => &mut draw_batch,
-                            TileSpriteSheet::MapTiles => &mut tile_batch,
-                        };
-                        batch.set(pt - offset, color_pair, glyph);
-                    }
-                }
-            }
-            draw_batch.submit(0).expect("Batch error");
-            tile_batch.submit(1).expect("Batch error");
-        }
-        Some((ox, oy)) => {
-            // The camera itself is panning (see camera_render_offset).
-            // A plain console like console 0 can only ever be drawn to
-            // at integer cell positions, so every visible tile has to
-            // be redrawn via set_fancy at a fractional position on
-            // MAP_SCROLL_CONSOLE instead - see that console's doc
-            // comment in main.rs for why it needs to be a whole separate
-            // console rather than just changing the offset passed to
-            // draw_batch.set on console 0.
-            let mut draw_batch = DrawBatch::new();
-            draw_batch.target(MAP_SCROLL_CONSOLE);
-            let mut tile_batch = DrawBatch::new();
-            tile_batch.target(MAP_TILE_SCROLL_CONSOLE);
+    // (ox, oy): the fractional camera-relative offset every fancy-console
+    // draw below is positioned against. While the camera is genuinely
+    // panning, this is the real lerped in-between position (see
+    // camera_render_offset). At rest, there's no lerp in progress, so it
+    // simply falls back to the camera's own resting integer position -
+    // the same value `offset` used to be for the old plain-console path
+    // below, just as an (f32, f32) instead of a Point.
+    let render_offset = camera_render_offset(ecs);
+    let is_panning = render_offset.is_some();
+    let (ox, oy) = render_offset.unwrap_or((camera.left_x as f32, camera.top_y as f32));
 
-            // One tile of padding on every side: camera.left_x/right_x/
-            // top_y/bottom_y are already snapped to the destination tile
-            // (Camera::on_player_move fires the instant a move commits,
-            // well before the glide finishes playing out - see
-            // systems/movement.rs), but (ox, oy) can still be lagging up
-            // to one full tile behind that, on the source side, while
-            // the glide plays out. Without this padding, the column/row
-            // that's supposed to be sliding into view from off-screen
-            // would be clipped instead of drawn.
-            for y in (camera.top_y - 1)..=(camera.bottom_y + 1) {
-                for x in (camera.left_x - 1)..(camera.right_x + 1) {
-                    let pt = Point::new(x, y);
-                    if let Some((color_pair, glyph, sheet)) =
-                        tile_render_at(map, theme.as_ref(), &player_fov.visible_tiles, pt)
-                    {
-                        let batch = match sheet {
-                            TileSpriteSheet::Dungeon => &mut draw_batch,
-                            TileSpriteSheet::MapTiles => &mut tile_batch,
-                        };
-                        batch.set_fancy(
-                            PointF::new(
-                                pt.x as f32 - ox,
-                                pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET,
-                            ),
+    // Padded by 1 tile on every side: needed while panning so the column/
+    // row sliding into view from off-screen isn't clipped (camera.left_x/
+    // right_x/top_y/bottom_y are already snapped to the destination tile,
+    // but (ox, oy) can still be lagging up to one full tile behind that,
+    // on the source side, while the glide plays out - see
+    // camera_render_offset's own doc comment). Harmless overdraw at rest
+    // (bracket-lib silently no-ops an out-of-range `set`/`set_fancy`) so
+    // there's no need for a second, unpadded range there.
+    let x_range = (camera.left_x - 1)..(camera.right_x + 1);
+    let y_range = (camera.top_y - 1)..=(camera.bottom_y + 1);
+
+    let mut tile_draw_batch = DrawBatch::new();
+    tile_draw_batch.target(MAP_TILE_CONSOLE);
+    let mut tile_scroll_batch = DrawBatch::new();
+    tile_scroll_batch.target(MAP_TILE_SCROLL_CONSOLE);
+    // TileSpriteSheet::Dungeon (Exit/Counter/Water - see map_tile_glyph's
+    // own doc comment for why these three specifically never get a real
+    // per-theme texture) always renders through the fancy console, at
+    // rest or panning alike - found 2026-09-13, confirmed with a real
+    // recording: this exact glyph/color/font renders correctly every
+    // single time it goes through MAP_SCROLL_CONSOLE's set_fancy, and
+    // renders solid black every single time it goes through console 0's
+    // plain set() while the camera is at rest, despite both paths
+    // computing the identical ColorPair/glyph (verified via debug
+    // logging) and console 0's own with_bg shader logic looking correct
+    // on paper (traced against bracket-terminal's actual .wgsl source).
+    // Root cause not pinned down after extensive tracing (shader source,
+    // vertex-buffer building, FontScaler UV math - all identical for both
+    // paths); this sidesteps it entirely by only ever using the path
+    // that's actually been confirmed to work. Floor/Wall's real-texture
+    // path (MAP_TILE_CONSOLE/MAP_TILE_SCROLL_CONSOLE below) isn't
+    // reported broken, so it keeps its original plain/fancy split rather
+    // than being switched over speculatively.
+    let mut dungeon_scroll_batch = DrawBatch::new();
+    dungeon_scroll_batch.target(MAP_SCROLL_CONSOLE);
+
+    for y in y_range {
+        for x in x_range.clone() {
+            let pt = Point::new(x, y);
+            if let Some((color_pair, glyph, sheet)) =
+                tile_render_at(map, theme.as_ref(), &player_fov.visible_tiles, pt)
+            {
+                let fx = pt.x as f32 - ox;
+                let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
+                match sheet {
+                    TileSpriteSheet::Dungeon => {
+                        dungeon_scroll_batch.set_fancy(
+                            PointF::new(fx, fy),
                             0,
                             Degrees::new(0.0),
                             PointF::new(1.0, 1.0),
@@ -100,10 +94,25 @@ pub fn map_render(
                             glyph,
                         );
                     }
+                    TileSpriteSheet::MapTiles if is_panning => {
+                        tile_scroll_batch.set_fancy(
+                            PointF::new(fx, fy),
+                            0,
+                            Degrees::new(0.0),
+                            PointF::new(1.0, 1.0),
+                            color_pair,
+                            glyph,
+                        );
+                    }
+                    TileSpriteSheet::MapTiles => {
+                        let offset = Point::new(camera.left_x, camera.top_y);
+                        tile_draw_batch.set(pt - offset, color_pair, glyph);
+                    }
                 }
             }
-            draw_batch.submit(0).expect("Batch error");
-            tile_batch.submit(1).expect("Batch error");
         }
     }
+    dungeon_scroll_batch.submit(0).expect("Batch error");
+    tile_draw_batch.submit(1).expect("Batch error");
+    tile_scroll_batch.submit(1).expect("Batch error");
 }

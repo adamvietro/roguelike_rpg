@@ -9,12 +9,16 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-9/13/26, branch `enemy-death-victory-backgrounds` (not yet merged to
-master): Victory/Defeat screens now use real per-theme painted
-backgrounds instead of a generic mode-based pick, a 12-zip animation
-batch closed out enemy Death animations plus the Shopkeeper's first-ever
-art, and a new Theme Select screen makes testing a specific dungeon
-theme practical without re-rolling runs.
+9/13/26, `master` (the `enemy-death-victory-backgrounds` branch merged in
+earlier the same day): Victory/Defeat screens now use real per-theme
+painted backgrounds instead of a generic mode-based pick, a 12-zip
+animation batch closed out enemy Death animations plus the Shopkeeper's
+first-ever art, a new Theme Select screen makes testing a specific
+dungeon theme practical without re-rolling runs, and a real recurring
+rendering bug (the dungeon stairs/shop counter going solid black at
+rest) got fixed after a long investigation. The game also has a decided
+new name, "Five Blades Deep," not yet actually applied anywhere in code
+or docs (see `docs/ideas.md`'s numbered backlog).
 
 - **Victory/Defeat backgrounds keyed to the run's own `MapTheme`
   (Forest/Dungeon/Sewer), not a generic Dungeon-Crawl bucket.** Replanned
@@ -80,6 +84,27 @@ theme practical without re-rolling runs.
   replace every hand-drawn ASCII box border in the game - logged as a
   numbered backlog item with the full endpoint details and a complete
   catalog of every existing border; nothing generated yet.
+- **A new game name, "Five Blades Deep," decided but deliberately not
+  applied anywhere yet** - "Ever Space" collides with a real existing
+  game and never fit the genre. Checked clear of collisions before
+  deciding; the crate name, window title, every doc header, the local
+  folder, and the GitHub repo all still say the old name on purpose,
+  logged as its own numbered backlog item for a dedicated future pass.
+- **The dungeon stairs/shop counter tiles rendering solid black while
+  standing still, fixed** - a real recurrence of an already-fixed
+  symptom (a previous session's `Camera::bottom_y` off-by-one), this
+  time from a different, never-fully-identified cause: `TileType::Exit`/
+  `Counter` rendered correctly through bracket-terminal's "fancy" console
+  and solid black through its "plain" one, despite both computing
+  identical color/glyph values (confirmed via debug logging) and
+  bracket-terminal's own shader/vertex-buffer source looking identical
+  for both paths on inspection. Confirmed empirically instead, by
+  extracting and measuring all 121 frames of a user-provided screen
+  recording - black-pixel count and camera motion flipped in lockstep
+  across 7 separate transitions. Fixed by routing those tile types
+  through the working (fancy) console unconditionally, rather than only
+  while the camera pans; console 0 is no longer used by map rendering at
+  all as a result.
 - **Still open**: `enemy_battle.png`'s own style redo (quality call, not
   a bug), 8-way diagonal facing/rotations (deprioritized), the real UI
   art itself once an API token is available.

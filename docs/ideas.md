@@ -316,19 +316,7 @@ Roughly in the order they've come up:
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
-13. **The stairs and the shop counter still only render while the player
-    is moving, not while standing still** (added 2026-09-11) — same
-    SYMPTOM as an earlier session's real off-by-one bug (`Camera::
-    bottom_y` clipping the bottom map row while stationary, only
-    reappearing for the ~220ms of a glide via a different, bounds-check-
-    free render path - see journal.md), which was fixed and merged to
-    master. The user is reporting it's still happening (or happening
-    again), so treat this as a fresh investigation rather than assuming
-    the identical root cause - don't just re-apply the old fix without
-    confirming what's actually clipping this time (could be a related
-    but distinct off-by-one, e.g. a horizontal analogue, or a genuine
-    regression from a later camera-adjacent change).
-14. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
+13. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
     box border** (added 2026-09-13) — every box border in the game is
     currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
     draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
@@ -379,6 +367,32 @@ Roughly in the order they've come up:
     download -> composite-into-a-real-sheet pipeline could be scripted
     directly instead of a manual round trip. Not started - no token
     provided yet, nothing generated.
+14. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+    Space" collides with a real existing game and never fit this
+    project's fantasy dungeon-crawler genre anyway. Checked clear of
+    existing games/trademarks before deciding (see docs/journal.md's
+    2026-09-13 entry for the other candidates checked and why they lost
+    out - several were real, sometimes uncomfortably close, collisions).
+    Deliberately not touched yet - deferred to its own dedicated pass
+    rather than tangled into other in-progress work. Everywhere the old
+    name still needs to change once that pass happens:
+    - The Rust crate/package name (`ever_space_rrpg` in `Cargo.toml`) -
+      renaming this changes the built binary's own name/path, so this is
+      the one piece worth doing carefully/first, not as an afterthought.
+    - The in-game window title text (currently "EVER SPACE RRPG" on the
+      title screen).
+    - Every doc's own header/title: this file, `CLAUDE.md`, `DEVLOG.md`,
+      `README.md`, `CHANGELOG.md`.
+    - The local repo folder name (currently `roguelike_rpg`) - the user
+      would need to be aware their own working-directory path changes.
+    - The GitHub repo's own name - external, on GitHub's side, not
+      something achievable from inside this repo; the user would do this
+      themselves whenever ready.
+    - The devlog blog's "My Roguelike" umbrella tag (id 166, see
+      `docs/journal.md`'s "also a source for blog posts" convention) -
+      worth deciding whether this tag gets renamed too or stays as-is
+      (blog tags are shared across the user's other projects too, not
+      exclusively this game's naming decision to make alone).
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -1166,3 +1180,36 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
 - Games played/won, enemies killed, deepest level reached, per-ability
   usage counts, and Battle Arena's own separated stats — all from prior
   sessions.
+
+## Map render — stairs/counter rendering solid black while the camera was at rest
+`TileType::Exit` (the dungeon stairs) and `TileType::Counter` (the shop
+counter) - the only two tile types still on the old single-glyph
+dungeonfont rendering rather than a real per-theme texture - rendered
+solid black every time the camera was at rest, and rendered correctly
+every time the camera was mid-pan. A real screen recording (not just a
+screenshot) confirmed this precisely: tracked black-pixel count in the
+tile's screen region against an independent background-motion detector
+across all 121 frames, and the two flipped in lockstep across 7 separate
+transitions - visible exactly when the camera was panning, black exactly
+when it settled.
+
+**A genuine recurrence of an already-fixed symptom, confirmed to be a
+different cause.** An earlier session hit this exact same "only visible
+while moving" symptom once before, from a real `Camera::bottom_y`
+off-by-one (see journal.md) - fixed and merged well before this
+recurrence. This time the camera math itself was fine (double-checked:
+`camera.right_x`/`bottom_y` already span the full display exactly, no
+missing edge row/column), and the actual cause traced all the way down
+into bracket-terminal 0.8.7's own source - its `.wgsl` shaders for both
+console types, the GPU vertex-buffer-building code, `FontScaler`'s UV
+math - all identical for both the working (fancy console) and broken
+(plain console) paths on paper. The literal reason bracket-lib's plain
+console specifically failed for this glyph was never pinned down.
+
+**Fix**: `map_render.rs` now always routes `Exit`/`Counter`/`Water`
+tiles through the same "fancy" console (`MAP_SCROLL_CONSOLE`) already
+used while the camera pans, unconditionally - at rest or panning alike -
+instead of the plain console (console 0) that was failing. Console 0 is
+no longer used by map rendering at all as a result. Floor/Wall's
+real-texture rendering (`MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE`)
+wasn't reported broken and keeps its original plain/fancy split.

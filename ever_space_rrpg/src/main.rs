@@ -162,20 +162,35 @@ mod prelude {
     /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid and dungeonfont as console 0,
     /// with an opaque background exactly like console 0's (unlike every
     /// other fancy console in this file, which deliberately uses a
-    /// transparent one - see GLIDE_CONSOLE). Used only by map_render
-    /// (systems/map_render.rs) for the small fraction of frames where
-    /// camera_render_offset (components.rs) returns Some - i.e. the
-    /// player is mid-glide and the camera itself needs to visibly pan
-    /// rather than snap. A plain console like console 0 can only ever be
-    /// drawn to at integer cell positions, so there's no way to give it a
-    /// sub-pixel scroll offset directly; every tile has to be redrawn via
-    /// set_fancy at a fractional position instead, which needs a fancy
-    /// console the same way the entity glide did. Registered right after
-    /// console 3 (battle portraits) and before HUD_CONSOLE specifically
-    /// so it keeps sitting BELOW the HUD in z-order exactly like console
-    /// 0 always has - registering it after HUD_CONSOLE instead would have
-    /// meant the (fully opaque, full-screen) scrolling map painting over
-    /// the health bar and item list on every single step.
+    /// transparent one - see GLIDE_CONSOLE). Originally used only by
+    /// map_render (systems/map_render.rs) for the small fraction of
+    /// frames where camera_render_offset (components.rs) returns Some -
+    /// i.e. the player is mid-glide and the camera itself needs to
+    /// visibly pan rather than snap - since a plain console like console
+    /// 0 can only ever be drawn to at integer cell positions, so there's
+    /// no way to give it a sub-pixel scroll offset directly.
+    ///
+    /// **Now used on EVERY frame, not just panning ones** (2026-09-13):
+    /// `TileType::Exit`/`Counter`/`Water` (map_render's `TileSpriteSheet::
+    /// Dungeon` tiles - the ones still on the old single-glyph
+    /// dungeonfont rendering, see `map_tile_glyph`'s own doc comment)
+    /// render correctly through this console's set_fancy every time, but
+    /// rendered solid black through console 0's plain set() every time
+    /// the camera was at rest - confirmed empirically (a real recording,
+    /// frame-by-frame) after extensive tracing found no explanation in
+    /// our own game code, bracket-terminal's shader source, or its
+    /// vertex-buffer-building code (all identical for both paths). Since
+    /// the fancy path is the one proven to work, map_render now always
+    /// routes those three TileTypes through it, camera at rest or not,
+    /// rather than only while panning - console 0 itself is no longer
+    /// used by map_render at all as a result (Floor/Wall's real-texture
+    /// path below still keeps its original plain/fancy split, since
+    /// that one isn't reported broken). Registered right after console 3
+    /// (battle portraits) and before HUD_CONSOLE specifically so it keeps
+    /// sitting BELOW the HUD in z-order exactly like console 0 always
+    /// has - registering it after HUD_CONSOLE instead would have meant
+    /// the (fully opaque, full-screen) map painting over the health bar
+    /// and item list on every single frame.
     pub const MAP_SCROLL_CONSOLE: usize = 5;
     /// Console 1: a plain console, DISPLAY_WIDTH x DISPLAY_HEIGHT grid,
     /// sourced from a new shared atlas (`resources/map_tiles.png`)

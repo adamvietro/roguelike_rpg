@@ -13,6 +13,14 @@ build), not by default.
   rendering, `serde`/`ron` (=1.0.115/=0.6.1) for data. Versions pinned with
   `=` in several places — flag any new dependency clearly before adding it.
 - Repo: https://github.com/adamvietro/roguelike_rpg (public)
+- **Decided new game name: "Five Blades Deep"** (chosen 2026-09-13,
+  checked clear of existing games/trademarks - "Ever Space" collides
+  with a real existing game and doesn't fit this project's fantasy
+  dungeon-crawler genre anyway). **Not yet renamed anywhere** - crate
+  name (`ever_space_rrpg`), the in-game window title, this repo's name,
+  and every doc still say the old name on purpose, deferred to its own
+  dedicated pass rather than tangled into other in-progress work. See
+  `docs/ideas.md`'s numbered backlog for the full rename task.
 - Glyph/sprite map lives in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
   tracked in this repo — the master reference for both `dungeonfont.png`
   AND the PixelLab character sheets (`character_idle.png`,
@@ -164,6 +172,23 @@ You have direct file access and a real terminal here, so use them:
   screenshot.
 - `set_fancy` renders one full cell north of the same position via plain
   `set()` — compensate with a `..._Y_ANCHOR_OFFSET` constant.
+- **A specific glyph can render solid black on one console and correctly
+  on another, even with identical color/glyph inputs and genuinely
+  bright (not near-black) font pixel data** — confirmed real 2026-09-13
+  (`map_render.rs`'s Exit/Counter tiles): rendered solid black through a
+  plain console every time the camera was at rest, rendered correctly
+  through a fancy console every time the camera panned, verified by
+  extracting and measuring every frame of a real screen recording (not
+  a guess). Traced the actual `ColorPair` being computed (correct, via
+  debug logging), the font's real pixel content (bright, not corrupted),
+  bracket-terminal 0.8.7's own `.wgsl` shaders for both console types,
+  its GPU vertex-buffer-building code, and `FontScaler`'s UV math - every
+  one identical for both paths on paper. The literal internal reason was
+  never found. If this exact symptom recurs (a glyph/color that's
+  provably correct in our own code still fails to render on a specific
+  console), the faster fix is likely the same one used here: switch that
+  content to whichever console type is confirmed working, rather than
+  re-tracing the same shader/vertex-buffer path a second time.
 - A custom-sized `Camera` doesn't shrink what renders around a small map
   — the camera frames a fixed window regardless of map size. Use the
   reveal-rectangle approach for "this map should look small" instead.
