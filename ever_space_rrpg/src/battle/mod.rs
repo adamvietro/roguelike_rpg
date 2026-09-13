@@ -24,232 +24,10 @@ pub mod stun;
 pub use buff::{BuffKind, Magnitude};
 pub use damage::HitQueue;
 pub use status::{ActiveStatus, StatusKind, StatusSet};
-
-// --- Battle action capability components -----------------------------------
-//
-// Each of these is a marker component an entity can carry to say "I can do
-// this in battle." The battle menu is built at runtime from whichever of
-// these the acting entity actually has, rather than a hardcoded list - so a
-// future class can mix and match (e.g. a Mage might get CanAttack + CanFlee
-// but not CanDefend, or later a CanCastSpell component of its own) without
-// touching the menu code at all.
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CanAttack;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CanDefend;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CanFlee;
-
-/// One battle menu option. The always-available capability actions
-/// (Attack/Defend/Flee) come from CanXxx components above; Technique wraps
-/// a carried item entity whose mechanical effect (TechniqueEffect, see
-/// components.rs) is class/content data rather than a fixed enum variant -
-/// see `available_actions` and `apply_player_technique`.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum BattleAction {
-    Attack,
-    Defend,
-    Flee,
-    /// Points at one representative entity from a group of same-named
-    /// carried technique items (see `grouped_carried_techniques`) -
-    /// resolving it consumes one item from that group.
-    Technique(Entity),
-}
-
-/// One rendered battle-menu row: the action it triggers, its display
-/// label, and a remaining-use count. `action` is None for a class
-/// technique you don't currently own a copy of - it's still shown (greyed
-/// out, see main.rs) so the menu always reflects the class's full
-/// technique roster rather than only whatever you happen to be carrying,
-/// but there's no Entity to reference for it and it can't be selected.
-/// Built fresh each menu render, so using an item immediately updates the
-/// count.
-#[derive(Clone, Debug, PartialEq)]
-pub struct BattleMenuEntry {
-    pub action: Option<BattleAction>,
-    pub label: String,
-    pub count: Option<i32>,
-}
-
-/// The display name a chosen BattleAction should be remembered as - see
-/// settings::LastBattleAction. Attack/Defend/Flee use fixed names
-/// matching their own BattleMenuEntry::label exactly, so the same string
-/// can be searched for again in a future battle's grid (see
-/// screens/battle.rs's cursor-memory seed) regardless of which action
-/// type it actually is. Must be called BEFORE the technique item is
-/// removed from the ECS (see apply_player_technique) - same ordering
-/// requirement Stats::record_ability_used's own call site already
-/// follows, for the same reason.
-pub fn action_name(ecs: &World, action: BattleAction) -> String {
-    match action {
-        BattleAction::Attack => "Attack".to_string(),
-        BattleAction::Defend => "Defend".to_string(),
-        BattleAction::Flee => "Flee".to_string(),
-        BattleAction::Technique(item) => entity_name(ecs, item),
-    }
-}
-
-fn has_can_attack(ecs: &World, entity: Entity) -> bool {
-    <(Entity, &CanAttack)>::query()
-        .iter(ecs)
-        .any(|(e, _)| *e == entity)
-}
-
-fn has_can_defend(ecs: &World, entity: Entity) -> bool {
-    <(Entity, &CanDefend)>::query()
-        .iter(ecs)
-        .any(|(e, _)| *e == entity)
-}
-
-fn has_can_flee(ecs: &World, entity: Entity) -> bool {
-    <(Entity, &CanFlee)>::query()
-        .iter(ecs)
-        .any(|(e, _)| *e == entity)
-}
-
-/// The ordered list of battle-menu rows this entity currently has
-/// available. Always shows the acting class's full technique roster (see
-/// class_technique_names) - not just what's currently carried - so the
-/// menu stays a stable reference of "what this class can eventually do";
-/// entries for techniques not currently owned get `action: None` (count
-/// Some(0)) so main.rs can grey them out and skip them on selection. Class
-/// filtering happens once here - callers don't need to know or pass the
-/// wielder's class at all.
-pub fn available_actions(ecs: &World, entity: Entity) -> Vec<BattleMenuEntry> {
-    let mut actions = Vec::new();
-    if has_can_attack(ecs, entity) {
-        actions.push(BattleMenuEntry {
-            action: Some(BattleAction::Attack),
-            label: "Attack".to_string(),
-            count: None,
-        });
-    }
-    if has_can_defend(ecs, entity) {
-        actions.push(BattleMenuEntry {
-            action: Some(BattleAction::Defend),
-            label: "Defend".to_string(),
-            count: None,
-        });
-    }
-
-    let class = entity_class(ecs, entity).unwrap_or_default();
-    let owned = grouped_carried_techniques(ecs, entity, &class);
-    for name in class_technique_names(&class) {
-        match owned.iter().find(|(n, _)| *n == name) {
-            Some((_, entities)) => actions.push(BattleMenuEntry {
-                action: Some(BattleAction::Technique(entities[0])),
-                label: name,
-                count: Some(entities.len() as i32),
-            }),
-            None => actions.push(BattleMenuEntry {
-                action: None,
-                label: name,
-                count: Some(0),
-            }),
-        }
-    }
-
-    if has_can_flee(ecs, entity) {
-        actions.push(BattleMenuEntry {
-            action: Some(BattleAction::Flee),
-            label: "Flee".to_string(),
-            count: None,
-        });
-    }
-    actions
-}
-
-/// Maps the number-row keys to a 0-based menu index, matching the existing
-/// item-use UX (Key1..Key9) elsewhere in the game.
-pub fn number_key_index(key: VirtualKeyCode) -> Option<usize> {
-    match key {
-        VirtualKeyCode::Key1 => Some(0),
-        VirtualKeyCode::Key2 => Some(1),
-        VirtualKeyCode::Key3 => Some(2),
-        VirtualKeyCode::Key4 => Some(3),
-        VirtualKeyCode::Key5 => Some(4),
-        VirtualKeyCode::Key6 => Some(5),
-        VirtualKeyCode::Key7 => Some(6),
-        VirtualKeyCode::Key8 => Some(7),
-        VirtualKeyCode::Key9 => Some(8),
-        _ => None,
-    }
-}
-
-// --- Carried battle-item lookups --------------------------------------------
-//
-// Each returns every copy of that item `wielder` is currently carrying AND
-// can actually use (class-unrestricted items, or items matching
-// `wielder_class`), so callers can both count them (for the menu) and
-// consume one (removing the first entity in the list) when used.
-
-/// The class name on an entity's Class component, if it has one. Generic
-/// over EntityStore so it works both from plain `&World` contexts
-/// (screens/battle.rs, screens/title.rs) and from inside a `#[system]`'s
-/// `&SubWorld` (systems/player_input.rs's use_ability).
-pub fn entity_class<T: EntityStore>(ecs: &T, entity: Entity) -> Option<String> {
-    <(Entity, &Class)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, c)| c.0.clone())
-}
-
-/// True if an item entity has no class restriction, or its Class matches
-/// `wielder_class`.
-fn item_usable_by_class(ecs: &World, item: Entity, wielder_class: &str) -> bool {
-    entity_class(ecs, item)
-        .map(|item_class| item_class == wielder_class)
-        .unwrap_or(true)
-}
-
-/// Every Carried+Technique item `wielder` can currently use (unrestricted,
-/// or matching `wielder_class`), grouped by display Name with all matching
-/// entities kept together (so the menu can show "Deathblow x2" and consume
-/// one at a time). Replaces the old one-function-per-technique-type
-/// approach - the mechanical difference between techniques is data
-/// (TechniqueEffect) now, not a distinct Rust component type, so one
-/// generic lookup covers every class's techniques.
-pub fn grouped_carried_techniques(
-    ecs: &World,
-    wielder: Entity,
-    wielder_class: &str,
-) -> Vec<(String, Vec<Entity>)> {
-    let mut groups: Vec<(String, Vec<Entity>)> = Vec::new();
-    <(Entity, &Carried, &Technique, &Name)>::query()
-        .iter(ecs)
-        .filter(|(_, carried, _, _)| carried.0 == wielder)
-        .filter(|(e, _, _, _)| item_usable_by_class(ecs, **e, wielder_class))
-        .for_each(
-            |(e, _, _, name)| match groups.iter_mut().find(|(n, _)| *n == name.0) {
-                Some((_, entities)) => entities.push(*e),
-                None => groups.push((name.0.clone(), vec![*e])),
-            },
-        );
-    groups
-}
-
-/// The TechniqueEffect a carried item's Technique component holds, if it
-/// has one.
-pub fn technique_effect(ecs: &World, item: Entity) -> Option<TechniqueEffect> {
-    <(Entity, &Technique)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == item)
-        .map(|(_, t)| t.0)
-}
-
-/// An entity's Name text, or a generic fallback if it has none.
-pub fn entity_name(ecs: &World, entity: Entity) -> String {
-    <(Entity, &Name)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, n)| n.0.clone())
-        .unwrap_or_else(|| "technique".to_string())
-}
-
-// --- Battle state ------------------------------------------------------
+pub mod menu;
+pub mod stats;
+pub use menu::*;
+pub use stats::*;
 
 /// Up to this many enemies can be in one battle at once - see
 /// systems/player_input.rs (and random_move.rs/chasing.rs) for where a
@@ -257,6 +35,8 @@ pub fn entity_name(ecs: &World, entity: Entity) -> String {
 /// that triggered the fight, capped here. Drives both the ATB race (one
 /// gauge per enemy - see EnemyCombatant) and the battle screen's layout
 /// (a stacked column of up to this many portraits - see screens/battle.rs).
+// --- Battle state ------------------------------------------------------
+
 pub const MAX_BATTLE_ENEMIES: usize = 4;
 
 /// One enemy currently in the battle - bundles everything that used to
@@ -545,70 +325,6 @@ pub enum PlayerActionKind {
     Technique,
 }
 
-/// The battle menu's cursor position - which of the two columns (0 = the
-/// fixed Attack/Defend/Flee capability column, 1 = the class's technique
-/// roster column) and which row within it. Lives on Battle so it
-/// persists for the whole fight; a fresh Battle always starts a fresh
-/// cursor at (0, 0) - see Battle::new/menu_cursor_seeded for how
-/// cross-battle memory (MenuMemory) can then move it once, before the
-/// first PlayerMenu is ever shown.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MenuCursor {
-    pub col: usize,
-    pub row: usize,
-    /// The row remembered for each column the last time the cursor left
-    /// it (index 0/1 matches `col` above) - so switching Left/Right and
-    /// back returns you to where you were, rather than always landing on
-    /// row 0 of whichever column you switch into. Seeded to match
-    /// wherever cross-battle memory places the initial cursor too (see
-    /// screens/battle.rs), so switching columns right after a memory-
-    /// seeded start still has something sensible to fall back to for the
-    /// OTHER column.
-    remembered_row: [usize; 2],
-}
-
-impl MenuCursor {
-    pub fn new() -> Self {
-        Self {
-            col: 0,
-            row: 0,
-            remembered_row: [0, 0],
-        }
-    }
-
-    /// Moves the cursor up/down within its CURRENT column, wrapping at
-    /// either end - same convention render_helpers::menu_nav already
-    /// uses for every top-menu screen, so arrow-key behavior feels
-    /// consistent across the whole game. `col_len` is however many rows
-    /// the current column actually has right now (0 is a safe no-op -
-    /// nothing to move within an empty column).
-    pub fn move_vertical(&mut self, delta: i32, col_len: usize) {
-        if col_len == 0 {
-            return;
-        }
-        let len = col_len as i32;
-        self.row = (((self.row as i32 + delta) % len + len) % len) as usize;
-        self.remembered_row[self.col] = self.row;
-    }
-
-    /// Switches to `new_col`, restoring whichever row was last visited
-    /// there (see `remembered_row`), clamped to `new_col_len` in case
-    /// that column has fewer rows now than it did the last time the
-    /// cursor was in it (e.g. a shorter technique list than remembered -
-    /// not possible today since a class's roster size never changes
-    /// mid-battle, but harmless to guard against regardless). A no-op if
-    /// the destination column has zero rows (nothing to land on there) or
-    /// is already the current column.
-    pub fn move_horizontal(&mut self, new_col: usize, new_col_len: usize) {
-        if new_col_len == 0 || new_col == self.col {
-            return;
-        }
-        self.remembered_row[self.col] = self.row;
-        self.col = new_col;
-        self.row = self.remembered_row[new_col].min(new_col_len - 1);
-    }
-}
-
 /// Which color a portrait's brief post-action flash should use - see
 /// Battle::enemy_flash/player_flash.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -857,18 +573,6 @@ pub const ATB_GAUGE_MAX: f32 = 100.0;
 /// the only place the real-time-to-fill relationship is defined.
 pub const ATB_GAUGE_PER_MS_PER_SPEED: f32 = 0.006;
 
-/// How fast `entity`'s ATB gauge fills, in gauge points per millisecond -
-/// see ATB_GAUGE_PER_MS_PER_SPEED. Speed 0 or below would never fill at
-/// all, which would softlock a battle, so this floors the effective
-/// Speed used for the rate at 1 (entity_speed's own "no Speed component"
-/// default is already 5, well above this floor - this only guards
-/// against a template that explicitly sets speed: Some(0) or a negative
-/// value).
-pub fn atb_fill_rate(ecs: &World, entity: Entity) -> f32 {
-    let speed = entity_speed(ecs, entity).max(1) as f32;
-    speed * ATB_GAUGE_PER_MS_PER_SPEED
-}
-
 /// Defend used to be a guaranteed 50% reduction on the next hit taken. Now
 /// it's a gamble: this is the percent chance that reduction actually
 /// triggers at all (see resolve_enemy_attack) - on a miss, Defend does
@@ -908,56 +612,6 @@ pub struct BattleVictory {
     pub portrait_animation: Option<OneShotAnimation>,
 }
 
-// --- Shared lookups/helpers used by the battle screen -----------------------
-
-/// An entity's own base Damage component value, or 0 if it doesn't have one.
-pub fn entity_damage(ecs: &World, entity: Entity) -> i32 {
-    <(Entity, &Damage)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, d)| d.0)
-        .unwrap_or(0)
-}
-
-/// An entity's own Speed component value, or a neutral default (5) if it
-/// doesn't have one. Higher acts first in battle - see battle_tick.
-pub fn entity_speed(ecs: &World, entity: Entity) -> i32 {
-    <(Entity, &Speed)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, s)| s.0)
-        .unwrap_or(5)
-}
-
-/// An entity's own Evasion component value, or 0 (no innate dodge chance)
-/// if it doesn't have one - most classes/enemies today.
-pub fn entity_evasion(ecs: &World, entity: Entity) -> i32 {
-    <(Entity, &Evasion)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, ev)| ev.0)
-        .unwrap_or(0)
-}
-
-/// Sum of Damage on anything Carried by `wielder` (i.e. equipped weapons).
-/// Mirrors the weapon-damage lookup the old combat system used.
-pub fn carried_weapon_damage(ecs: &World, wielder: Entity) -> i32 {
-    <(&Carried, &Damage)>::query()
-        .iter(ecs)
-        .filter(|(carried, _)| carried.0 == wielder)
-        .map(|(_, dmg)| dmg.0)
-        .sum()
-}
-
-/// Current/max HP for an entity, or (0, 0) if it has no Health component.
-pub fn entity_health(ecs: &World, entity: Entity) -> (i32, i32) {
-    <(Entity, &Health)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, h)| (h.current, h.max))
-        .unwrap_or((0, 0))
-}
-
 /// Subtract `amount` from an entity's current Health, reduced by the
 /// target's Defense (if any). Can go below zero; callers check for death
 /// via entity_health and clamp for display. Returns the actual damage
@@ -976,11 +630,6 @@ pub fn apply_damage(ecs: &mut World, entity: Entity, amount: i32) -> i32 {
             actual_damage = damage;
         });
     actual_damage
-}
-
-/// The player's normal attack damage: base Damage plus any equipped weapon.
-pub fn player_attack_damage(ecs: &World, player: Entity) -> i32 {
-    entity_damage(ecs, player) + carried_weapon_damage(ecs, player)
 }
 
 /// Restores `amount` HP to an entity, clamped to its max. Shared by
@@ -1095,15 +744,6 @@ pub fn resolve_enemy_attack(ecs: &mut World, battle: &mut Battle, attacker: Enti
     counter::resolve_on_hit(ecs, battle, attacker);
 }
 
-/// An entity's active IceArmored bonus, if any - see resolve_enemy_attack.
-/// Public so main.rs can also show it as an active-status line in battle.
-pub fn entity_ice_armor(ecs: &World, entity: Entity) -> Option<IceArmored> {
-    <(Entity, &IceArmored)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, armor)| *armor)
-}
-
 /// If a damage-over-time effect is active on `target`, ticks it down by
 /// one and applies its damage. Called once per enemy, right before that
 /// enemy would act - see screens/battle.rs's battle_tick. Thin wrapper
@@ -1211,23 +851,3 @@ pub fn apply_player_technique(
     }
 }
 
-/// An entity's Render component (color + glyph), if it has one. Used to draw
-/// the scaled-up battle portraits using the same glyph the entity uses on
-/// the dungeon map.
-pub fn entity_render_component(ecs: &World, entity: Entity) -> Option<Render> {
-    <(Entity, &Render)>::query()
-        .iter(ecs)
-        .find(|(e, _)| **e == entity)
-        .map(|(_, r)| *r)
-}
-
-/// A simple bracket-style text health bar, e.g. "[######----]".
-pub fn hp_bar_string(current: i32, max: i32, width: usize) -> String {
-    if max <= 0 {
-        return format!("[{}]", "-".repeat(width));
-    }
-    let ratio = (current.max(0) as f32 / max as f32).min(1.0);
-    let filled = ((ratio * width as f32).round() as usize).min(width);
-    let empty = width - filled;
-    format!("[{}{}]", "#".repeat(filled), "-".repeat(empty))
-}
