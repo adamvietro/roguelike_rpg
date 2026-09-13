@@ -597,6 +597,22 @@ it became clear the bot doesn't use any class abilities at all, only
 basic attacks/items: "the bot is not using all that it could lets put a
 pin in this." Numbers are a real lower bound, not a verdict.
 
+**Note on the DijkstraMap fix specifically**: the first attempt (special-
+casing "this candidate IS the literal target" as an automatic win) did
+NOT fully solve it - a second real reproduction found the exact same
+stable-cycle bug on a DIFFERENT nearby cell once that patch was in
+place. The fix that actually held was replacing `DijkstraMap` outright
+with an in-house BFS (`screens/battle.rs`'s `bfs_distance_field`) - see
+that function's own doc comment for the full two-bug history.
+`systems/chasing.rs` (the real dungeon-crawl enemy-chasing system, not
+this headless bot) still uses `DijkstraMap` today, with only a simpler
+distance-threshold patch (step directly onto the player's own tile once
+within ~1 tile, rather than trusting the map's suggested exit) - this
+has NOT been confirmed to hit the same stable-cycle bug in practice, but
+given the special-case patch alone already failed once in this exact
+codebase, treat it as an unconfirmed latent risk rather than a solved
+problem if a similar "enemy won't approach" symptom ever shows up there.
+
 **Enemy art started (same day, follow-on session): Goblin migrated,
 enemies get their own dedicated sheets.** A design conversation preceded
 the code (per CLAUDE.md's convention for architectural changes): enemies
@@ -1042,6 +1058,48 @@ something already understood.)
   Fix: always check each animation state's real PNG dimensions before
   compositing, and center-crop to exactly 32x32 whenever a canvas is
   larger than that, before any further processing.
+- **A specific glyph rendered solid black through a plain console and
+  correctly through a fancy one, with provably identical inputs
+  (9/13/26, `map_render.rs`'s `TileType::Exit`/`Counter` tiles).** The
+  dungeon stairs/shop counter tiles - the last two TileTypes still on
+  the old single-glyph dungeonfont rendering rather than a real
+  per-theme texture - rendered solid black every time the camera was at
+  rest (console 0, a plain console) and rendered correctly every time
+  the camera was mid-pan (`MAP_SCROLL_CONSOLE`, a fancy console).
+  Confirmed with real measurement, not a guess: extracted all 121 frames
+  of a user-provided screen recording, tracked black-pixel count in the
+  tile's own screen region against an independent background-motion
+  detector, and the two flipped in lockstep across 7 separate
+  transitions. Traced everything that could plausibly explain a
+  difference and found none: the exact `ColorPair` being computed
+  (confirmed correct via temporary debug logging on both paths), the
+  font's real pixel content (sampled actual RGB/alpha values off
+  `dungeonfont.png` directly - genuinely bright, not corrupted, well
+  above bracket-lib's own 0.1 near-black discard threshold),
+  bracket-terminal 0.8.7's actual `.wgsl` fragment shaders for both
+  console types (`console_with_bg.wgsl` and `fancy.wgsl` - read the real
+  source, not docs), the WGPU vertex-buffer-building code for both
+  console backends (`SimpleConsoleBackend`/the fancy equivalent -
+  identical `FontScaler::glyph_position` UV math either way), and the
+  `rebuild_vertices`/`is_dirty` gating that decides when a console's GPU
+  buffer actually refreshes (also identical for both paths, and
+  `is_dirty` gets set true every frame regardless via the per-frame
+  `cls()` sweep). Every one of these checked out fine on paper for both
+  paths - the literal internal reason bracket-terminal's plain console
+  specifically fails for this glyph, while its fancy console AND a
+  *different* plain console (`ABILITY_BAR_CONSOLE`, which renders the
+  same glyph correctly at all times) both succeed, was never found.
+  Fixed pragmatically rather than diagnostically: `map_render.rs` now
+  routes `Exit`/`Counter`/`Water` tiles through the fancy console
+  unconditionally (at rest or panning alike) instead of only while
+  panning, since that path is the one proven to always work. Console 0
+  is no longer used by map rendering at all as a result. If an
+  equivalent symptom ever recurs on some other glyph/console pairing -
+  a color/glyph that's provably correct in our own code but still
+  renders wrong on one specific console - the faster path is likely the
+  same one used here (switch to whichever console type is confirmed
+  working) rather than re-tracing this exact same shader/vertex-buffer
+  chain a second time.
 
 ---
 

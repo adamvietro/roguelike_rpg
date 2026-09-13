@@ -7,6 +7,26 @@ in `docs/ideas.md`. Read either only when it's actually relevant (e.g. a bug
 smells like something documented there, or picking the next thing to
 build), not by default.
 
+## Read this first — the rules most worth not missing
+
+- `cargo check` after every meaningful edit, `cargo build` before calling
+  anything done, and rerun the class-survivability simulation after any
+  balance change. See "Build & verify" below.
+- **Never `git push`** — the user pushes themselves via GitHub Desktop, and
+  this environment has no credentials for it anyway. Local commits/merges
+  to `master` are fine and don't need to wait for permission each time.
+- **Don't try to drive the running game yourself** (synthetic input,
+  screenshotting a live/interactive state) — ask the user to run it and
+  send a screenshot instead. See "Build & verify" below.
+- "Does this make sense?" is a request to confirm understanding, not a
+  go-ahead — describe the plan and wait, don't start writing code.
+- One `# <date>` header per day in `docs/journal.md` — append `##`
+  sections under the existing one, never add a second header for a day
+  that already has one. See "Journal" below.
+- A finished backlog item in `docs/ideas.md` moves to `# Done` — it
+  doesn't stay in the numbered list with a "(fixed)" note. Renumber
+  whatever shifts as a result.
+
 ## Stack
 
 - Rust, edition `2018`. `legion` (=0.3.1) ECS, `bracket-lib` (~0.8.7)
@@ -49,22 +69,20 @@ You have direct file access and a real terminal here, so use them:
      pixel-to-cell rounding) — invisible to any compiler check. Verify by
      tracing the library source or asking for a screenshot; don't assume.
 - **Don't try to drive the running game yourself (synthetic X11
-  input/screenshots) to verify a change — ask the user to run it and
-  send screenshots instead.** Confirmed 2026-09-13: launching the binary
-  and screenshotting a static screen works fine (direct X11 window
-  capture via python-xlib), but every attempt at synthetic input —
-  XTEST `fake_input` key/mouse events, explicit `XSetInputFocus`, a
-  synthetic click into the window, longer key holds, and a proper EWMH
-  `_NET_ACTIVE_WINDOW` activation message — failed to actually advance
-  the game past its title screen, consistently, across a real
-  multi-method attempt, not just a one-off flake. Matches this project's
-  own prior "X11 input driver flakiness" history (WSLg host-compositor
-  focus arbitration is the leading theory) — not worth re-attempting
-  each time it comes up. The user can drive the game and screenshot it
-  themselves without this problem, so for anything needing live visual
-  confirmation (does a screen render right, is something positioned
-  correctly, does an animation look correct in play), ask them for a
-  screenshot rather than trying to get there yourself.
+  input) to verify a change — ask the user to run it and send
+  screenshots instead.** A static screenshot (direct X11 window
+  capture) works fine, but every real attempt at synthetic input on
+  this WSLg setup — XTEST `fake_input`, `XSetInputFocus`, a synthetic
+  click, an EWMH `_NET_ACTIVE_WINDOW` activation message — has failed
+  to actually advance the game past its title screen, consistently
+  (confirmed 2026-09-13 via a real multi-method attempt, not a one-off
+  flake). See `docs/DEVLOG.md`'s Known Environment Quirks for the full
+  WSLg focus-arbitration theory. Ask for a screenshot for anything
+  needing live visual confirmation instead of trying to get there
+  yourself.
+- **Never `git push`** — the user pushes their own work via GitHub
+  Desktop, and this environment has no push credentials regardless.
+  Local commits and merges (including straight to `master`) are fine.
 - **Write a real test for logic a type-check can't confirm** (an
   algorithm's actual behavior, a bugfix's actual effect), then remove it
   before calling the work done — except the legion-access-pattern
@@ -147,48 +165,32 @@ You have direct file access and a real terminal here, so use them:
   aren't visible until flush, so a second call reads the same stale value
   and overwrites (doesn't add to) the first. Accumulate into a local and
   apply once.
-- **Confirmed from bracket-terminal's own GLSL source** (not just
-  observed): a plain (`with_simple_console_no_bg`) console's fragment
-  shader discards a pixel if all three of its RGB channels are below
-  0.1 (25.5/255) — it never reads the alpha channel at all, so a real
-  alpha channel by itself does nothing there; transparency on a plain
-  console is a pure RGB colorkey. A fancy console's shader instead shows
-  texture content only when (at least one RGB channel is above that same
-  0.1 cutoff) AND alpha is above 0.1, else falls back to the per-vertex
-  background color — this is what the transparent-background trick
-  (`RGBA::from_f32(0,0,0,0)` passed to `set_fancy`) actually relies on,
-  and it's also where "bracket-lib culls near-black opaque pixels"
-  comes from: a fancy console's own near-black-but-opaque pixel fails
-  the "at least one channel above 0.1" half of that check and gets
-  treated as no-content regardless of its real alpha. Two consequences
-  for any sprite sheet: floor real content's near-black pixels to at
-  least ~30 in every channel (not 25.5 exactly — leave margin) so they
-  survive on EITHER console type, and for a sheet meant to render on a
-  **plain** console specifically, force every actually-transparent
-  pixel's RGB to true (0,0,0) — setting only its alpha to 0 and leaving
-  old opaque-looking RGB behind (e.g. from a background-removal tool
-  that clears alpha but not color) renders as a solid, wrongly-opaque
-  block, invisible to any type check and only caught by an actual
-  screenshot.
+- **A plain console's shader discards a pixel outright if all 3 RGB
+  channels are below 0.1 (never reads alpha); a fancy console's shader
+  discards only when RGB AND alpha are both below that same 0.1 cutoff,
+  else falls back to the per-vertex background color** (confirmed
+  against bracket-terminal's actual GLSL/WGSL source, not just
+  observed). Two consequences for any sprite sheet: floor real content's
+  near-black pixels to ~30+ per channel (not exactly 25.5) so they
+  survive either console type, and for a sheet meant for a **plain**
+  console, force truly-transparent pixels' RGB to real (0,0,0) too —
+  alpha-only transparency (common after a background-removal tool) still
+  renders as a solid wrong-colored block there. See `docs/DEVLOG.md` for
+  the full shader-source reasoning.
 - `set_fancy` renders one full cell north of the same position via plain
   `set()` — compensate with a `..._Y_ANCHOR_OFFSET` constant.
 - **A specific glyph can render solid black on one console and correctly
-  on another, even with identical color/glyph inputs and genuinely
-  bright (not near-black) font pixel data** — confirmed real 2026-09-13
-  (`map_render.rs`'s Exit/Counter tiles): rendered solid black through a
-  plain console every time the camera was at rest, rendered correctly
-  through a fancy console every time the camera panned, verified by
-  extracting and measuring every frame of a real screen recording (not
-  a guess). Traced the actual `ColorPair` being computed (correct, via
-  debug logging), the font's real pixel content (bright, not corrupted),
-  bracket-terminal 0.8.7's own `.wgsl` shaders for both console types,
-  its GPU vertex-buffer-building code, and `FontScaler`'s UV math - every
-  one identical for both paths on paper. The literal internal reason was
-  never found. If this exact symptom recurs (a glyph/color that's
-  provably correct in our own code still fails to render on a specific
-  console), the faster fix is likely the same one used here: switch that
+  on another, even with provably identical color/glyph inputs and
+  genuinely bright (not near-black) font pixel data** (`map_render.rs`'s
+  Exit/Counter tiles, 2026-09-13) — confirmed by measuring a real screen
+  recording frame-by-frame, not a guess. Traced everything that could
+  explain it (the computed `ColorPair`, the font's real pixel data,
+  bracket-terminal's actual shader/vertex-buffer source) and found no
+  difference between the working and broken paths; the literal internal
+  reason was never found (full trace in `docs/DEVLOG.md`). If this
+  recurs, the faster fix is likely the same one used here: switch the
   content to whichever console type is confirmed working, rather than
-  re-tracing the same shader/vertex-buffer path a second time.
+  re-tracing the same shader/vertex-buffer chain again.
 - A custom-sized `Camera` doesn't shrink what renders around a small map
   — the camera frames a fixed window regardless of map size. Use the
   reveal-rectangle approach for "this map should look small" instead.
@@ -196,72 +198,42 @@ You have direct file access and a real terminal here, so use them:
   (including anything the Ability/Battle Bar or any future icon bar use)
   paints over lower ones wherever it actually draws something.
 - **`bracket_pathfinding::DijkstraMap::build` never writes 0.0 into a
-  seed tile's own array slot** (confirmed from its source: the seed only
-  ever enters the algorithm's internal queue with depth 0.0, but
-  `dm.map[seed_idx]` itself is left at its initial `f32::MAX` unless a
-  neighbor's own relaxation pass later overwrites it with ~the edge cost
-  back to that neighbor, e.g. ~2.0 for one cardinal hop). A tile you seed
-  Dijkstra at (a navigation target) can therefore report a WORSE distance
-  than a tile genuinely one step further away, and any greedy "step
-  toward whichever neighbor has the lowest `dijkstra.map` value" bot can
-  end up in a stable cycle right next to the goal, worst-cased on a
-  target boxed against a wall with few approach angles (confirmed via a
-  real reproduction next to the Arena shop's exit tile). Fix: when
-  picking among an entity's own candidate moves, treat "this candidate
-  IS the literal target" as an automatic, unconditional win — never trust
-  `dijkstra.map[]` for that one specific index.
-- A custom `with_font` sheet needs a glyph grid big enough to cover index
-  32 — every console's `cls()` fills all cells with glyph 32 by default
-  (bracket-terminal's own `SimpleConsole::cls`), and `FontScaler::
-  glyph_position` does an unsigned subtraction on the row it computes for
-  whatever glyph it's given, with no bounds check. A small custom sheet
-  (e.g. a 5-column-wide one) can compute a row of 0 for glyph 32, and
-  `glyph_y - 1` panics with "attempt to subtract with overflow" the
-  moment that console is ever cleared — happens at startup, before any
-  real content is drawn, so it's easy to mistake for something else being
-  wrong. Fix: pad the sheet's total rows/cols so index 32 lands on a real
-  (even if blank/transparent) cell, not just enough for the content you
-  actually placed.
-  **This has a second, subtler form that doesn't crash at all**: even
-  once there are enough rows to avoid the panic above, whichever specific
-  row `32 / cols` (integer division) lands on needs to actually BE blank
-  - if real content happens to sit there, every cell of that console that
-  goes undrawn on a given frame silently shows THAT content instead of
-  nothing. Confirmed for real on `character_battle.png` (8 columns, so
-  `32 / 8 == 4` exactly): Mage's row happened to be row 4, and Mage's
-  portrait replaced every empty cell of that console - which spans the
-  full display - filling the ENTIRE screen with tiled Mage portraits on
-  every single screen in the game, not just during battle. Two sheets
-  with different column counts can need DIFFERENT row assignments for
-  the exact same set of classes purely because `32 / cols` differs
-  between them - don't assume a row mapping that's safe on one sheet is
-  safe on another without checking that division again for the new
-  sheet's own column count. **This isn't hypothetical caution — it
-  recurred for real.** `character_idle.png` (6 columns, `32 / 6 == 5`)
-  was documented as "safe" purely because nothing had been assigned to
-  row 5 yet; the moment a 6th class (the hidden "Debug" class) got
-  assigned there, the same tiling bug reappeared, this time filling the
-  Adventure Select screen with the new class's portrait. A sheet with an
-  apparently-safe empty row is not a guarantee, just an unclaimed one —
-  give every per-class sheet its own dedicated row-assignment function
-  from the start (don't reuse another sheet's mapping "since it already
-  has a free row there"), and explicitly skip whatever row `32 / cols`
-  computes for that sheet's specific column count, the same way
-  `character_battle_row`/`character_idle_row` do in `components.rs`.
-  **A third, crash-shaped variant (2026-09-11, `battle_backgrounds.png`,
-  one glyph = one full-screen image):** a sheet doesn't need a wrong ROW
-  to have live content on it to fail — it can simply not have ENOUGH
-  rows/cols to contain index 32 at all, in which case `glyph_position`'s
-  unsigned subtraction underflows immediately on the very first `cls()`
-  (a real launch-time panic, "attempt to subtract with overflow", not a
-  silent wrong-content bug). This bites hardest on a sheet with very few
-  columns — a single-column, one-full-image-per-glyph sheet needs `cols *
-  rows >= 33` just to give index 32 SOME valid cell, which at 1 column
-  means 33 full rows. Don't pad a narrow sheet taller to reach that
-  minimum — pick a wider grid instead (e.g. 6x6 instead of 1x33): total
-  padded cells needed is roughly constant regardless of shape (always
-  ~33), but a tall-and-narrow texture risks exceeding a GPU's max texture
-  dimension where a squarer one won't.
+  seed tile's own array slot** (the seed enters its internal queue with
+  depth 0.0, but `dm.map[seed_idx]` stays at `f32::MAX` unless a
+  neighbor's relaxation pass overwrites it later, near the edge cost
+  instead of 0). A greedy "step toward the lowest `dijkstra.map` value"
+  bot can stall in a cycle right next to its own target as a result.
+  **Special-casing "this candidate IS the literal target" is not a full
+  fix** — confirmed by a second real reproduction where that patch just
+  moved the same stall to a different nearby cell. The reliable fix used
+  in `screens/battle.rs` was replacing `DijkstraMap` outright with an
+  in-house BFS (see `bfs_distance_field`'s own doc comment for the full
+  history) — uniform-cost movement doesn't need Dijkstra's priority
+  queue anyway. `systems/chasing.rs` still uses `DijkstraMap` with only
+  the simpler special-case patch — an unconfirmed latent risk, not a
+  solved problem, if a similar "enemy won't approach" symptom shows up
+  there.
+- **A custom `with_font` sheet needs a glyph grid big enough to cover
+  index 32, AND whatever row `32 / cols` computes needs to actually BE
+  blank** — every console's `cls()` fills all never-drawn cells with
+  glyph 32 by default, and this has bitten in three confirmed-real,
+  distinct ways (all in `docs/DEVLOG.md`'s Known Environment Quirks):
+  1. Not enough rows/cols to contain index 32 at all → an immediate
+     launch-time panic (`glyph_position`'s unsigned subtraction
+     underflows the moment `cls()` first runs).
+  2. Enough cells, but real content sitting on the specific row
+     `32 / cols` lands on → every undrawn cell of that console silently
+     tiles with THAT content instead of showing nothing (hit twice for
+     real, on two different sheets, each time a new class/row assignment
+     happened to land there).
+  3. An "empty row" that's only empty because nothing has claimed it
+     yet is not a guarantee — the exact tiling bug in #2 recurred when a
+     later addition (a 6th class) claimed that row.
+  Fix: give every per-class/per-theme sheet its own dedicated
+  row-assignment function that explicitly skips whatever row `32 / cols`
+  computes for THAT sheet's own column count — never reuse another
+  sheet's mapping, and re-check the division fresh for a new sheet's
+  column count even if an existing mapping looks safe.
 
 ## Journal (`docs/journal.md`) — also a source for blog posts
 
