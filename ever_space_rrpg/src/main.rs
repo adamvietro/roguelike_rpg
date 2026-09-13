@@ -875,6 +875,38 @@ impl State {
         }
     }
 
+    /// Marks a fixed rectangle of `map` as revealed and gives
+    /// `player_entity` a frozen FieldOfView covering exactly that
+    /// rectangle - no fog of war, no shadowcasting, never recomputed
+    /// (see systems/movement.rs's `freeze_los` guard, which skips the
+    /// normal dirty-on-move FieldOfView rebuild specifically while this
+    /// is active). Shared by build_shop_room (a shop's own Counter tile
+    /// would otherwise block sight past it - see MapBuilder::
+    /// new_arena_shop) and arena_begin_wave (a wave map has no fog of
+    /// war either, by design - the whole arena should read as visible
+    /// the instant it loads).
+    fn reveal_and_freeze_fov(
+        &mut self,
+        player_entity: Entity,
+        map: &mut Map,
+        reveal_x: i32,
+        reveal_y: i32,
+        reveal_w: i32,
+        reveal_h: i32,
+    ) {
+        let mut full_fov = FieldOfView::new(8);
+        for y in reveal_y..(reveal_y + reveal_h) {
+            for x in reveal_x..(reveal_x + reveal_w) {
+                map.revealed_tiles[map_idx(x, y)] = true;
+                full_fov.visible_tiles.insert(Point::new(x, y));
+            }
+        }
+        full_fov.is_dirty = false;
+        let mut cb = CommandBuffer::new(&mut self.ecs);
+        cb.add_component(player_entity, full_fov);
+        cb.flush(&mut self.ecs);
+    }
+
     /// Builds a shop room around `player_entity` and stocks it with
     /// `items` - the mechanical core every "enter a shop" transition
     /// needs (start_arena's very first shop, arena_advance_to_next_shop's
@@ -916,21 +948,14 @@ impl State {
         cb.add_component(player_entity, map_builder.player_start);
         cb.flush(&mut self.ecs);
 
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
-            }
-        }
-        let mut full_fov = FieldOfView::new(8);
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                full_fov.visible_tiles.insert(Point::new(x, y));
-            }
-        }
-        full_fov.is_dirty = false;
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, full_fov);
-        cb.flush(&mut self.ecs);
+        self.reveal_and_freeze_fov(
+            player_entity,
+            &mut map_builder.map,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        );
 
         // Shopkeeper - purely decorative for now (no dialogue/trade
         // logic, the items themselves are what's interactive). The
@@ -1054,21 +1079,14 @@ impl State {
         cb.add_component(player_entity, map_builder.player_start);
         cb.flush(&mut self.ecs);
 
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                map_builder.map.revealed_tiles[map_idx(x, y)] = true;
-            }
-        }
-        let mut full_fov = FieldOfView::new(8);
-        for y in reveal_y..(reveal_y + reveal_h) {
-            for x in reveal_x..(reveal_x + reveal_w) {
-                full_fov.visible_tiles.insert(Point::new(x, y));
-            }
-        }
-        full_fov.is_dirty = false;
-        let mut cb = CommandBuffer::new(&mut self.ecs);
-        cb.add_component(player_entity, full_fov);
-        cb.flush(&mut self.ecs);
+        self.reveal_and_freeze_fov(
+            player_entity,
+            &mut map_builder.map,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        );
 
         spawn_prefab_enemies(&mut self.ecs, &mut rng, template_level, &enemy_spawns);
         self.boost_arena_enemy_fov();
