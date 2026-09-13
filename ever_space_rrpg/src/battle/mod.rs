@@ -25,8 +25,10 @@ pub use buff::{BuffKind, Magnitude};
 pub use damage::HitQueue;
 pub use status::{ActiveStatus, StatusKind, StatusSet};
 pub mod menu;
+pub(crate) mod resolve;
 pub mod stats;
 pub use menu::*;
+pub(crate) use resolve::*;
 pub use stats::*;
 
 /// Up to this many enemies can be in one battle at once - see
