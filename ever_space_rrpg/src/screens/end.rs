@@ -41,14 +41,37 @@ impl State {
         arena.submit(0).expect("Batch error");
     }
 
+    /// Draws a real painted End-screen backdrop when `row` is `Some`
+    /// (one glyph on BATTLE_BACKDROP_CONSOLE/`battle_backgrounds.png`,
+    /// exactly the same "one glyph = one full-screen image" mechanism
+    /// draw_battle_arena uses for its own themed backgrounds - see
+    /// components::VictoryBackground/DefeatBackground's own doc comments
+    /// for why this shares that console/atlas rather than needing a new
+    /// one), falling back to the old procedural tinted-fill background
+    /// (draw_end_screen_background) when `row` is `None` - a variant
+    /// without real art yet.
+    fn draw_end_screen_backdrop(&mut self, row: Option<u16>, tint: RGB) {
+        match row {
+            Some(row) => {
+                let mut backdrop = DrawBatch::new();
+                backdrop.target(BATTLE_BACKDROP_CONSOLE);
+                backdrop.set(Point::new(0, 0), ColorPair::new(WHITE, BLACK), row as FontCharType);
+                backdrop.submit(0).expect("Batch error");
+            }
+            None => self.draw_end_screen_background(tint),
+        }
+    }
+
     /// Draws the player's own glyph, big, recolored solid `tint` rather
     /// than the entity's normal sprite color, so it reads as a silhouette
     /// (grey for defeat, gold for victory) instead of looking like an
-    /// active battle portrait. Row is always the console's middle row;
-    /// `col` lets victory() place the hero to one side of center instead
-    /// of dead-center, so the Amulet (see draw_end_screen_amulet) can sit
-    /// beside it without overlapping. Used by victory (upright); game_over
-    /// uses draw_end_screen_fallen_portrait instead, which is rotated.
+    /// active battle portrait. Position comes from the active
+    /// VictoryBackground's own portrait_grid_position/walk_away_position
+    /// (see components::VictoryBackground) rather than a fixed spot -
+    /// each painted scene wants the hero somewhere different, and
+    /// (2026-09-13) there's no longer an Amulet icon needing dead-center
+    /// to stay clear for. Used by victory (upright); game_over uses
+    /// draw_end_screen_fallen_portrait instead, which is rotated.
     ///
     /// Prefers a real played-once victory animation from
     /// character_victory.png (self.victory_animation, see
@@ -60,20 +83,68 @@ impl State {
     /// own render color (WHITE - full color, since the sheet already has
     /// real color art) rather than the solid `tint` silhouette the two
     /// static fallbacks below still use.
-    fn draw_end_screen_portrait(&mut self, col: i32, tint: RGB) {
+    fn draw_end_screen_portrait(&mut self, tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
             .map(|(e, _)| *e)
             .nth(0);
         let render = player.and_then(|p| entity_render_component(&self.ecs, p));
+        let background = self.victory_background.unwrap_or(VictoryBackground::arena());
+        let pose = background.pose();
+
+        // VictoryPose::WalkAway draws from a completely different sheet/
+        // console (character_idle.png's own North-facing walk loop) than
+        // the rest of this function's FaceCamera/ClimbAway path
+        // (character_victory.png via CHARACTER_VICTORY_CONSOLE) - handled
+        // first and returns early. Drawn via set_fancy on
+        // CHARACTER_IDLE_GLIDE_CONSOLE (not the plain CHARACTER_IDLE_
+        // CONSOLE) specifically for VICTORY_WALK_AWAY_SCALE - see that
+        // constant's own doc comment for why a native 1x tile-scale
+        // render read as an all-but-invisible speck (real user
+        // screenshot, 2026-09-13). Position is background.
+        // walk_away_position() - a first guess, still not confirmed
+        // against real play at this new scale.
+        if pose == VictoryPose::WalkAway {
+            if let (Some(render), Some(anim)) = (render, self.victory_walk_animation.as_ref()) {
+                let (x, y) = background.walk_away_position();
+                let mut walk = DrawBatch::new();
+                walk.target(CHARACTER_IDLE_GLIDE_CONSOLE);
+                let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+                walk.set_fancy(
+                    PointF::new(x, y),
+                    0,
+                    Degrees::new(0.0),
+                    PointF::new(VICTORY_WALK_AWAY_SCALE, VICTORY_WALK_AWAY_SCALE),
+                    ColorPair::new(render.color.fg, bg_transparent),
+                    anim.current_glyph(),
+                );
+                walk.submit(0).expect("Batch error");
+                return;
+            }
+        }
+
+        // VictoryPose::ClimbAway - same sheet/console/grid as the
+        // FaceCamera path just below (character_victory.png via
+        // CHARACTER_VICTORY_CONSOLE, same coarse BATTLE_PORTRAIT
+        // placement), just a different row block and source animation
+        // (self.victory_climb_animation instead of self.victory_
+        // animation) - see components::victory_climb_animation_for_class.
+        if pose == VictoryPose::ClimbAway {
+            if let (Some(render), Some(anim)) = (render, self.victory_climb_animation.as_ref()) {
+                let (col, row) = background.portrait_grid_position();
+                let mut climb = DrawBatch::new();
+                climb.target(CHARACTER_VICTORY_CONSOLE);
+                climb.set(Point::new(col, row), render.color, anim.current_glyph());
+                climb.submit(0).expect("Batch error");
+                return;
+            }
+        }
+
+        let (col, row) = background.portrait_grid_position();
         if let (Some(render), Some(anim)) = (render, self.victory_animation.as_ref()) {
             let mut victory = DrawBatch::new();
             victory.target(CHARACTER_VICTORY_CONSOLE);
-            victory.set(
-                Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
-                render.color,
-                anim.current_glyph(),
-            );
+            victory.set(Point::new(col, row), render.color, anim.current_glyph());
             victory.submit(0).expect("Batch error");
             return;
         }
@@ -87,33 +158,9 @@ impl State {
             };
             let mut portrait = DrawBatch::new();
             portrait.target(console);
-            portrait.set(
-                Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
-                ColorPair::new(tint, BLACK),
-                glyph,
-            );
+            portrait.set(Point::new(col, row), ColorPair::new(tint, BLACK), glyph);
             portrait.submit(0).expect("Batch error");
         }
-    }
-
-    /// Draws the Amulet of Yala's own glyph ('|', see
-    /// spawner::spawn_amulet_of_yala) big, on the same battle-portrait
-    /// console/grid as draw_end_screen_portrait, at `col` - used by
-    /// victory() to show it beside the hero. Hardcodes the glyph rather
-    /// than looking up the actual AmuletOfYala entity, since nothing
-    /// guarantees that entity still exists in the ECS by the time the
-    /// Victory screen is showing (the run is already over) - the glyph
-    /// itself is a fixed constant either way, so there's nothing gained
-    /// by depending on the entity still being present.
-    fn draw_end_screen_amulet(&mut self, col: i32, tint: RGB) {
-        let mut amulet = DrawBatch::new();
-        amulet.target(BATTLE_PORTRAIT_CONSOLE);
-        amulet.set(
-            Point::new(col, BATTLE_PORTRAIT_ROWS / 2),
-            ColorPair::new(tint, BLACK),
-            to_cp437('|'),
-        );
-        amulet.submit(0).expect("Batch error");
     }
 
     /// Lazily builds self.death_animation the first time this runs for a
@@ -139,19 +186,72 @@ impl State {
         }
     }
 
-    /// Same lazy-build-then-tick shape as tick_death_animation, for
-    /// self.victory_animation instead - see that field's own doc comment.
+    /// Lazily picks self.victory_background the first time this runs for
+    /// a run that just ended in victory (Arena's is fixed; Dungeon
+    /// Crawl's is randomized once, keyed to whichever `EndSceneTheme`
+    /// the live `Box<dyn MapTheme>` resource resolves to, and then left
+    /// alone - see VictoryBackground::arena/random_for_theme and that
+    /// field's own doc comment on State), then lazy-build-then-ticks
+    /// whichever of self.victory_animation/self.victory_walk_animation
+    /// that background's pose() actually calls for - same shape as
+    /// tick_death_animation otherwise.
     fn tick_victory_animation(&mut self, ctx: &BTerm) {
-        if self.victory_animation.is_none() {
-            let class = <(Entity, &Player)>::query()
-                .iter(&self.ecs)
-                .map(|(e, _)| *e)
-                .nth(0)
-                .and_then(|p| entity_class(&self.ecs, p));
-            self.victory_animation = class.and_then(|class| victory_animation_for_class(&class));
+        if self.victory_background.is_none() {
+            let is_arena = self
+                .resources
+                .get::<Option<ArenaRun>>()
+                .map(|r| r.is_some())
+                .unwrap_or(false);
+            self.victory_background = Some(if is_arena {
+                VictoryBackground::arena()
+            } else {
+                let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap().end_scene_theme();
+                VictoryBackground::random_for_theme(theme)
+            });
         }
-        if let Some(anim) = self.victory_animation.as_mut() {
-            anim.tick(ctx.frame_time_ms);
+        match self.victory_background.unwrap().pose() {
+            VictoryPose::WalkAway => {
+                if self.victory_walk_animation.is_none() {
+                    let class = <(Entity, &Player)>::query()
+                        .iter(&self.ecs)
+                        .map(|(e, _)| *e)
+                        .nth(0)
+                        .and_then(|p| entity_class(&self.ecs, p));
+                    self.victory_walk_animation =
+                        class.and_then(|class| victory_walk_away_animation(&class));
+                }
+                if let Some(anim) = self.victory_walk_animation.as_mut() {
+                    anim.tick(ctx.frame_time_ms);
+                }
+            }
+            VictoryPose::ClimbAway => {
+                if self.victory_climb_animation.is_none() {
+                    let class = <(Entity, &Player)>::query()
+                        .iter(&self.ecs)
+                        .map(|(e, _)| *e)
+                        .nth(0)
+                        .and_then(|p| entity_class(&self.ecs, p));
+                    self.victory_climb_animation =
+                        class.and_then(|class| victory_climb_animation_for_class(&class));
+                }
+                if let Some(anim) = self.victory_climb_animation.as_mut() {
+                    anim.tick(ctx.frame_time_ms);
+                }
+            }
+            VictoryPose::FaceCamera => {
+                if self.victory_animation.is_none() {
+                    let class = <(Entity, &Player)>::query()
+                        .iter(&self.ecs)
+                        .map(|(e, _)| *e)
+                        .nth(0)
+                        .and_then(|p| entity_class(&self.ecs, p));
+                    self.victory_animation =
+                        class.and_then(|class| victory_animation_for_class(&class));
+                }
+                if let Some(anim) = self.victory_animation.as_mut() {
+                    anim.tick(ctx.frame_time_ms);
+                }
+            }
         }
     }
 
@@ -183,7 +283,7 @@ impl State {
     /// what type is actually expected, and I can fix it precisely from
     /// that - or fall back to the "deliberate framed plaque" approach if
     /// transparency turns out not to be available here at all.
-    fn draw_end_screen_fallen_portrait(&mut self, icon_tint: RGB) {
+    fn draw_end_screen_fallen_portrait(&mut self, defeat_background: DefeatBackground, icon_tint: RGB) {
         let player = <(Entity, &Player)>::query()
             .iter(&self.ecs)
             .map(|(e, _)| *e)
@@ -195,14 +295,17 @@ impl State {
         // already shows a natural top-down collapse, drawn upright (no
         // rotation, no scale, full color) on the coarse BATTLE_PORTRAIT
         // grid just like draw_end_screen_portrait's victory animation.
+        // Position comes from the active DefeatBackground's own
+        // portrait_grid_position (see components::DefeatBackground) -
+        // fixes a real bug found 2026-09-13 via screenshot: this used to
+        // be a fixed col=1, left off-center on the Arena courtyard's own
+        // centered staircase, never updated when Victory's Amulet-of-
+        // Yala icon (which col=1 used to leave room for) was removed.
         if let (Some(render), Some(anim)) = (render, self.death_animation.as_ref()) {
+            let (col, row) = defeat_background.portrait_grid_position();
             let mut death = DrawBatch::new();
             death.target(CHARACTER_DEATH_CONSOLE);
-            death.set(
-                Point::new(1, BATTLE_PORTRAIT_ROWS / 2),
-                render.color,
-                anim.current_glyph(),
-            );
+            death.set(Point::new(col, row), render.color, anim.current_glyph());
             death.submit(0).expect("Batch error");
             return;
         }
@@ -238,14 +341,32 @@ impl State {
 
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
     pub fn game_over(&mut self, ctx: &mut BTerm) {
-        // Red, dimmed version of the actual dungeon the run ended in,
-        // plus the fallen hero's own glyph - rotated onto its side, tinted
-        // red, with a genuinely transparent background this time (see
-        // draw_end_screen_fallen_portrait) instead of an opaque quad
-        // matched to the arena color.
+        // Which painted defeat scene matches this run's own theme/mode
+        // (see components::DefeatBackground) - deterministic (no
+        // randomization the way Victory's background gets), so no
+        // caching needed either; recomputed every frame, harmlessly
+        // cheap either way. Paired with the fallen hero's own glyph -
+        // rotated onto its side, tinted red, with a genuinely
+        // transparent background this time (see draw_end_screen_fallen_
+        // portrait) instead of an opaque quad matched to the arena color.
+        let is_arena = self
+            .resources
+            .get::<Option<ArenaRun>>()
+            .map(|r| r.is_some())
+            .unwrap_or(false);
+        let defeat_background = if is_arena {
+            DefeatBackground::arena()
+        } else {
+            let theme = self.resources.get::<Box<dyn MapTheme>>().unwrap().end_scene_theme();
+            DefeatBackground::for_theme(theme)
+        };
+
         self.tick_death_animation(ctx);
-        self.draw_end_screen_background(RGB::from_f32(1.0, 0.4, 0.4));
-        self.draw_end_screen_fallen_portrait(RED.into());
+        self.draw_end_screen_backdrop(
+            defeat_background.background_row(),
+            RGB::from_f32(1.0, 0.4, 0.4),
+        );
+        self.draw_end_screen_fallen_portrait(defeat_background, RED.into());
 
         // Header on BIG_TEXT_CONSOLE (32px cells - same
         // one the title screen's "EVER SPACE RRPG" uses). Body text below
@@ -255,10 +376,7 @@ impl State {
         // positions are worked out in pixels (not row counts) so nothing
         // overlaps across these differently-scaled consoles: header row 2
         // on BIG_TEXT_CONSOLE bottoms out at (2+1)*32 = 96px -> HUD_CONSOLE row 9
-        // (~108px) clears it; the fallen portrait (see
-        // draw_end_screen_fallen_portrait) is centered at y=400px and, at
-        // END_SCREEN_FALLEN_SCALE, spans roughly 304-496px -> HUD_CONSOLE
-        // row 45 (~537px) clears its bottom edge with margin.
+        // (~108px) clears it.
         ctx.set_active_console(BIG_TEXT_CONSOLE);
         ctx.print_color_centered(2, RED, BLACK, "Your quest has ended.");
 
@@ -275,17 +393,17 @@ impl State {
             BLACK,
             "The Amulet of Yala remains unclaimed, and your home town is not saved.",
         );
-        // Below this point: the fallen portrait, centered on-screen (see
-        // draw_end_screen_fallen_portrait). These two lines sit clear
-        // beneath it.
+        // "Don't worry, you can always try again..." removed (2026-09-13,
+        // explicit user call) - it sat at row 45, which the fallen
+        // portrait's own per-background position (see components::
+        // DefeatBackground::portrait_grid_position) can overlap depending
+        // on the active theme, and it wasn't earning its own line either
+        // way. "Press Enter..." alone now sits at row 60 - same row
+        // Victory's own equivalent line uses (see victory() below), so
+        // the two end screens read consistently instead of putting this
+        // line in two different places.
         ctx.print_color_centered(
-            45,
-            YELLOW,
-            BLACK,
-            "Don't worry, you can always try again with a new hero.",
-        );
-        ctx.print_color_centered(
-            48,
+            60,
             GREEN,
             BLACK,
             "Press Enter to return to the title screen.",
@@ -310,23 +428,26 @@ impl State {
             .map(|r| r.is_some())
             .unwrap_or(false);
 
-        // Warm gold version of the actual dungeon/arena the run was won
-        // in, plus the hero's own glyph, glowing gold - see
-        // draw_end_screen_background/draw_end_screen_portrait. The
-        // Amulet of Yala icon only makes sense for a dungeon-crawl win -
-        // an Arena win has no amulet at all, so it's skipped entirely
-        // rather than drawing a prop that doesn't apply.
+        // Warm gold version of the actual painted scene this run was won
+        // in/on (see components::VictoryBackground - tick_victory_
+        // animation picks it, Arena fixed/Dungeon Crawl randomized, the
+        // instant Victory is entered), plus the hero's own glyph, glowing
+        // gold - see draw_end_screen_backdrop/draw_end_screen_portrait.
+        // No Amulet of Yala icon anymore (removed 2026-09-13) - it was
+        // designed for the old plain-fill background and read as a
+        // mismatched flat glyph next to these painted scenes; the body
+        // text below already carries that narrative beat on its own.
         self.tick_victory_animation(ctx);
-        self.draw_end_screen_background(RGB::from_f32(1.0, 0.85, 0.45));
-        self.draw_end_screen_portrait(1, YELLOW.into());
-        if !is_arena {
-            self.draw_end_screen_amulet(3, YELLOW.into());
-        }
+        let background_row = self
+            .victory_background
+            .and_then(VictoryBackground::background_row);
+        self.draw_end_screen_backdrop(background_row, RGB::from_f32(1.0, 0.85, 0.45));
+        self.draw_end_screen_portrait(YELLOW.into());
 
         // Same layout approach as game_over: header on the big-text
         // console (BIG_TEXT_CONSOLE, 32px cells), body on HUD_CONSOLE (the HUD
         // console, ~12px cells) positioned in real pixels to clear the
-        // header above and the hero/Amulet icons below - see game_over's
+        // header above and the hero's own icon below - see game_over's
         // comment for the exact pixel math this mirrors. "Press 1..." is
         // pushed down near the bottom of the screen instead of sitting
         // right under the body text.
@@ -361,8 +482,9 @@ impl State {
                 "Your town is saved, and you can return to your normal life.",
             );
         }
-        // Below this point: the hero (+ Amulet, dungeon-crawl only)
-        // icons, centered on-screen.
+        // Below this point: the hero's own icon, positioned per the
+        // active background (see components::VictoryBackground::
+        // portrait_grid_position/walk_away_position).
         ctx.print_color_centered(
             60,
             GREEN,

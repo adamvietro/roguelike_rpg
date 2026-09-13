@@ -88,7 +88,7 @@ impl State {
     /// start_game wipes it outright when a real run begins.
     pub fn spawn_title_background(&mut self) {
         let mut rng = RandomNumberGenerator::new();
-        let mut map_builder = MapBuilder::new(&mut rng);
+        let mut map_builder = MapBuilder::new(&mut rng, None);
         map_builder
             .map
             .revealed_tiles
@@ -403,8 +403,11 @@ impl State {
             // the plain static portrait every other row still gets - see
             // components::character_idle_glyph.
             if self.class_select_cursor == i as usize {
-                if let Some(glyph) = character_idle_glyph(entry.name, self.class_select_anim_frame)
-                {
+                if let Some(glyph) = character_idle_glyph(
+                    entry.name,
+                    self.class_select_anim_frame,
+                    Direction::South,
+                ) {
                     draw_portrait(
                         &mut animated_icon,
                         0,
@@ -488,10 +491,72 @@ impl State {
             // from Battle Arena's own Class Select silently dropped into
             // a Dungeon Crawl run instead (found by the user trying to
             // reach Debug in the Arena to test Orc Warlord's art).
+            //
+            // Dungeon Crawl now detours through ThemeSelect first
+            // (2026-09-13) instead of calling start_game directly - see
+            // TurnState::ThemeSelect's own doc comment. Arena's own D
+            // branch is unaffected (Arena's Victory/Defeat backgrounds
+            // don't depend on the dungeon theme at all - see components::
+            // VictoryBackground::arena/DefeatBackground::arena - so
+            // there's nothing here worth picking).
             match self.adventure_mode {
-                AdventureMode::DungeonCrawl => self.start_game("Debug"),
+                AdventureMode::DungeonCrawl => {
+                    self.theme_select_cursor = 0;
+                    self.resources.insert(TurnState::ThemeSelect);
+                }
                 AdventureMode::BattleArena => self.start_arena("Debug"),
             }
+        }
+    }
+
+    /// Debug-class-only, Dungeon-Crawl-only screen (see TurnState::
+    /// ThemeSelect's own doc comment) - lets the player force every
+    /// floor of the upcoming run onto one MapTheme instead of the normal
+    /// per-floor random roll, so a specific theme's Victory/Defeat art
+    /// can actually be reached without restarting runs repeatedly.
+    /// Same arrow-key-navigable centered-menu shape as adventure_select
+    /// above, just with ThemeChoice::ALL instead of a hardcoded 2-item
+    /// list.
+    pub fn theme_select(&mut self, ctx: &mut BTerm) {
+        self.tick_background(ctx);
+
+        ctx.set_active_console(BIG_TEXT_CONSOLE);
+        ctx.print_color_centered(6, YELLOW, BLACK, "Choose a Dungeon Theme");
+
+        ctx.set_active_console(HUD_CONSOLE);
+        self.theme_select_cursor =
+            menu_nav(ctx.key, self.theme_select_cursor, ThemeChoice::ALL.len());
+        for (i, choice) in ThemeChoice::ALL.iter().enumerate() {
+            print_menu_row_centered(
+                ctx,
+                HUD_COLS,
+                36 + (i as i32) * 6,
+                GREEN,
+                choice.label(),
+                self.theme_select_cursor == i,
+            );
+        }
+        ctx.print_color_centered(
+            72,
+            WHITE,
+            BLACK,
+            "Random keeps today's normal per-floor behavior; the other three",
+        );
+        ctx.print_color_centered(
+            75,
+            WHITE,
+            BLACK,
+            "force every floor of this run onto that one theme.",
+        );
+        ctx.print_color_centered(78, DARK_GRAY, BLACK, "(Enter to select, Esc to go back)");
+
+        if ctx.key == Some(VirtualKeyCode::Escape) {
+            self.resources.insert(TurnState::ClassSelect);
+            return;
+        }
+        if ctx.key == Some(VirtualKeyCode::Return) {
+            self.pending_theme_choice = ThemeChoice::ALL[self.theme_select_cursor];
+            self.start_game("Debug");
         }
     }
 }

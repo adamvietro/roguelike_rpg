@@ -139,11 +139,18 @@ writing:
   stats, and both ability rosters in one screen.
 - The player's health/class-portrait frame (top-left) shows small icons
   for any active lasting effect (Ice Armor, Stealth, Invisible Cloak).
-- A basic "walking in place" idle-animation system exists (every
-  entity cycles through a small set of frames when standing still), but
-  every frame currently points at the same placeholder art - real
-  distinct walk-cycle art, and a possible move from one shared sprite
-  sheet to a sheet per class, are both future work.
+- **Every class and enemy now has real animated PixelLab.ai art**
+  (walk-cycle, battle-idle pose, and still portrait), not placeholder
+  glyphs. Movement is directional - characters and enemies visibly face
+  and walk north/south/east/west, synced to real dungeon-view movement
+  instead of freezing mid-step. Battle has real played-once animations
+  for Attack, Defend, Death, Victory, and nearly every technique in the
+  game, plus real per-enemy attack animations and a full painted
+  background per dungeon theme (Forest/Dungeon/Sewer). All 7
+  out-of-combat abilities (Ice Armor, Invisible Cloak, Stealth, Throw
+  Spear, Trap, Freeze Trap, Shoot) play a real animation too. Still
+  outstanding: enemy Death animations (boss enemies only, in progress)
+  and 8-way diagonal facing.
 - Dungeon Crawl now has its own gold economy too: enemies drop gold, a
   guaranteed per-floor chest (guarded by that floor's toughest enemy)
   holds gold/a Map/Potions, and a shop sits between floors selling

@@ -21,6 +21,7 @@ pub fn build_input_scheduler() -> Schedule {
         .flush()
         .add_system(animation::tick_animations_system())
         .add_system(animation::tick_idle_animation_system())
+        .add_system(animation::tick_effect_animation_system())
         .flush()
         .add_system(map_render::map_render_system())
         .add_system(entity_render::entity_render_system())
@@ -39,6 +40,7 @@ pub fn build_player_scheduler() -> Schedule {
         .flush()
         .add_system(animation::tick_animations_system())
         .add_system(animation::tick_idle_animation_system())
+        .add_system(animation::tick_effect_animation_system())
         .flush()
         .add_system(map_render::map_render_system())
         .add_system(entity_render::entity_render_system())
@@ -62,6 +64,7 @@ pub fn build_monster_scheduler() -> Schedule {
         .flush()
         .add_system(animation::tick_animations_system())
         .add_system(animation::tick_idle_animation_system())
+        .add_system(animation::tick_effect_animation_system())
         .flush()
         .add_system(map_render::map_render_system())
         .add_system(entity_render::entity_render_system())
@@ -105,6 +108,10 @@ pub fn build_title_background_scheduler() -> Schedule {
     Schedule::builder()
         .add_system(animation::tick_animations_system())
         .add_system(animation::tick_idle_animation_system())
+        // No tick_effect_animation_system here, unlike the three real
+        // gameplay schedulers above - this decorative world's entities
+        // never run use_items (no ActivateItem ever gets attached to
+        // them), so no EffectAnimation could ever exist here to tick.
         .flush()
         .add_system(map_render::map_render_system())
         .add_system(entity_render::entity_render_system())
@@ -149,4 +156,83 @@ pub fn build_pause_scheduler() -> Schedule {
     Schedule::builder()
         .add_system(map_render::map_render_system())
         .build()
+}
+
+#[cfg(test)]
+mod effect_animation_access_tests {
+    use super::*;
+
+    /// A **permanent** regression test (see CLAUDE.md's legion-component-
+    /// access-mismatch gotcha, same reason systems/hud.rs::
+    /// hud_system_execution_tests stays permanent) - actually EXECUTES
+    /// use_items -> tick_effect_animation -> entity_render through a real
+    /// Schedule, exercising the EffectAnimation component-access
+    /// declarations added across all three (use_items.rs's write path,
+    /// entity_render.rs's read path, and tick_effect_animation itself) - a
+    /// clean `cargo build` proves the types line up, not that each
+    /// #[system]'s #[read_component]/#[write_component] list actually
+    /// matches what it queries at runtime; that only surfaces as an
+    /// AccessDenied panic the moment the system actually executes.
+    /// Confirms both: (1) no such panic, and (2) the real functional
+    /// effect - using a Mage's "Ice Armor" item actually attaches a real
+    /// EffectAnimation to the
+    /// player, and tick_effect_animation actually advances it.
+    #[test]
+    fn effect_animation_pipeline_runs_without_a_component_access_panic() {
+        let mut world = World::default();
+        let mut resources = Resources::default();
+
+        let mut fov = FieldOfView::new(0);
+        let player_pos = Point::new(5, 5);
+        fov.visible_tiles.insert(player_pos);
+        let player = world.push((
+            Player { map_level: 0 },
+            Class("Mage".to_string()),
+            player_pos,
+            Render {
+                color: ColorPair::new(WHITE, BLACK),
+                glyph: to_cp437('@'),
+            },
+            Health {
+                current: 10,
+                max: 10,
+            },
+            fov,
+        ));
+
+        let item = world.push((
+            Name("Ice Armor".to_string()),
+            Class("Mage".to_string()),
+            Effect(ProvidesEffect::IceArmor {
+                defense_bonus: 2,
+                attacks: 30,
+            }),
+        ));
+        world.push((ActivateItem {
+            used_by: player,
+            item,
+        },));
+
+        resources.insert(Map::new());
+        resources.insert(TurnState::AwaitingInput);
+        resources.insert(Stats::default());
+        resources.insert(None::<Battle>);
+        resources.insert(Camera::new(player_pos));
+        resources.insert(FrameTime(16.0));
+
+        let mut schedule = Schedule::builder()
+            .add_system(use_items::use_items_system())
+            .flush()
+            .add_system(animation::tick_effect_animation_system())
+            .flush()
+            .add_system(entity_render::entity_render_system())
+            .build();
+        schedule.execute(&mut world, &mut resources);
+
+        let entry = world.entry_ref(player).unwrap();
+        let effect = entry
+            .get_component::<EffectAnimation>()
+            .expect("Ice Armor should have attached a real EffectAnimation");
+        assert!(effect.0.elapsed_ms > 0.0, "tick_effect_animation should have advanced it");
+    }
 }

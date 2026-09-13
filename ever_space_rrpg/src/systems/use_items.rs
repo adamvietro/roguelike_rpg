@@ -239,6 +239,21 @@ pub fn use_items(
                     match (item.get_component::<Name>(), item.get_component::<Class>()) {
                         (Ok(name), Ok(class)) => {
                             stats.record_ability_used(&class.0, &name.0);
+                            // A real played-once animation for this
+                            // specific (class, ability) pair, if one
+                            // exists yet (see components::
+                            // effect_animation_for) - None for anything
+                            // without a row there (every non-out-of-
+                            // combat class-restricted item, e.g. a
+                            // battle Technique used from the Ability Bar
+                            // by mistake, just does nothing here).
+                            // Overwrites any still-playing EffectAnimation
+                            // from an earlier use this same tick, same
+                            // "fresh state wins" behavior every other
+                            // refreshable effect above already has.
+                            if let Some(anim) = effect_animation_for(&class.0, &name.0) {
+                                commands.add_component(activate.used_by, EffectAnimation(anim));
+                            }
                         }
                         (Ok(name), Err(_)) => {
                             stats.record_item_used(&name.0);

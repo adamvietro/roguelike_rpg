@@ -6,6 +6,17 @@ pub enum TurnState {
     /// adventure_select and State::adventure_mode.
     AdventureSelect,
     ClassSelect,
+    /// Debug-class-only, Dungeon-Crawl-only (added 2026-09-13): lets the
+    /// user force which `MapTheme` (Forest/Dungeon/Sewer, or Random for
+    /// the normal per-floor roll) every floor of the upcoming run uses,
+    /// instead of re-rolling randomly each floor - a testing convenience
+    /// so a specific theme's Victory/Defeat art (see components::
+    /// VictoryBackground/DefeatBackground) can be reached without
+    /// restarting runs repeatedly. Reached from ClassSelect's hidden 'D'
+    /// shortcut instead of going straight to start_game; leads into
+    /// AwaitingInput via start_game once a choice is confirmed. See
+    /// screens/title.rs's theme_select and components::ThemeChoice.
+    ThemeSelect,
     AwaitingInput,
     PlayerTurn,
     MonsterTurn,

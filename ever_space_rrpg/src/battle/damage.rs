@@ -20,22 +20,47 @@ use std::collections::VecDeque;
 /// flashes Attacking, target flashes Hit). Returns the actual post-
 /// Defense damage dealt - callers should use this, not `amount`, when
 /// building a message.
+///
+/// Both flashes last as long as `battle.player_action_animation`'s own
+/// real Attack/Technique swing (see `OneShotAnimation::total_duration_ms`)
+/// when one is currently set, rather than the shorter fixed
+/// `PORTRAIT_FLASH_DURATION_MS` - added 2026-09-11 once Attack got a real
+/// played-once animation of its own: a fixed-length flash used to fade
+/// out well before a ~700ms swing actually finished, showing the target
+/// (the enemy) as flinching red for only the first fraction of the hit,
+/// then reverting to its normal color mid-swing. Falls back to the fixed
+/// duration for anything with no matching animation (there's currently
+/// nothing in that state, but this keeps the fallback path this whole
+/// system has always had rather than assuming every future action will
+/// get real art immediately).
 pub fn strike_enemy(ecs: &mut World, battle: &mut Battle, target: Entity, amount: i32) -> i32 {
     let dmg = apply_damage(ecs, target, amount);
     battle.show_enemy_damage(target, dmg);
-    battle.player_flash = Some((FlashKind::Attacking, PORTRAIT_FLASH_DURATION_MS));
-    battle.set_enemy_flash(target, FlashKind::Hit);
+    let flash_ms = battle
+        .player_action_animation
+        .as_ref()
+        .map(OneShotAnimation::total_duration_ms)
+        .unwrap_or(PORTRAIT_FLASH_DURATION_MS);
+    battle.player_flash = Some((FlashKind::Attacking, flash_ms));
+    battle.set_enemy_flash_for(target, FlashKind::Hit, flash_ms);
     dmg
 }
 
 /// Deals `amount` damage from `attacker` (a specific enemy in this
 /// battle) to the PLAYER, arms the player's damage popup, and flashes
-/// both portraits.
+/// both portraits. Same animation-length sync as `strike_enemy` above,
+/// keyed off `attacker`'s own `EnemyCombatant::attack_animation` instead
+/// of the player's.
 pub fn strike_player(ecs: &mut World, battle: &mut Battle, attacker: Entity, amount: i32) -> i32 {
     let dmg = apply_damage(ecs, battle.player, amount);
     battle.show_player_damage(dmg);
-    battle.set_enemy_flash(attacker, FlashKind::Attacking);
-    battle.player_flash = Some((FlashKind::Hit, PORTRAIT_FLASH_DURATION_MS));
+    let flash_ms = battle
+        .enemy(attacker)
+        .and_then(|e| e.attack_animation.as_ref())
+        .map(OneShotAnimation::total_duration_ms)
+        .unwrap_or(PORTRAIT_FLASH_DURATION_MS);
+    battle.set_enemy_flash_for(attacker, FlashKind::Attacking, flash_ms);
+    battle.player_flash = Some((FlashKind::Hit, flash_ms));
     dmg
 }
 

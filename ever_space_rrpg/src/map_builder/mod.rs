@@ -29,6 +29,55 @@ pub enum BattleScenery {
     RoomWalls,
 }
 
+/// See `MapTheme::end_scene_theme`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EndSceneTheme {
+    Forest,
+    Dungeon,
+    Sewer,
+}
+
+/// A Debug-run's forced-theme choice (see `TurnState::ThemeSelect`) -
+/// `Random` means "behave exactly like every other class", the normal
+/// `MapBuilder::new` per-floor roll from `dungeon_theme_pool()`; the
+/// other three force every floor of the run to that one theme instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeChoice {
+    Random,
+    Forest,
+    Dungeon,
+    Sewer,
+}
+
+impl ThemeChoice {
+    pub const ALL: [ThemeChoice; 4] = [
+        ThemeChoice::Random,
+        ThemeChoice::Forest,
+        ThemeChoice::Dungeon,
+        ThemeChoice::Sewer,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ThemeChoice::Random => "Random",
+            ThemeChoice::Forest => "Forest",
+            ThemeChoice::Dungeon => "Dungeon",
+            ThemeChoice::Sewer => "Sewer",
+        }
+    }
+
+    /// The real `MapTheme` this choice forces - `None` for `Random`,
+    /// which means "let `MapBuilder::new` roll one normally instead".
+    pub fn theme(self) -> Option<Box<dyn MapTheme>> {
+        match self {
+            ThemeChoice::Random => None,
+            ThemeChoice::Forest => Some(ForestTheme::new()),
+            ThemeChoice::Dungeon => Some(DungeonTheme::new()),
+            ThemeChoice::Sewer => Some(SewerTheme::new()),
+        }
+    }
+}
+
 pub trait MapTheme: Sync + Send {
     fn tile_to_render(&self, tile_type: TileType) -> FontCharType;
     /// Base color for this theme's floor tiles - used both for the dungeon
@@ -61,6 +110,22 @@ pub trait MapTheme: Sync + Send {
     /// impl doesn't need real battle-background art to compile.
     fn battle_background_row(&self) -> Option<u16> {
         None
+    }
+    /// Which family of Victory/Game Over backdrops (see components::
+    /// VictoryBackground/DefeatBackground) a Dungeon Crawl run through
+    /// this theme should use - screens/end.rs reads this off the live
+    /// `Box<dyn MapTheme>` resource the instant a run ends, so the End
+    /// screen always matches whichever theme the player was actually
+    /// exploring (a Forest run showing a sewer's Victory scene made no
+    /// sense - see the 2026-09-13 replan in docs/journal.md). Battle
+    /// Arena runs never call this at all (is_arena short-circuits to
+    /// VictoryBackground::arena()/DefeatBackground::arena() instead).
+    /// Defaults to `EndSceneTheme::Dungeon` so a brand new MapTheme impl
+    /// still compiles/renders something reasonable before it has its own
+    /// dedicated End-screen art - same reasoning as battle_background_
+    /// row's own default.
+    fn end_scene_theme(&self) -> EndSceneTheme {
+        EndSceneTheme::Dungeon
     }
     /// (back_row, front_row) for `screens/battle.rs`'s multi-enemy
     /// zigzag formation (`enemy_portrait_position`) - how far up the
@@ -193,7 +258,16 @@ pub struct MapBuilder {
 }
 
 impl MapBuilder {
-    pub fn new(rng: &mut RandomNumberGenerator) -> Self {
+    /// `forced_theme` - see `ThemeChoice::theme` - overrides the normal
+    /// random per-floor pick when `Some` (a Debug-run's `ThemeSelect`
+    /// choice, see `TurnState::ThemeSelect`); every other caller (a
+    /// non-Debug class, the title screen's own decorative background)
+    /// passes `None` for the unchanged random-roll behavior. Applied
+    /// BEFORE `assign_tile_variants` below, not after - that call reads
+    /// `mb.theme`'s own `floor_variant_style`, whose variant-index
+    /// meaning differs per theme, so overriding the theme afterward
+    /// would leave variants assigned under the wrong theme's semantics.
+    pub fn new(rng: &mut RandomNumberGenerator, forced_theme: Option<Box<dyn MapTheme>>) -> Self {
         let mut architect: Box<dyn MapArchitect> = match rng.range(0, 3) {
             0 => Box::new(DrunkardsWalkArchitect {}),
             1 => Box::new(RoomsArchitect {}),
@@ -203,9 +277,14 @@ impl MapBuilder {
         apply_prefab(&mut mb, rng);
         apply_chest(&mut mb, rng);
 
-        let mut pool = dungeon_theme_pool();
-        let pick = rng.random_slice_index(&pool).unwrap();
-        mb.theme = pool.swap_remove(pick);
+        mb.theme = match forced_theme {
+            Some(theme) => theme,
+            None => {
+                let mut pool = dungeon_theme_pool();
+                let pick = rng.random_slice_index(&pool).unwrap();
+                pool.swap_remove(pick)
+            }
+        };
         mb.assign_tile_variants(rng);
 
         mb

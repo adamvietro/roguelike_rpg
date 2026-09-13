@@ -50,6 +50,13 @@ impl MapTheme for DungeonTheme {
         Some(1)
     }
 
+    /// Explicit even though it matches `MapTheme::end_scene_theme`'s own
+    /// default - consistency with every other per-theme override in this
+    /// file, and resilience if that default ever changes.
+    fn end_scene_theme(&self) -> EndSceneTheme {
+        EndSceneTheme::Dungeon
+    }
+
     /// Dungeon's thin top wall band leaves real headroom Forest's
     /// tree/fence perimeter doesn't - screenshot-verified against the
     /// real art (a candidate back row as high as 0.9 clipped the window
@@ -115,6 +122,10 @@ impl MapTheme for ForestTheme {
     fn battle_background_row(&self) -> Option<u16> {
         Some(0)
     }
+
+    fn end_scene_theme(&self) -> EndSceneTheme {
+        EndSceneTheme::Forest
+    }
 }
 
 impl ForestTheme {
@@ -167,6 +178,10 @@ impl MapTheme for SewerTheme {
     /// `MapTheme::battle_background_row`'s own doc comment.
     fn battle_background_row(&self) -> Option<u16> {
         Some(2)
+    }
+
+    fn end_scene_theme(&self) -> EndSceneTheme {
+        EndSceneTheme::Sewer
     }
 
     /// Sewer's thin top pipe/wall band leaves the same real headroom

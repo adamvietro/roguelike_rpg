@@ -40,6 +40,23 @@ You have direct file access and a real terminal here, so use them:
   2. **bracket-lib rendering specifics** (color blending, console z-order,
      pixel-to-cell rounding) — invisible to any compiler check. Verify by
      tracing the library source or asking for a screenshot; don't assume.
+- **Don't try to drive the running game yourself (synthetic X11
+  input/screenshots) to verify a change — ask the user to run it and
+  send screenshots instead.** Confirmed 2026-09-13: launching the binary
+  and screenshotting a static screen works fine (direct X11 window
+  capture via python-xlib), but every attempt at synthetic input —
+  XTEST `fake_input` key/mouse events, explicit `XSetInputFocus`, a
+  synthetic click into the window, longer key holds, and a proper EWMH
+  `_NET_ACTIVE_WINDOW` activation message — failed to actually advance
+  the game past its title screen, consistently, across a real
+  multi-method attempt, not just a one-off flake. Matches this project's
+  own prior "X11 input driver flakiness" history (WSLg host-compositor
+  focus arbitration is the leading theory) — not worth re-attempting
+  each time it comes up. The user can drive the game and screenshot it
+  themselves without this problem, so for anything needing live visual
+  confirmation (does a screen render right, is something positioned
+  correctly, does an animation look correct in play), ask them for a
+  screenshot rather than trying to get there yourself.
 - **Write a real test for logic a type-check can't confirm** (an
   algorithm's actual behavior, a bugfix's actual effect), then remove it
   before calling the work done — except the legion-access-pattern
@@ -81,6 +98,10 @@ You have direct file access and a real terminal here, so use them:
   being able to render and check, say so plainly and expect a correction
   round from a real screenshot rather than presenting a first guess as
   confidently final.
+- When the user asks "Does this make sense?" (checking a plan/design out
+  loud), that's a request to confirm understanding, not a go-ahead —
+  describe what you're about to implement first and wait, rather than
+  moving straight into writing code.
 
 ## Standing gotchas (condensed — see docs/DEVLOG.md for the full reasoning)
 
@@ -231,6 +252,19 @@ exposes a real API vs. only a plain HTML form (likely behind login)** —
 that decides whether this becomes a simple scripted HTTP call or needs a
 headless browser/session cookie from the user.
 
+**Header/session workflow (standing rule, added 2026-09-13)**: one
+`# <date>` header per calendar day, created once. Every session that
+lands work that same day adds `##` (or deeper) sections underneath that
+SAME header — never a second `# <date>` for a day that already has one.
+Check the end of the file for an existing header matching today's date
+before adding a new one. While the day's work is still unpushed, leave
+the header as the plain date. Once the user actually does a real `git
+push` covering that day's accumulated work, rename that header to also
+carry a short description of everything done that day (append to the
+date, don't replace it) — e.g. `# 9/13/26 — Victory/Defeat Backgrounds,
+Theme Select, Enemy Death Animations` — so the journal itself stays
+scannable and the eventual blog-post title has something to draw on.
+
 **Tags**: this blog is a personal multi-project devlog (Elixir/Phoenix
 learning posts, other side projects, etc. — not just this game), with one
 large tag vocabulary shared across all of it. Reuse an existing tag
@@ -291,3 +325,16 @@ of these three sheets. The two most expensive-to-relearn lessons:
   to its own column count — reusing another sheet's mapping has caused
   the tiled-portrait bug (see the glyph-32 gotcha above) twice for real,
   on two different sheets.
+- **Before compositing ANY new PixelLab batch into a sheet, do a real
+  pixel-health pass over every source frame first** — don't assume a
+  batch is clean just because an earlier one was. 2026-09-11's full
+  animation batch was initially assumed to need no segmentation work
+  (clean binary alpha, no near-black content), but the user then spotted
+  real stray transparent pixels in Hunter's frames specifically, and a
+  closer look found the same problem across most of the batch, not just
+  Hunter — a spot-check of "a couple classes look fine" isn't enough.
+  Check every frame for both known failure modes: pure-black (or
+  near-black) OPAQUE pixels needing the usual floor (see the glyph-32-
+  adjacent near-black-pixel gotcha above), and pixels that are
+  transparent but shouldn't be — real holes/gaps inside the character's
+  own silhouette, as opposed to the actual background around it.

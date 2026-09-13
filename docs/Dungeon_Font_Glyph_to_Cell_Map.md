@@ -12,9 +12,17 @@ systems, each self-contained in its own part below:
    "Enemy sheets" below - and three MORE added the same day covering
    played-once Death/Victory/technique animations (`character_death.png`,
    `character_victory.png`, `character_technique.png`) - see "One-shot
-   animation sheets" below. The active, growing system — check here
-   FIRST before adding a new class or enemy's row, or a new technique's
-   own animation.
+   animation sheets" below. Three MORE added 2026-09-11
+   (`character_attack.png`, `character_defend.png`, `enemy_attack.png`)
+   plus a widened `character_technique.png` (8→20 rows) - see "2026-09-11's
+   full animation batch" below. A SEVENTH added the same day,
+   `character_effect.png`, for out-of-combat ability animations - see
+   "Out-of-combat effect animations" below. `character_idle.png`/
+   `enemy_idle.png` also widened the same day from 1 row per class/enemy
+   to 4 (real directional movement) - see "Real directional movement
+   animation" below. The active, growing system — check here FIRST
+   before adding a new class or enemy's row, or a new technique's own
+   animation.
 2. **The dungeon font** (`resources/dungeonfont.png`, own section below)
    — the original 512×512 CP437-ordered atlas covering enemies, items,
    UI icons, weapons/abilities, and any class's fallback glyph for
@@ -32,14 +40,17 @@ systems, each self-contained in its own part below:
 | `character_battle.png` | Battle screen's own idle-loop portrait (player only; enemies keep dungeonfont) | 32×32 native, no upscale | 8 (`CHARACTER_BATTLE_COLS`) | `.with_font("character_battle.png", 32, 32)` |
 | `character_portrait.png` | Still icon — Class Select non-highlighted row, dungeon HUD portrait, in-battle Victory, run-ending Victory, Game Over fallen pose | 32×32 native, no upscale | 6 (column 0 only ever used) | `.with_font("character_portrait.png", 32, 32)` |
 
-All three are RON-free plain PNGs living in `resources/`, one row per
-class, rows growing downward as new classes are added — see
-`components.rs` for the row-lookup functions and `main.rs` for the
-console registrations that read them (`CHARACTER_IDLE_CONSOLE` +
-`CLASS_SELECT_IDLE_CONSOLE` for the idle sheet, `CHARACTER_BATTLE_CONSOLE`
-for the battle sheet, `CHARACTER_PORTRAIT_BIG_CONSOLE` +
-`CHARACTER_PORTRAIT_HUD_CONSOLE` + `END_SCREEN_FALLEN_PORTRAIT_CONSOLE`
-for the portrait sheet).
+All three are RON-free plain PNGs living in `resources/`, rows growing
+downward as new classes are added — see `components.rs` for the
+row-lookup functions and `main.rs` for the console registrations that
+read them (`CHARACTER_IDLE_CONSOLE` + `CLASS_SELECT_IDLE_CONSOLE` for the
+idle sheet, `CHARACTER_BATTLE_CONSOLE` for the battle sheet,
+`CHARACTER_PORTRAIT_BIG_CONSOLE` + `CHARACTER_PORTRAIT_HUD_CONSOLE` +
+`END_SCREEN_FALLEN_PORTRAIT_CONSOLE` for the portrait sheet).
+`character_battle.png`/`character_portrait.png` are still one row per
+class; `character_idle.png` is now FOUR rows per class (2026-09-11, real
+directional movement) - see "Real directional movement animation" below
+for the full row layout.
 
 ### Enemy sheets (`enemy_idle.png` / `enemy_battle.png`)
 
@@ -64,8 +75,11 @@ Row-lookup functions in `components.rs`: `enemy_idle_row`/
 `idle_frames_for_enemy` (idle sheet) and `enemy_battle_row`/
 `enemy_battle_glyph` (battle sheet) - own dedicated functions per the
 same "every sheet needs its own row function" rule below, keyed by enemy
-name instead of class. Both sheets resized from 8 to 9 rows on 2026-09-08
-to fit the full roster in one pass.
+name instead of class. `enemy_battle.png` resized from 8 to 9 rows on
+2026-09-08 to fit the full roster in one pass, and is still one row per
+enemy. `enemy_idle.png` went 8→9 rows the same day, then 9→33 on
+2026-09-11 (4 rows per enemy - real directional movement) - see "Real
+directional movement animation" below for the full row layout.
 
 | Enemy | `enemy_idle_row` | `enemy_battle_row` |
 | --- | ---: | ---: |
@@ -212,6 +226,259 @@ back native 32×32.
 `Breathing_Idle` exists in the same zip but is deliberately unused per
 standing instruction (doesn't read well as a battle-portrait loop) —
 not wired into any row function, and not planned unless that changes.
+
+### 2026-09-11's full animation batch: Attack/Defend, every technique, Idle_Battle_Stance refresh
+
+The user delivered a much larger PixelLab export per class (all 5
+playable classes + Debug + all 8 enemies), covering `Attack`, `Defend`,
+`Death`, `Victory`, `Idle_Battle_Stance`, 4-directional `Walk`, 8-way
+static `rotations`, and a named animation for nearly every real battle
+Technique. This session ("ready now" phase only — see `docs/ideas.md`
+for the deferred out-of-combat Effect animations and directional-walking
+work) folded in:
+
+- **`character_battle.png` refreshed** with fresh `Idle_Battle_Stance`
+  art for every class, including Amazon (previously the only class with
+  no new art for this sheet — its export used a differently-named folder,
+  `Idle_Battle_Animation`, not `Idle_Battle_Stance` like every other
+  class; `components.rs`'s battle-row build script special-cases this by
+  folder name, not by adding a second row function).
+- **`character_technique.png` widened from 8 to 20 rows** (`TECHNIQUE_
+  ROWS`, row 3 still the sheet's one permanently forbidden row per its
+  9-column `32 / 9 == 3`) to fit a real animation for every remaining
+  technique at once, not just the original 6 classes' single AOE move
+  each. Current full row table:
+
+  | Row | Class | Technique |
+  | ---: | --- | --- |
+  | 0 | Rogue | Flurry |
+  | 1 | Hunter | Arrow Volley |
+  | 2 | Barbarian | Whirlwind |
+  | 3 | *(forbidden)* | — |
+  | 4 | Amazon | Javelin Volley |
+  | 5 | Mage | Blizzard |
+  | 6 | Barbarian | Deathblow |
+  | 7 | Barbarian | Quick Attack |
+  | 8 | Barbarian | Rend |
+  | 9 | Rogue | Dodge |
+  | 10 | Rogue | Garrote |
+  | 11 | Amazon | Battle Cry |
+  | 12 | Amazon | Poison Spear |
+  | 13 | Hunter | Feint |
+  | 14 | Hunter | Poison Shot |
+  | 15 | Hunter | Stun |
+  | 16 | Mage | Fireball |
+  | 17 | Mage | Burn |
+  | 18 | Barbarian | Counter Attack |
+  | 19 | *(unassigned — next free row)* | — |
+
+- **Two brand-new sheets, `character_attack.png` / `character_defend.png`**
+  (9 cols/`EXTRA_ANIM_COLS`, 8 rows, same row layout as `character_battle.png`:
+  Barbarian 0, Rogue 1, Amazon 2, row 3 forbidden, Hunter 4, Mage 5,
+  Debug 6, row 7 unassigned) — the generic basic-Attack/Defend one-shot
+  animations, replacing the old "just keep showing Idle_Battle_Stance"
+  behavior for those two actions. Row-lookup: `character_attack_row`/
+  `attack_animation_for_class` and `character_defend_row`/
+  `defend_animation_for_class`. New consoles `CHARACTER_ATTACK_CONSOLE`/
+  `CHARACTER_DEFEND_CONSOLE` (both plain, mirroring
+  `CHARACTER_TECHNIQUE_CONSOLE`'s own registration).
+- **A new enemy-side sheet, `enemy_attack.png`** (8 cols/`ENEMY_BATTLE_
+  COLS`, 9 rows, same row layout as `enemy_battle.png`) — enemies
+  previously had no one-shot-animation concept at all, only the looping
+  `battle_idle_frame` counter. Row-lookup: `enemy_attack_row`/
+  `attack_animation_for_enemy`. New console `ENEMY_ATTACK_CONSOLE` —
+  unlike the two character consoles above, this one is registered
+  **fancy**, not plain, so a 2+ enemy fight's fractional zigzag position
+  (`enemy_portrait_position`) still lines up correctly during an enemy's
+  own Attack animation (drawn via `draw_portrait_fancy`, same as
+  `ENEMY_BATTLE_WIGGLE_CONSOLE`'s own >1-enemy case) — nothing on this
+  console ever actually applies a wiggle/shake offset, it just needs
+  `set_fancy`'s fractional positioning.
+- **`Battle::player_technique_animation` renamed to `player_action_
+  animation`**, now shared by Attack/Defend/Technique since only one
+  ever plays per turn (mutually exclusive). Since the three now live on
+  three DIFFERENT sheets/consoles, a new sibling field, `Battle::
+  player_action_kind` (`PlayerActionKind::{Attack,Defend,Technique}`),
+  records which one a given glyph index resolves against — always set
+  and cleared together with `player_action_animation` itself
+  (`resolve_player_action`'s three action arms; cleared in
+  `dismiss_action_result`). `draw_battle_arena`'s top-tier match arm
+  switches on this to route the draw to the correct console. The enemy
+  side needs no equivalent tag — `EnemyCombatant::attack_animation` only
+  ever resolves against the one `enemy_attack.png` sheet.
+- **Two naming mismatches caught before they became silent no-ops**,
+  same class as the Javelin Volley one documented above: Amazon's
+  `Battle Cry` technique's art folder was named `War_Cry`, and Amazon's
+  export additionally used `Idle_Battle_Animation` instead of
+  `Idle_Battle_Stance` (noted above). Both matched by the real
+  `template.ron`/animation name in `components.rs`'s row functions, not
+  the zip's own folder name, per the user's explicit call to "use the
+  current names."
+- **A follow-up "v2" zip (delivered mid-session) filled 3 gaps** found
+  during the initial inventory: Barbarian was missing `Counter Attack`
+  (added as row 18 above), Hunter was missing `Shoot` (an out-of-combat
+  Effect animation, not a battle Technique — deliberately NOT wired into
+  `character_technique.png`, held for the deferred out-of-combat-
+  animation work), and Amazon was missing `Idle_Battle_Stance` entirely
+  (delivered as `Idle_Battle_Animation`, see above). The same v2 zip also
+  renamed Amazon's `Spear_Volley`/`War_Cry`/`Spear_Throw` folders to
+  `Javelin_Volley`/`Battle_Cry`/`Throw_Spear` respectively (matching the
+  real names directly, eliminating the two mismatches above going
+  forward — `technique_animation_row`'s doc comments no longer call them
+  out as mismatches for this reason).
+- **Still no enemy Death animations** — the user is working on these
+  separately, for **boss enemies only** (Goblin Chieftain, Orc Warlord,
+  Ogre Warlord, Ettin Overlord); the four basic enemies (Goblin, Orc,
+  Ogre, Ettin) will not get one. Tracked in `docs/ideas.md`.
+
+### Out-of-combat effect animations (`character_effect.png`)
+
+Added right after the batch above, same session: the 7 out-of-combat
+class Abilities (Ice Armor, Invisible Cloak, Stealth, Throw Spear, Trap,
+Freeze Trap, Shoot) had real PixelLab art sitting unused since technique
+animations only ever covered in-battle Techniques. This is the FIRST
+animation system that plays in the **dungeon view**, not the battle
+screen - a genuinely different rendering pipeline (see "Architecture"
+below).
+
+`character_effect.png` (9 cols/`EXTRA_ANIM_COLS`, 8 rows, row 3 the
+sheet's usual forbidden row) - one row per (class, ability) pair, `south`
+direction (these are used standing in the dungeon, not facing east like
+a battle stance):
+
+| Row | Class | Ability | Art folder |
+| ---: | --- | --- | --- |
+| 0 | Rogue | Stealth | `Vanish-Stealth` |
+| 1 | Amazon | Throw Spear | `Throw_Spear` |
+| 2 | Amazon | Trap | `Trap` |
+| 3 | *(forbidden)* | — | — |
+| 4 | Hunter | Freeze Trap | `Freeze_Trap` |
+| 5 | Hunter | Shoot | `Shoot` |
+| 6 | Mage | Ice Armor | `Ice_Armor` |
+| 7 | Mage | Invisible Cloak | `Cloak_of_Invisibility` |
+
+Row-lookup: `effect_animation_row`/`effect_animation_for` in
+`components.rs` - same compound-key shape as `technique_animation_row`,
+for the same reason: `ProvidesEffect::RangedStrike` alone covers BOTH
+Amazon's Throw Spear and Hunter's Shoot with completely different art,
+so the lookup is keyed by the real `template.ron` item name, not the
+effect variant.
+
+**Architecture** (this is the part that needed real design, not just a
+new sheet): a new component, `EffectAnimation(pub OneShotAnimation)`,
+gets attached to `activate.used_by` in `systems/use_items.rs` the moment
+one of these 7 effects actually applies (right where that function
+already reads the item's own `Name`/`Class` for stats recording - the
+exact same compound key `effect_animation_for` needs). A new system,
+`systems::animation::tick_effect_animation`, advances it every real frame
+and removes it via `CommandBuffer` once `OneShotAnimation::finished()` -
+a plain `#[system]` with an explicit query rather than
+`#[system(for_each)]` like `tick_idle_animation`, since this one needs a
+`CommandBuffer` to remove the component once done. `entity_render.rs`'s
+`idle_glyph`/`idle_sheet` - the two functions EVERY dungeon-view render
+path (plain/camera-scroll/glide, for both the plain ENTITY_CONSOLE tier
+and the CharacterIdle/EnemyIdle tiers) already funnels through - now
+check for an `EffectAnimation` FIRST, before ever looking at
+`IdleAnimation`, so no render path needed touching individually.
+
+A new `IdleSpriteSheet::CharacterEffect` variant routes to a new
+`CHARACTER_EFFECT_CONSOLE`/`_SCROLL_`/`_GLIDE_` trio in `main.rs`,
+registered immediately after `ENEMY_IDLE_GLIDE_CONSOLE` (still ahead of
+`HUD_CONSOLE`) - the same z-order tier as the `CHARACTER_IDLE_*`/
+`ENEMY_IDLE_*` trios, and for the same reason: this draws a real
+dungeon-view entity (the player), so it has to stay BELOW the HUD/
+Ability Bar layer, not paint over it. This was a genuine mid-chain
+insertion, not a safe append - every console constant from `HUD_CONSOLE`
+onward (23 of them) shifted up by 3. Registered in all three real
+gameplay schedulers (`build_input_scheduler`/`build_player_scheduler`/
+`build_monster_scheduler`) but deliberately NOT the title-background
+scheduler, since that decorative world's entities never run `use_items`.
+
+Verified with a **permanent** legion-access regression test (see
+CLAUDE.md's gotcha) - `systems::effect_animation_access_tests` executes
+`use_items` → `tick_effect_animation` → `entity_render` through a real
+`Schedule`, confirming both no `AccessDenied` panic and the real
+functional effect (using an item actually attaches and ticks a real
+`EffectAnimation`).
+
+### Real directional movement animation (`character_idle.png` / `enemy_idle.png` widened to 4 directions)
+
+Added right after the batch above, same session - fixes a real reported
+bug ("the player and enemies become static" while actually moving) AND
+adds real facing, using the 4-directional Walk art (`north`/`south`/
+`east`/`west`, 6 frames each) that's been sitting unused in every zip
+since the very first batch (the game had no concept of entity facing at
+all before this).
+
+**The bug, and why it was really a missing-feature, not a simple
+timing fix**: `systems/animation.rs`'s `tick_idle_animation` used to
+deliberately pause an entity's `IdleAnimation` for the whole duration of
+an in-flight `MovingAnimation` (glide), on the theory that "real movement
+already has its own animation." It didn't - `MovingAnimation` only ever
+tweened POSITION (`start`→`end` over `MOVE_ANIM_DURATION_MS`), there was
+never a real per-frame walk cycle under it. So every single step froze
+whichever pose the character happened to be on and just slid it across
+the screen. The fix removes that pause entirely - `tick_idle_animation`
+now advances continuously whether an entity is standing still or
+gliding, no longer even needs to look up `MovingAnimation` at all.
+
+**Sheets**: both `character_idle.png` and `enemy_idle.png` widened from
+1 row per class/enemy (south-only) to 4 (`South`/`North`/`East`/`West`),
+same 6-column/128px-cell layout as before - `character_idle.png` 8→25
+rows, `enemy_idle.png` 9→33 rows. Row 5 is still both sheets' one
+permanently forbidden row (`32 / 6 == 5`, unchanged - only the row count
+grew, not the column count), so whichever (class/enemy, direction) pair
+would naturally land there each needed moving to an appended row instead
+of the sequential 4-per-block layout everything else uses - the same
+"one exception, explicitly documented" shape this project has used for
+every previous forbidden-row collision:
+
+| Sheet | Class/enemy | Direction | Row (moved from) |
+| --- | --- | --- | --- |
+| `character_idle.png` | Rogue | North | 24 (would have been 5) |
+| `enemy_idle.png` | Orc | North | 32 (would have been 5) |
+
+Full row layout - both sheets use 4 sequential rows per class/enemy in
+existing roster order (Barbarian/Rogue/Amazon/Hunter/Mage/Debug;
+Goblin/Orc/Ogre/Ettin/Goblin Chieftain/Orc Warlord/Ogre Warlord/Ettin
+Overlord), `base = index * 4`, offset South=0/North=1/East=2/West=3,
+except the two exceptions in the table above.
+
+**Code**: a new `Direction` enum (`components.rs`, 4-way only - there's
+no diagonal movement in this game to derive an 8-way facing from) and
+`Direction::from_move(start, end)`, called once per committed move in
+`systems/movement.rs`. `character_idle_row`/`enemy_idle_row` both gained
+a `Direction` parameter; `character_idle_glyph`/`idle_frames_for_class`/
+`idle_frames_for_enemy` did too (the latter two default new entities to
+`Direction::South` at spawn time - matches this whole system's previous
+south-only-forever behavior exactly for anything that hasn't moved yet).
+Two new pure lookup functions, `character_idle_frames`/
+`enemy_idle_frames`, return just the frame-index `Vec` for a given
+(class/enemy, direction) pair - shared by the spawn-time builders above
+and by `movement.rs`, which REBUILDS an entity's `IdleAnimation.frames`
+in place every time it moves in a new direction, preserving
+`frame_index`/`elapsed_ms` so the walk cycle doesn't restart mid-stride
+just because it turned a corner. Runs for every mover, including
+`DecorativeOnly` title-background entities - no `GLIDE_CONSOLE`-paints-
+over-the-UI risk here (unlike `MovingAnimation`), just a frame-index
+rebuild.
+
+`IdleSpriteSheet`/`idle_glyph`/`idle_sheet` (`entity_render.rs`) needed
+NO changes for any of this - they already just read whatever's currently
+in `IdleAnimation.frames`, which is now direction-aware upstream.
+
+Out-of-combat effect animations (see above) stay south-only/undirected -
+these show a fixed ability-use pose regardless of which way the player
+last faced, which reads fine since using an item is a stationary action;
+not something this pass touched.
+
+Verified with a **permanent** legion-access regression test -
+`systems::movement::facing_access_tests` executes `movement` →
+`tick_idle_animation` through a real `Schedule`, confirming no
+`AccessDenied` panic AND the real functional effect (a north move
+rebuilds `IdleAnimation.frames` to the mover's own North row, with
+`frame_index` preserved, and a `MovingAnimation` glide still gets
+attached).
 
 ### Row assignments
 

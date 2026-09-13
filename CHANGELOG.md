@@ -5,6 +5,60 @@ rather than versioned, since the project doesn't use version numbers -
 see `docs/DEVLOG.md` for the detailed technical history and `docs/ideas.md`
 for what's planned next.
 
+## 2026-09-11
+
+### Added
+- **Every battle now has a full painted background** matching the
+  dungeon's theme (Forest, Dungeon, or Sewer) instead of a flat tinted
+  floor.
+- **Attack and Defend now play real animations**, instead of just
+  holding your battle stance.
+- **Every class's battle techniques now have a real animation** -
+  previously only one AOE move per class did; now nearly the whole
+  roster does.
+- **Enemies play a real attack animation when they hit you**, instead
+  of just their ordinary battle stance.
+- **All 7 out-of-combat abilities now play a real animation when used**:
+  Ice Armor, Invisible Cloak, Stealth, Throw Spear, Trap, Freeze Trap,
+  and Shoot.
+- **Characters and enemies now actually face and walk the direction
+  they're moving** (north/south/east/west), instead of only ever
+  walking in place facing one way.
+
+### Changed
+- Multi-enemy fights position enemies in a staggered formation instead
+  of a flat line, tuned per dungeon theme to clear its own background
+  art.
+- A combatant's hit-flash now lasts as long as their actual attack
+  animation, instead of cutting off partway through a longer swing.
+- A general art-quality pass across every animation added this update.
+
+### Fixed
+- **You'd only see the counter and the stairs while moving, not while
+  standing still** - a real camera regression, now fixed.
+- **Characters and enemies used to freeze in place for a moment on
+  every single step**, instead of visibly walking - fixed as part of
+  the new directional movement.
+- The title screen's background enemies used to appear frozen instead
+  of walking in place.
+- The camera could show a black void near map edges.
+
+## 2026-09-08
+
+### Added
+- **All 5 playable classes (and the hidden Debug class) now have real
+  animated art** - a walking loop, a battle-screen pose, and a still
+  portrait - replacing the old placeholder glyphs.
+- **All 8 enemies now have their own real animated art** too.
+- **Dungeon levels now have distinct visual themes** - Forest, Dungeon,
+  and Sewer - each with its own floor/wall art and color palette.
+- **Death and Victory now play a real animation for every class**,
+  instead of a generic rotated-glyph effect.
+
+### Fixed
+- A hidden Class Select shortcut could drop you into the wrong game
+  mode.
+
 ## 2026-09-07
 
 ### Added
@@ -15,6 +69,11 @@ for what's planned next.
   Map, and a few Healing Potions all at once.
 - **A shop between dungeon floors** - reach it via the stairs, spend
   your gold on Potions and Maps before heading to the next floor.
+- Real art for the 5 AOE techniques (Whirlwind, Blizzard, Flurry,
+  Javelin Volley, Arrow Volley) and the hidden Debug class's own
+  portrait/Defeat icons.
+- A small "x2"-style badge on Ability/Item/Battle Bar icons whenever
+  you're carrying more than one.
 
 ### Changed
 - Potions and Maps no longer litter dungeon floors at random - find
@@ -28,6 +87,8 @@ for what's planned next.
   visible, but completely walled off.
 - Standing next to an item in the new dungeon shop and pressing Enter
   could silently do nothing, even with enough gold.
+- The mouse tooltip could briefly point at the wrong tile right after
+  taking a step.
 
 ## 2026-09-06
 

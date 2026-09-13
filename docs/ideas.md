@@ -75,45 +75,28 @@ Roughly in the order they've come up:
    - **Visual projectiles for ranged techniques** (Arrow Volley, Javelin
      Volley, Blizzard) that travel from caster to target instead of only
      animating the caster in place.
-5. **Animation work** — everything still outstanding now that the user is
-   assembling a full new animation batch for every class and enemy. What
-   already shipped (idle/walk art for all 6 classes and 8 enemies, the
-   played-once Death/Victory/Technique framework, the title-screen fix)
-   lives in "Character & enemy animation" in Done below - full row-
-   mapping reference in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`,
-   session-by-session history in `docs/journal.md`, condensed standing
-   rules in `CLAUDE.md`. Still open:
-   - **Enemy attack animations to match the player's.** Only the
-     PLAYER's own techniques get a real played-once animation
-     (`character_technique.png`) - an enemy landing a hit still just
-     shows its ordinary Fight_Stance_Idle loop the whole time.
-   - **Enemy Death animations.** An enemy currently just vanishes the
-     instant it's killed - no animation at all, unlike the player's
-     Death pose. Needs its own sheet (`enemy_death.png`?) and a moment to
-     actually play it before removing the entity/awarding loot.
-   - **Redo Amazon's Walk animation** - flagged as needing a fresh
-     PixelLab pass, independent of the canvas-size/leftover-art bugs
-     already fixed for it in an earlier session.
+5. **Animation work** — what already shipped (idle/walk art for all 6
+   classes and 8 enemies, the played-once Death/Victory/Technique
+   framework, the title-screen fix, 2026-09-11's Attack/Defend/full-
+   technique-roster/enemy-attack batch, out-of-combat effect animations,
+   real directional movement, and 2026-09-13's full refresh - Victory
+   Stairs climb pose for all 6 classes, boss Death animations, Goblin's
+   walk fix, the Shopkeeper's first-ever animation) lives in "Character &
+   enemy animation" in Done below - full row-mapping reference in
+   `docs/Dungeon_Font_Glyph_to_Cell_Map.md`, session-by-session history
+   in `docs/journal.md`, condensed standing rules in `CLAUDE.md`. Still
+   open:
    - **Redo the enemy battle sprites** (`enemy_battle.png`, 9 rows) - a
      quality/style call, not a bug; the user isn't happy with how they
      look and wants another pass.
-   - **More animations per class/enemy** (Breathing_Idle, directional
-     rotations) - needs a facing-architecture design conversation first
-     for anything beyond `south` (the game has no concept of entity
-     facing at all today). Only a fraction of what each PixelLab zip
-     actually contains is in use so far.
-   - **Real moving animations, not just idle-in-place** - right now a
-     character/enemy plays its idle loop whether standing still or
-     actually walking between tiles; a genuine walk-cycle synced to
-     movement is separate, not-yet-built work. Could cover all
-     directions of movement, not just south, if needed - ties into the
-     same facing-architecture question above.
-   - **Animations for every ability, including out-of-combat ones** -
-     technique animations only exist for in-battle techniques today;
-     out-of-combat class Abilities have no animation at all. Needs real
-     animation-state-switching logic outside of battle (the dungeon view
-     only ever shows the walk/idle loop today) so an ability use can
-     briefly override it, not just more art.
+   - **8-way static `rotations`** - real 4-way movement facing now exists
+     (see "Character & enemy animation" in Done), but this game only ever
+     derives a cardinal `Direction` from a move, never a true 8-way
+     diagonal one (there's no diagonal movement to derive it from) -
+     `rotations`' 4 diagonal poses (`north-east`/`south-east`/
+     `south-west`/`north-west`) still sit completely unused. Not a
+     priority right now (2026-09-13) - revisit if a real use for it
+     comes up.
 6. **Music & sound effects** — no crate picked yet (`rodio` is the
    leading candidate, since bracket-lib has no built-in audio support).
    The `HitQueue` per-hit timing (`battle::damage::tick_hit_queue`,
@@ -238,13 +221,164 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-11. **Defeat and Victory screens need to be redone** (added 2026-09-11) —
-    not scoped yet, no design conversation has happened on what "redone"
-    means concretely (layout, new art, something else). They already have
-    real played-once Death/Victory animations (see "Character & enemy
-    animation" in Done), so this is about something beyond the animation
-    itself - worth a real design conversation before touching code, per
-    CLAUDE.md's convention for anything this size.
+11. **Defeat and Victory screens need to be redone** (added 2026-09-11,
+    scoped 2026-09-13, implemented 2026-09-13) — real background images
+    behind the played-once Death/Victory animations, the same "sourced
+    externally, one full painted scene" approach already proven for
+    Battle Arena's backgrounds (see "Battle arena backgrounds" in Done
+    below). Implemented on branch `enemy-death-victory-backgrounds`:
+    `components::VictoryBackground`/`DefeatBackground` pick a background
+    (+ for Victory, a matching pose) keyed to the run's own
+    `MapTheme::end_scene_theme()` (Forest/Dungeon/Sewer) or Arena, sharing
+    `resources/battle_backgrounds.png`'s existing padded 6x6 glyph grid
+    rather than any new console. Each dungeon theme randomly picks
+    between 2 Victory scenes; Defeat is one fixed scene per theme/mode,
+    no randomization. Full technical detail in `docs/journal.md`.
+    - **`VictoryPose::ClimbAway` now has a real animation** (delivered in
+      the 2026-09-13 full animation batch alongside the Attack/Defend/
+      Death/Idle_Battle_Stance/Walk/technique refresh for all 6 classes,
+      4 boss Death animations, Goblin's walk fix, and the Shopkeeper's
+      first-ever animation - see "Character & enemy animation" in Done
+      for the full writeup) - north-east-facing, new rows 8-13 on
+      `character_victory.png`.
+    - **The Amulet of Yala icon was removed from the Victory screen**
+      (2026-09-13, explicit user call) - it was a small flat dungeonfont
+      glyph designed for the old plain-fill background, and read as a
+      mismatched artifact next to these painted scenes. The body text
+      ("You put on the Amulet of Yala...") still carries that narrative
+      beat on its own; the actual in-dungeon Amulet item/pickup mechanic
+      is unaffected, only the End-screen icon is gone.
+    - **The hero's own position is now per-background**
+      (`VictoryBackground::portrait_grid_position`/`walk_away_position`,
+      components.rs) instead of one fixed spot for every scene - screenshot-
+      verified across every Victory variant as of 2026-09-13 (Arena,
+      Forest Stance, Dungeon Stance, Sewer Stance, Dungeon Corridor,
+      Sewer Walk all confirmed good). Forest Stairs needed one real fix
+      along the way: was row 4 (bottom), confirmed via screenshot sitting
+      directly on top of "Press Enter..." - moved to row 3, matching
+      every other foreground pose. The WalkAway pose (Dungeon Corridor/
+      Sewer Walk) also needed a real fix, not just positioning: it drew
+      at native 1x dungeon-tile size on a plain console and read as an
+      almost-invisible speck - switched to `CHARACTER_IDLE_GLIDE_CONSOLE`
+      (fancy, otherwise unused here) with a 4x `set_fancy` scale
+      (`VICTORY_WALK_AWAY_SCALE`), confirmed via screenshot afterward.
+      Defeat's fallen-portrait position stayed at its existing dead-center
+      spot - every Defeat scene is a roughly-symmetric "centered focal
+      point" composition, unlike Victory's much more varied set, so no
+      per-background variation seemed needed there.
+    - **A real Defeat-screen positioning bug found via user screenshot and
+      fixed (2026-09-13).** The death-animation branch of
+      `draw_end_screen_fallen_portrait` still had the OLD fixed col=1
+      left over from before the Amulet-of-Yala icon (which that offset
+      used to leave room for) was removed - a real screenshot of a Debug-
+      class Defeat on the Arena background showed the corpse sitting
+      well off the courtyard's own centered staircase. Fixed with a new
+      `DefeatBackground::portrait_grid_position` (currently the same
+      centered value for all four scenes, kept as an explicit per-variant
+      match for future flexibility).
+    - **The Defeat screen's own bottom text also needed fixing (2026-09-13,
+      confirmed via screenshot).** "Don't worry, you can always try again
+      with a new hero." is gone entirely - it wasn't earning its line, and
+      sat at a row the fallen portrait could overlap depending on the
+      active background. "Press Enter to return to the title screen."
+      now sits at row 60, matching Victory's own equivalent line (the two
+      screens used to put it in different places).
+    - **A text-legibility scrim was tried and reverted (2026-09-13).** A
+      real problem: on a bright background (Forest Stairs' own archway
+      light), the header/body text washed out completely, confirmed via
+      screenshot. Traced bracket-lib's actual shader source to confirm why
+      HUD_CONSOLE/BIG_TEXT_CONSOLE (both `_no_bg`) can't take a print-call
+      backing color at all (their shader discards near-transparent glyph
+      pixels outright, before `bg` ever matters), and added a translucent
+      dark band behind the text via a "fancy" console instead (whose
+      shader has no such discard, the same mechanism this project's own
+      transparent-background trick already relies on) - technically
+      correct, but the user disliked how it looked (a flat rectangle with
+      hard edges, out of place against painted art) and asked for it
+      gone until real UI art exists to do this properly - see item 14
+      below. Reverted; the underlying legibility problem is untouched
+      (still there on a bright-enough background) but accepted as a known
+      gap for now rather than shipping a placeholder that reads as a bug.
+    - **Every background is now clean - watermark-free (2026-09-13,
+      final pass).** The Dungeon theme needed the most regen attempts by
+      far: Victory Dungeon "Stance" (vault, atlas glyph 7) came back
+      watermarked three times in a row (a different mark each time)
+      before a 4th attempt finally landed clean; Victory Dungeon
+      "Corridor" (glyph 13) and Defeat Dungeon (glyph 9) each needed one
+      regen. Sewer and Forest needed only one regen each across their
+      Victory/Defeat art. All 11 backgrounds (7 Victory + 4 Defeat) are
+      composited into `resources/battle_backgrounds.png` and confirmed
+      watermark-free - nothing left on this front for this branch.
+12. **Ability Bar/other HUD panels should go transparent when the player
+    is underneath them** (added 2026-09-11) — a side effect of the camera
+    changes: the player can now end up positioned under the Ability
+    Bar/similar fixed UI panels, which currently just draw solid on top
+    of them. Needs a design pass (which panels, "transparent" vs. "hide
+    entirely," how to detect the player's screen-space position is
+    actually under a given panel's cells) before touching code.
+13. **The stairs and the shop counter still only render while the player
+    is moving, not while standing still** (added 2026-09-11) — same
+    SYMPTOM as an earlier session's real off-by-one bug (`Camera::
+    bottom_y` clipping the bottom map row while stationary, only
+    reappearing for the ~220ms of a glide via a different, bounds-check-
+    free render path - see journal.md), which was fixed and merged to
+    master. The user is reporting it's still happening (or happening
+    again), so treat this as a fresh investigation rather than assuming
+    the identical root cause - don't just re-apply the old fix without
+    confirming what's actually clipping this time (could be a related
+    but distinct off-by-one, e.g. a horizontal analogue, or a genuine
+    regression from a later camera-adjacent change).
+14. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
+    box border** (added 2026-09-13) — every box border in the game is
+    currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
+    draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
+    reused everywhere via that one shared helper:
+    - Item Menu screen (`screens/item_menu.rs`): Items/Battle Actions/
+      Equipped Items/Dungeon Actions list boxes, the Stats panel, the
+      shared description panel.
+    - Battle screen (`screens/battle.rs`): the battle log box, the
+      in-combat Battle Actions box.
+    - Pause screen (`screens/pause.rs`): the Hints box.
+    - Dungeon HUD (`systems/hud.rs`): the shop-item tooltip, and the
+      Item Bar/Ability Bar/Battle Bar frames.
+    - Separately, HP/ATB gauges use a plain `[####----]` text string
+      (`battle::hp_bar_string`, `battle/mod.rs:1225`), not this box
+      helper - a real health-bar graphic would replace that string
+      entirely rather than reuse draw_ascii_box.
+    - No hand-drawn border exists yet on end.rs/options.rs/stats_view.rs/
+      title.rs/chest.rs - plain text only, no boxed frames.
+
+    PixelLab's API (confirmed via its real OpenAPI spec, not just
+    marketing copy - `https://api.pixellab.ai/v2/openapi.json`) has a
+    dedicated UI-generation path, not just characters:
+    - `POST /generate-ui-v2` - single element from a text description
+      ("wooden inventory slot with metal corners"), optional
+      `color_palette`/`concept_image`/`seed`, 16px up to ~512x512.
+      Async: returns a `background_job_id`, poll `GET /background-
+      jobs/{id}` until `completed`.
+    - `POST /create-ui-asset` - a whole panel/window rather than one
+      piece - either a default full-canvas rounded-rect, an explicit
+      `pieces` layout (rects/circles/polygons with real coordinates), or
+      a named `elements` list (`button`, `icon_button`, `toolbar`, `tab`,
+      `panel`, `window`, `health_bar`, `avatar`, `triangle`/`pentagon`/
+      `hexagon`/`octagon`) that gets auto-positioned. Returns a
+      `ui_asset_id` + `background_job_id`; poll `GET /ui-assets/{id}`
+      for `image_url` once `status` is `completed`.
+    - Also `POST /generate-font-pro` for a fully custom pixel font, if a
+      matching custom font (not just terminal8x8.png) ever becomes worth
+      it alongside the new panel art.
+    - Base `https://api.pixellab.ai/v2`, Bearer token auth (from the
+      user's own pixellab.ai account page), Python SDK available
+      (`pip install pixellab`). Cost is per-call/credit-based - the
+      schema's own example shows ~$0.02 for a `generate-ui-v2` call.
+
+    Unlike the character-sheet workflow so far (generate on the
+    PixelLab web UI, zip, hand the zip to Claude), this is a real
+    polling REST API - once the user provides an API token (kept as a
+    local env var, never committed), the whole generate -> poll ->
+    download -> composite-into-a-real-sheet pipeline could be scripted
+    directly instead of a manual round trip. Not started - no token
+    provided yet, nothing generated.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -512,6 +646,20 @@ shop between levels → Victory. Real gold economy, separated stats
 tracking, its own shop map/UI.
 
 ## Title / meta screens
+- **Theme Select screen (2026-09-13)** — a new `TurnState::ThemeSelect`,
+  Debug-class-only and Dungeon-Crawl-only, reached from Class Select's
+  hidden 'D' shortcut instead of starting the run immediately. Lets the
+  user force every floor of the upcoming run onto one `MapTheme`
+  (Forest/Dungeon/Sewer, or Random for the normal per-floor roll) - a
+  testing convenience so a specific theme's Victory/Defeat art (see
+  "Defeat and Victory screens" above) can actually be reached without
+  repeatedly restarting runs. Same arrow-key + Enter centered-menu shape
+  every other title-flow screen already uses. The override is applied
+  inside `MapBuilder::new` itself (a new `forced_theme` parameter),
+  BEFORE tile-variant assignment runs - applying it after would have left
+  variants assigned under the wrong theme's own variant-style semantics.
+  Arena is unaffected (its Victory/Defeat backgrounds don't depend on
+  the dungeon theme at all).
 - Title screen, Class Select, Adventure Select — all now have arrow-key
   cursor navigation (yellow highlight + `►` pointer), alongside the
   number/letter-key shortcuts that already worked.
@@ -701,6 +849,10 @@ that a full new animation batch is being assembled.
     templates per level with zero code changes needed). Placeholder
     stats (hp 13/dmg 3/speed 4) deliberately sit between its two fellow
     bosses - not yet playtested live for balance.
+  - **Amazon's Walk redo (2026-09-08) also fixed a real defect** - held
+    back rather than shipped the same day it was first generated, same
+    call later made for Orc Warlord below; the regenerated batch came
+    back clean, confirmed by screenshot.
   - **Orc Warlord's redo (2026-09-08) fixed a real defect** - its first
     batch's Walk/Fight_Stance_Idle both came back as a genuine PixelLab
     generation defect (a thin off-model sliver, not a full character);
@@ -720,6 +872,184 @@ that a full new animation batch is being assembled.
   throttle. Verified with real screenshots 80ms apart showing a
   stationary enemy visibly cycle several poses before its next scheduled
   step.
+- **Attack/Defend animations, every remaining technique, enemy attack
+  animations, Idle_Battle_Stance refresh (2026-09-11, `new-animation-
+  batch` branch).** A much larger PixelLab export per class (all 5
+  playable classes + Debug + all 8 enemies) covering Attack, Defend,
+  Death, Victory, Idle_Battle_Stance, 4-directional Walk, 8-way
+  rotations, and a named animation for nearly every real battle
+  Technique. Shipped this pass ("ready now" - see "Animation work"
+  above for what's still deferred): two brand-new sheets,
+  `resources/character_attack.png`/`resources/character_defend.png`
+  (own consoles, `CHARACTER_ATTACK_CONSOLE`/`CHARACTER_DEFEND_CONSOLE`),
+  replacing the old "just keep showing Idle_Battle_Stance" behavior for
+  a plain Attack/Defend; `resources/character_technique.png` widened
+  from 8 to 20 rows to fit a real animation for every remaining
+  technique (18 rows populated, up from 5); a new enemy-side sheet,
+  `resources/enemy_attack.png` (`ENEMY_ATTACK_CONSOLE`, registered
+  fancy so a 2+ enemy fight's zigzag formation stays correct during an
+  enemy's own attack) - enemies previously had no one-shot-animation
+  concept at all; and a full `character_battle.png` Idle_Battle_Stance
+  refresh for every class, including Amazon (whose export used a
+  differently-named folder, `Idle_Battle_Animation`). `Battle::
+  player_technique_animation` renamed to `player_action_animation`,
+  now shared by Attack/Defend/Technique (mutually exclusive per turn),
+  with a new sibling `player_action_kind` field recording which of the
+  three separate sheets/consoles a glyph index resolves against. Full
+  row-mapping detail in `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s
+  "2026-09-11's full animation batch" section. A mid-session follow-up
+  "v2" zip filled 3 gaps found during the initial inventory (Barbarian's
+  Counter Attack, added as technique row 18; Amazon's missing
+  Idle_Battle_Stance; Hunter's Shoot, an out-of-combat Effect held for
+  the deferred work) and renamed Amazon's `Spear_Volley`/`War_Cry`/
+  `Spear_Throw` art folders to match their real `template.ron` names
+  (`Javelin_Volley`/`Battle_Cry`/`Throw_Spear`).
+- **Out-of-combat effect animations for all 7 class Abilities (2026-09-11,
+  `new-animation-batch` branch).** Ice Armor, Invisible Cloak, Stealth,
+  Throw Spear, Trap, Freeze Trap, and Shoot now play a real one-shot
+  animation in the DUNGEON VIEW - the first animation system in this
+  project that isn't the battle screen. New sheet
+  `resources/character_effect.png` (9 cols, 8 rows, one row per (class,
+  ability) pair - keyed by the real item name, not by `ProvidesEffect`
+  variant, since `RangedStrike` alone covers both Amazon's Throw Spear
+  and Hunter's Shoot with different art). New component `EffectAnimation`
+  gets attached the instant one of these 7 effects applies
+  (`systems/use_items.rs`) and ticks/clears itself
+  (`systems::animation::tick_effect_animation`); `entity_render.rs`'s
+  `idle_glyph`/`idle_sheet` - the two functions every dungeon-view render
+  path already funnels through - check for one before ever looking at the
+  ordinary `IdleAnimation` loop, so no render path needed touching
+  individually. New `CHARACTER_EFFECT_CONSOLE`/`_SCROLL_`/`_GLIDE_` trio
+  in `main.rs`, inserted (not appended - a real mid-chain shift, every
+  console from `HUD_CONSOLE` on moved up by 3) at the same z-order tier as
+  `CHARACTER_IDLE_CONSOLE`'s own trio, so it stays below the HUD/Ability
+  Bar. Verified with a permanent legion-access regression test (see
+  CLAUDE.md) rather than a remove-after-verifying one, matching
+  `hud_system_execution_tests`'s own precedent. Full detail in
+  `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Out-of-combat effect
+  animations" section. Still open: the movement-animation work (real
+  walk-cycle synced to actual movement, 4-directional facing) - see
+  "Animation work" above.
+- **Pixel-health floor fixed and applied retroactively to every sheet
+  built this session (2026-09-11).** The user flagged transparent pixels
+  in Hunter's animations, which turned out to be two separate real
+  findings from a full scan of all 1549 source frames (every class +
+  enemy, every animation, every direction, both original and v2 zips):
+  (1) source alpha was confirmed genuinely clean everywhere (strictly
+  binary 0/255, no anti-aliasing) - NOT the issue; (2) 6-12% of every
+  character's OPAQUE pixels were near-black, and the build script's
+  `center_crop_32` had never actually applied the near-black floor
+  CLAUDE.md's own PixelLab gotcha already called for, despite being used
+  for every sheet built this session - a real gap, not a one-off. Fixed
+  by adding `floor_pixels` (floors near-black opaque pixels to
+  RGB>=30/channel, and defensively forces transparent pixels' RGB to
+  true black) into the one function every frame already passes through,
+  then rebuilding and re-verifying (a full re-scan of all 10 rebuilt
+  sheets confirmed zero near-black-opaque and zero non-black-transparent
+  pixels) and re-copying all 10 into `resources/`: `character_battle.png`
+  /`_death`/`_victory`/`_technique`/`_attack`/`_defend`/`_effect.png`,
+  `enemy_battle`/`_attack`/`_idle.png`. Also separately caught and fixed
+  by the same defensive floor: Ettin Overlord specifically had ~4700
+  transparent pixels with leftover non-black RGB (the OTHER real risk
+  the near-black gotcha describes - a plain console's shader is a pure
+  RGB colorkey that never reads alpha, so this would have rendered as a
+  solid wrongly-opaque block on that enemy specifically). A third check
+  (enclosed transparent "holes" not connected to the frame border) found
+  real holes in ~39% of frames but mostly legitimate negative space, not
+  defects - deliberately NOT auto-fixed, see the open item above.
+- **Real directional movement animation, and the "becomes static while
+  moving" bug fixed (2026-09-11, `new-animation-batch` branch).** The
+  player and enemies used to freeze their pose for the entire ~220ms of
+  every glide between tiles - `MovingAnimation` only ever tweened
+  position, there was never a real per-frame walk cycle under it, and
+  `tick_idle_animation` deliberately paused during a glide on the
+  (wrong) assumption that movement already had its own animation. Fixed
+  by removing that pause - `IdleAnimation` now advances continuously
+  whether an entity is standing still or mid-glide - and by finally
+  wiring up the 4-directional Walk art (`north`/`south`/`east`/`west`)
+  that's been sitting unused in every zip since the very first batch: a
+  new `Direction` enum (4-way only - no diagonal movement exists to
+  derive an 8-way facing from), computed once per committed move in
+  `systems/movement.rs` via `Direction::from_move`, which rebuilds the
+  mover's `IdleAnimation.frames` in place for the new facing (preserving
+  `frame_index`/`elapsed_ms`, so a walk cycle doesn't restart mid-stride
+  on a turn). `resources/character_idle.png`/`enemy_idle.png` both
+  widened from 1 row per class/enemy to 4 (25/33 rows respectively,
+  same forbidden-row-exception shape as every other sheet this project
+  has widened). Runs for the player, every real dungeon enemy, AND the
+  title-background's decorative wandering enemies alike - no separate
+  code path needed since `entity_render.rs`'s `idle_glyph`/`idle_sheet`
+  already just read whatever's currently in `IdleAnimation.frames`.
+  Verified with a permanent legion-access regression test
+  (`systems::movement::facing_access_tests`). Full detail in
+  `docs/Dungeon_Font_Glyph_to_Cell_Map.md`'s "Real directional movement
+  animation" section. Out-of-combat effect animations stay south-only/
+  undirected, unaffected by this - a stationary ability-use pose doesn't
+  need facing.
+- **`Breathing_Idle` closed, not deferred (2026-09-13).** Was originally
+  set aside as unused per standing instruction (didn't read well as a
+  battle-portrait loop) - now confirmed not needed at all, since
+  `Idle_Battle_Stance` already covers that same real animated loop.
+- **Enclosed-transparent-region "hole" review closed, not deferred
+  (2026-09-13).** 2026-09-11's flood-fill scan found real holes in ~39%
+  of frames but a spot check judged most legitimate negative space
+  rather than defects - decided that's good enough as shipped, no
+  further human pass needed.
+- **Full animation refresh batch (2026-09-13, `enemy-death-victory-
+  backgrounds` branch): Victory Stairs climb pose, boss Death
+  animations, Goblin's walk fix, Shopkeeper's first-ever animation.**
+  12 zips (all 6 player classes, the 4 bosses, Goblin, Shopkeeper), each
+  with the usual per-frame canvas-size drift (40x40/44x44/48x48 despite
+  metadata.json's declared 32x32) needing the standard center-crop-32 +
+  near-black-floor pipeline, and several PixelLab auto-generated-caption
+  folder names needing remapping (3 of 4 boss Death folders, 4 of 6
+  player climb-pose folders, confirmed by actually opening frames and
+  checking the motion rather than trusting the caption text alone).
+  - **Victory Stairs / `VictoryPose::ClimbAway`** - a real north-east-
+    facing "climbing away" animation for all 6 classes, added as a new
+    row block (8-13) on `character_victory.png` rather than a separate
+    sheet - the same "grow the sheet" convention `character_idle.png`
+    used for 4-directional Walk. Wired into the `ClimbAway` pose slot
+    that had been falling back to the ordinary face-camera animation
+    since the Victory/Defeat backgrounds work shipped.
+  - **Boss Death animations** - new `enemy_death.png` sheet (south-west
+    facing, matching `enemy_battle.png`'s own orientation), one row per
+    boss (Orc Warlord, Ogre Warlord, Ettin Overlord, Goblin Chieftain).
+    Wiring this into `record_enemy_kill` (screens/battle.rs) turned into
+    a real design decision: keeping a "dying" enemy inside `battle.
+    enemies` until its animation finished would have meant auditing
+    every ATB-gauge-fill/targeting loop that iterates it (several call
+    sites, plus the headless class-survivability simulation's own copy
+    of the battle loop) for a "still dying, skip it" guard. Instead, the
+    animation is a **new independent `Battle::dying_effects` list** -
+    rewards/removal/the fight-over check all still happen exactly when
+    they did before, and the death animation plays as a pure decorative
+    overlay ticked/drawn every `battle_tick` frame, dropped once
+    finished. The one real consequence: if the LAST enemy in a fight has
+    a death animation, the Victory screen still appears on the old
+    timing and the overlay simply gets cut short by that transition,
+    same as every other in-flight battle effect (flash, wiggle, popup)
+    already does - confirmed safe by rerunning both the normal test
+    suite and the headless `class_survivability_report`/
+    `arena_class_survivability_report` simulations (still 0/10 full-run
+    wins, unchanged - see "Overall balance pass" above, this didn't
+    touch balance).
+  - **Goblin's walk redo** - fixed the spear-reads-as-a-helmet look from
+    the original art; new 4-directional Walk rows on `enemy_idle.png`,
+    same 9-sampled-to-6-frames convention as Orc Warlord's own earlier
+    redo. Nothing else about Goblin touched.
+  - **Shopkeeper's first-ever animation** - new dedicated
+    `shopkeeper_idle.png` sheet/console trio (`SHOPKEEPER_IDLE_CONSOLE`/
+    `_SCROLL_`/`_GLIDE_`, same plain/fancy/fancy shape as
+    `CHARACTER_IDLE_CONSOLE`'s own trio) plays `Idle_Selling` as its
+    permanent standing loop wherever it's drawn (dungeon shop + Arena
+    shop), replacing the old static 'W' glyph. A new `IdleSpriteSheet::
+    Shopkeeper` variant reuses the existing `IdleAnimation`/
+    `tick_idle_animation` machinery outright rather than a bespoke
+    component - the Shopkeeper never moves or turns, so none of the
+    facing-rebuild logic that exists for player/enemy entities ever
+    triggers for it. `Walk`/`Breathing_Idle` from the same zip went
+    unused per explicit instruction (it never moves).
 
 ## Sprite art
 - Full character portraits and all 18 ability icons across all 5
