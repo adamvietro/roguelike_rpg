@@ -61,7 +61,9 @@ mod prelude {
     // ENEMY_BATTLE_WIGGLE_CONSOLE, 35 CHARACTER_DEATH_CONSOLE, 36
     // CHARACTER_VICTORY_CONSOLE, 37 CHARACTER_TECHNIQUE_CONSOLE, 38
     // CHARACTER_ATTACK_CONSOLE, 39 CHARACTER_DEFEND_CONSOLE, 40
-    // ENEMY_ATTACK_CONSOLE.
+    // ENEMY_ATTACK_CONSOLE, 41 ENEMY_DEATH_CONSOLE, 42
+    // SHOPKEEPER_IDLE_CONSOLE, 43 SHOPKEEPER_IDLE_SCROLL_CONSOLE, 44
+    // SHOPKEEPER_IDLE_GLIDE_CONSOLE.
     //
     // NOTE: the verbose per-console doc comments below this point were
     // NOT individually rewritten for this shift - many still narrate
@@ -397,6 +399,18 @@ mod prelude {
     /// available on a fancy console (positions there aren't snapped to a
     /// grid the way draw_portrait's are).
     pub const END_SCREEN_FALLEN_SCALE: f32 = 6.0;
+    /// Same idea as END_SCREEN_FALLEN_SCALE above, for VictoryPose::
+    /// WalkAway (screens/end.rs::draw_end_screen_portrait) - that pose
+    /// used to draw at native 1x dungeon-tile size (via the plain
+    /// CHARACTER_IDLE_CONSOLE), which read as a barely-visible speck
+    /// against a full 1280x800 painted scene (real user screenshot,
+    /// 2026-09-13). Switched to CHARACTER_IDLE_GLIDE_CONSOLE (already
+    /// registered fancy, otherwise idle during this screen) purely to
+    /// get set_fancy's scale parameter - smaller than END_SCREEN_FALLEN_
+    /// SCALE on purpose, since this pose is meant to read as walking
+    /// away/receding into the scene, not a big dead-center portrait like
+    /// every FaceCamera/ClimbAway pose.
+    pub const VICTORY_WALK_AWAY_SCALE: f32 = 4.0;
     /// Console 17 (was console 7, then 9, then 12): a second "fancy console", same
     /// DISPLAY_WIDTH x DISPLAY_HEIGHT grid/32x32px cells as console
     /// 0/1/8. Used by entity_render (systems/entity_render.rs) to draw
@@ -668,6 +682,32 @@ mod prelude {
     /// ENEMY_BATTLE_WIGGLE_CONSOLE is fancy, even though nothing on this
     /// particular console ever applies an actual wiggle/shake offset.
     pub const ENEMY_ATTACK_CONSOLE: usize = 40;
+    /// Console 37: a FANCY console (same reasoning as ENEMY_ATTACK_
+    /// CONSOLE just above - a boss's death animation plays at its own
+    /// zigzag-formation position, which needs set_fancy's fractional
+    /// positioning), same coarse grid, sourced from a new sheet,
+    /// `resources/enemy_death.png` (components::death_animation_for_enemy
+    /// / EnemyCombatant::death_animation, 2026-09-13). Appended at the
+    /// very end rather than inserted early - a battle-screen-only console
+    /// has no dungeon HUD to stay under, same reasoning ENEMY_ATTACK_
+    /// CONSOLE/CHARACTER_BATTLE_CONSOLE were simply appended too.
+    pub const ENEMY_DEATH_CONSOLE: usize = 41;
+    /// Consoles 42/43/44: the Shopkeeper's own dungeon-view trio (added
+    /// 2026-09-13), same plain/scroll/glide shape as CHARACTER_IDLE_
+    /// CONSOLE/ENEMY_IDLE_CONSOLE/CHARACTER_EFFECT_CONSOLE's own trios
+    /// just above (see IdleSpriteSheet::Shopkeeper's own doc comment for
+    /// why this needs a dedicated sheet rather than more rows on either
+    /// of those). Appended at the end rather than inserted early - unlike
+    /// those three, this is a single always-decorative NPC, not something
+    /// any earlier console in the chain draws over or needs to stay under
+    /// (the Shopkeeper was already rendering on the low-z-order ENTITY_
+    /// CONSOLE trio before this, same slot every other undecorated
+    /// dungeon-view entity uses); appending is simpler and there's
+    /// nothing here that requires the lower slot the trio-pattern
+    /// consoles above needed.
+    pub const SHOPKEEPER_IDLE_CONSOLE: usize = 42;
+    pub const SHOPKEEPER_IDLE_SCROLL_CONSOLE: usize = 43;
+    pub const SHOPKEEPER_IDLE_GLIDE_CONSOLE: usize = 44;
     pub use crate::arena::*;
     pub use crate::battle::*;
     pub use crate::camera::*;
@@ -739,6 +779,18 @@ struct State {
     /// - see screens/title.rs::class_select. Reset the same way as
     /// adventure_select_cursor above.
     class_select_cursor: usize,
+    /// Cursor row for Theme Select's arrow-key navigation (0..ThemeChoice
+    /// ::ALL.len()) - see screens/title.rs::theme_select and
+    /// TurnState::ThemeSelect. Reset the same way as
+    /// adventure_select_cursor/class_select_cursor above.
+    theme_select_cursor: usize,
+    /// The theme Theme Select confirmed for the upcoming Debug run (see
+    /// TurnState::ThemeSelect) - `ThemeChoice::Random` for every other
+    /// class, since only that screen ever sets this to anything else.
+    /// Consumed and reset back to `Random` by start_game the instant it's
+    /// read, so a later ordinary (non-Debug) run can never inherit a
+    /// stale forced theme.
+    pending_theme_choice: ThemeChoice,
     /// Which idle-loop frame the currently-highlighted class's preview is
     /// showing, and how long it's been showing it - see
     /// screens/title.rs::class_select. Plain State fields rather than a
@@ -858,6 +910,32 @@ struct State {
     /// can include many in-battle victories but only ever reaches this
     /// specific run-ending screen once).
     victory_animation: Option<OneShotAnimation>,
+    /// Which painted backdrop (and, via its `pose()`, which of the
+    /// player's own animations) this run's Victory screen is showing -
+    /// see components::VictoryBackground. Built once the instant Victory
+    /// is entered (Arena's is fixed; Dungeon Crawl's is randomized - see
+    /// VictoryBackground::random_dungeon), then left alone for the rest
+    /// of that screen so it doesn't re-randomize every frame. Reset to
+    /// `None` only by return_to_title, same lifecycle as death_animation/
+    /// victory_animation above.
+    victory_background: Option<VictoryBackground>,
+    /// The WalkAway pose's own looping animation (see
+    /// components::victory_walk_away_animation) - kept separate from
+    /// victory_animation above since the two poses read from different
+    /// sheets/consoles (character_victory.png vs. character_idle.png) and
+    /// can't share one Option field. Only ever built when
+    /// victory_background's pose() resolves to VictoryPose::WalkAway;
+    /// same "built once, ticked every frame, reset by return_to_title"
+    /// lifecycle otherwise.
+    victory_walk_animation: Option<OneShotAnimation>,
+    /// The ClimbAway pose's own played-once animation (see
+    /// components::victory_climb_animation_for_class) - kept separate
+    /// from victory_walk_animation above for the identical reason that
+    /// one is separate from victory_animation: a different row block on
+    /// character_victory.png, built/reset the same lifecycle way. Only
+    /// ever built when victory_background's pose() resolves to
+    /// VictoryPose::ClimbAway.
+    victory_climb_animation: Option<OneShotAnimation>,
 }
 
 /// How long Enter must be continuously absent before pending_enter_release
@@ -968,6 +1046,8 @@ impl State {
             adventure_mode: AdventureMode::DungeonCrawl,
             adventure_select_cursor: 0,
             class_select_cursor: 0,
+            theme_select_cursor: 0,
+            pending_theme_choice: ThemeChoice::Random,
             class_select_anim_frame: 0,
             class_select_anim_elapsed_ms: 0.0,
             options_cursor: 0,
@@ -981,6 +1061,9 @@ impl State {
             mouse_left_was_down: false,
             death_animation: None,
             victory_animation: None,
+            victory_background: None,
+            victory_walk_animation: None,
+            victory_climb_animation: None,
         };
         state.spawn_title_background();
         state
@@ -992,10 +1075,16 @@ impl State {
     /// over. Replaces the old reset_game_state, which always hardcoded
     /// "Barbarian" at spawn_player instead of taking a chosen class.
     fn start_game(&mut self, class: &str) {
+        // Consumed and reset immediately - see pending_theme_choice's own
+        // doc comment on State for why (a later ordinary run must never
+        // inherit a stale forced theme from an earlier Debug one).
+        let theme_choice = self.pending_theme_choice;
+        self.pending_theme_choice = ThemeChoice::Random;
+
         self.ecs = World::default();
         self.resources = Resources::default();
         let mut rng = RandomNumberGenerator::new();
-        let mut map_builder = MapBuilder::new(&mut rng);
+        let mut map_builder = MapBuilder::new(&mut rng, theme_choice.theme());
         let player = spawn_player(&mut self.ecs, map_builder.player_start, class);
         grant_starting_items(&mut self.ecs, player, class);
         // Dungeon Crawl now earns gold too (enemy kills, a guaranteed
@@ -1039,6 +1128,10 @@ impl State {
         self.resources.insert(None::<ShoppingActive>);
         self.resources.insert(None::<ShopMessage>);
         self.resources.insert(None::<ChestLoot>);
+        // So advance_level's own MapBuilder::new call (each later floor)
+        // can keep forcing the same theme this run started with - see
+        // pending_theme_choice's own doc comment on State.
+        self.resources.insert(theme_choice);
 
         // Counts as "this class was chosen" the instant a run actually
         // begins, regardless of how it later ends (won, lost, or
@@ -1171,13 +1264,16 @@ impl State {
         cb.flush(&mut self.ecs);
 
         // Shopkeeper - purely decorative for now (no dialogue/trade
-        // logic, the items themselves are what's interactive). Glyph
-        // 'W' was picked because it's the one letter glyph documented as
-        // "free and unassigned" in Dungeon_Font_Glyph_to_Cell_Map.md -
-        // every other letter already has real custom art for a class,
-        // enemy, or boss. Renders as a plain default 'W' until a future
-        // art pass draws real shopkeeper pixel art into that cell (row
-        // 5, col 7 - see the master map).
+        // logic, the items themselves are what's interactive). The
+        // plain 'W' Render glyph below is now only a fallback (used if
+        // idle_glyph/idle_sheet ever find no IdleAnimation, which
+        // shouldn't happen here) - real PixelLab art (2026-09-13) plays
+        // instead via the IdleAnimation component, its own dedicated
+        // Idle_Selling loop on resources/shopkeeper_idle.png (see
+        // components::idle_frames_for_shopkeeper). Built once here and
+        // never rebuilt afterward - unlike a player/enemy's IdleAnimation,
+        // this entity never moves, so nothing ever needs to rebuild
+        // `frames` for a facing change.
         self.ecs.push((
             Name("Shopkeeper".to_string()),
             shopkeeper_point,
@@ -1185,6 +1281,7 @@ impl State {
                 color: ColorPair::new(YELLOW, BLACK),
                 glyph: to_cp437('W'),
             },
+            idle_frames_for_shopkeeper(),
         ));
 
         self.spawn_arena_shop_items(items, &item_points);
@@ -1526,6 +1623,8 @@ impl State {
         self.adventure_mode = AdventureMode::DungeonCrawl;
         self.adventure_select_cursor = 0;
         self.class_select_cursor = 0;
+        self.theme_select_cursor = 0;
+        self.pending_theme_choice = ThemeChoice::Random;
         self.pending_enter_release = false;
         self.enter_not_held_ms = 0.0;
         self.item_menu_cursor = MenuCursor::new();
@@ -1533,6 +1632,9 @@ impl State {
         self.pause_hint_index = 0;
         self.death_animation = None;
         self.victory_animation = None;
+        self.victory_background = None;
+        self.victory_walk_animation = None;
+        self.victory_climb_animation = None;
         self.pause_hint_timer_ms = 0.0;
 
         let mut stats = Stats::load();
@@ -1597,7 +1699,12 @@ impl State {
             .for_each(|fov| fov.is_dirty = true);
 
         let mut rng = RandomNumberGenerator::new();
-        let mut map_builder = MapBuilder::new(&mut rng);
+        // Keeps forcing whatever theme this run started with (see
+        // pending_theme_choice's own doc comment on State/start_game) -
+        // ThemeChoice::Random for every non-Debug run, unchanged
+        // behavior.
+        let theme_choice = *self.resources.get::<ThemeChoice>().unwrap();
+        let mut map_builder = MapBuilder::new(&mut rng, theme_choice.theme());
         let mut map_level = 0;
         <(&mut Player, &mut Point)>::query()
             .iter_mut(&mut self.ecs)
@@ -1746,6 +1853,14 @@ impl GameState for State {
         ctx.cls();
         ctx.set_active_console(ENEMY_ATTACK_CONSOLE);
         ctx.cls();
+        ctx.set_active_console(ENEMY_DEATH_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(SHOPKEEPER_IDLE_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(SHOPKEEPER_IDLE_SCROLL_CONSOLE);
+        ctx.cls();
+        ctx.set_active_console(SHOPKEEPER_IDLE_GLIDE_CONSOLE);
+        ctx.cls();
         // See pending_enter_release's own doc comment on State for why
         // this is a debounced "continuously absent for
         // ENTER_RELEASE_DEBOUNCE_MS" check, not a plain "not held this
@@ -1784,6 +1899,9 @@ impl GameState for State {
             }
             TurnState::ClassSelect => {
                 self.class_select(ctx);
+            }
+            TurnState::ThemeSelect => {
+                self.theme_select(ctx);
             }
             TurnState::AwaitingInput => self
                 .input_systems
@@ -1869,6 +1987,8 @@ fn main() -> BError {
         .with_font("character_attack.png", 32, 32)
         .with_font("character_defend.png", 32, 32)
         .with_font("enemy_attack.png", 32, 32)
+        .with_font("enemy_death.png", 32, 32)
+        .with_font("shopkeeper_idle.png", 128, 128)
         .with_font("character_effect.png", 32, 32)
         .with_font("map_tiles.png", 32, 32)
         .with_font("battle_backgrounds.png", 1280, 800)
@@ -2111,6 +2231,21 @@ fn main() -> BError {
             BATTLE_PORTRAIT_ROWS,
             "enemy_attack.png",
         )
+        // Console 37 (ENEMY_DEATH_CONSOLE): a FANCY console, same coarse
+        // grid, sourced from enemy_death.png - see its own doc comment
+        // above.
+        .with_fancy_console(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "enemy_death.png",
+        )
+        // Consoles 42/43/44 (SHOPKEEPER_IDLE_CONSOLE/_SCROLL_/_GLIDE_):
+        // same plain/fancy/fancy trio shape as character_idle.png's own
+        // three consoles above, sourced from shopkeeper_idle.png - see
+        // that const's own doc comment in the prelude module.
+        .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
         .with_vsync(false)
         .build()?;
 

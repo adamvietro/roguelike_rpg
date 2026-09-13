@@ -214,6 +214,7 @@ impl State {
     fn draw_battle_arena(
         &mut self,
         enemies: &[EnemyPortrait],
+        dying_effects: &[DyingEnemyEffect],
         player_render: Option<Render>,
         player_flash: Option<(FlashKind, f32)>,
         player_class: Option<String>,
@@ -376,6 +377,19 @@ impl State {
         // though nothing here ever applies an actual wiggle offset to it.
         let mut enemy_attack = DrawBatch::new();
         enemy_attack.target(ENEMY_ATTACK_CONSOLE);
+        // Any boss corpses still playing their death animation (see
+        // Battle::dying_effects) - drawn at their own frozen snapshot
+        // position/color from the moment they died, entirely independent
+        // of the live `enemies`/`enemy_count` formation loop below.
+        let mut enemy_death = DrawBatch::new();
+        enemy_death.target(ENEMY_DEATH_CONSOLE);
+        for effect in dying_effects {
+            let tinted = Render {
+                color: effect.color,
+                glyph: effect.animation.current_glyph(),
+            };
+            draw_portrait_fancy(&mut enemy_death, effect.col, effect.row, tinted);
+        }
         let enemy_count = enemies.len();
         // See MapTheme::enemy_formation_rows' own doc comment - how far
         // up the screen this theme's own battle backdrop art lets the
@@ -515,6 +529,7 @@ impl State {
         attack.submit(9).expect("Batch error");
         defend.submit(10).expect("Batch error");
         enemy_attack.submit(11).expect("Batch error");
+        enemy_death.submit(12).expect("Batch error");
     }
 
     /// Records one enemy's death: stats, loot/gold (accumulated onto
@@ -576,6 +591,36 @@ impl State {
         };
         if let Some(item) = loot {
             battle.loot_found.push(item);
+        }
+
+        // A boss's own death animation (see components::
+        // death_animation_for_enemy - `None` for a basic enemy, which
+        // still just vanishes below exactly as before) - captured here,
+        // BEFORE removal, as a pure decorative Battle::dying_effects
+        // entry rather than delaying anything below it. See that field's
+        // own doc comment for why this doesn't block rewards/removal/the
+        // fight-over check the way keeping the enemy "alive" in
+        // `battle.enemies` until the animation finished would have.
+        if let Some(animation) = death_animation_for_enemy(&target_name) {
+            let color = entity_render_component(&self.ecs, target)
+                .map(|r| r.color)
+                .unwrap_or(ColorPair::new(WHITE, BLACK));
+            let index = battle.enemies.iter().position(|e| e.entity == target);
+            if let Some(index) = index {
+                let formation_rows = self
+                    .resources
+                    .get::<Box<dyn MapTheme>>()
+                    .unwrap()
+                    .enemy_formation_rows();
+                let (col, row) =
+                    enemy_portrait_position(battle.enemies.len(), index, formation_rows);
+                battle.dying_effects.push(DyingEnemyEffect {
+                    col,
+                    row,
+                    color,
+                    animation,
+                });
+            }
         }
 
         let mut cb = CommandBuffer::new(&mut self.ecs);
@@ -961,6 +1006,18 @@ impl State {
             }
         }
 
+        // Any boss corpses still playing their death animation (see
+        // Battle::dying_effects) - ticked unconditionally like every
+        // other in-flight effect above, dropped the frame each one
+        // finishes (OneShotAnimation::finished(), repeat: false) rather
+        // than lingering held on its last frame forever.
+        for effect in battle.dying_effects.iter_mut() {
+            effect.animation.tick(ctx.frame_time_ms);
+        }
+        battle
+            .dying_effects
+            .retain(|effect| !effect.animation.finished());
+
         // A multi-hit technique (MultiHit/AoeMultiHit) still has hits
         // waiting to land one at a time - see battle::damage::HitQueue.
         // Ticked unconditionally, same as the flash/popup timers just
@@ -1080,6 +1137,7 @@ impl State {
             .map(OneShotAnimation::current_glyph);
         self.draw_battle_arena(
             &enemy_portraits,
+            &battle.dying_effects,
             player_render,
             battle.player_flash,
             player_class,
@@ -1714,6 +1772,7 @@ impl State {
         let player_render = entity_render_component(&self.ecs, victory.player);
         let player_class = entity_class(&self.ecs, victory.player);
         self.draw_battle_arena(
+            &[],
             &[],
             player_render,
             None,

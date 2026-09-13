@@ -66,6 +66,10 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             enemy_glide_batch.target(ENEMY_IDLE_GLIDE_CONSOLE);
             let mut effect_glide_batch = DrawBatch::new();
             effect_glide_batch.target(CHARACTER_EFFECT_GLIDE_CONSOLE);
+            let mut shopkeeper_batch = DrawBatch::new();
+            shopkeeper_batch.target(SHOPKEEPER_IDLE_CONSOLE);
+            let mut shopkeeper_glide_batch = DrawBatch::new();
+            shopkeeper_glide_batch.target(SHOPKEEPER_IDLE_GLIDE_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -81,6 +85,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                                 IdleSpriteSheet::CharacterIdle => &mut character_glide_batch,
                                 IdleSpriteSheet::EnemyIdle => &mut enemy_glide_batch,
                                 IdleSpriteSheet::CharacterEffect => &mut effect_glide_batch,
+                                IdleSpriteSheet::Shopkeeper => &mut shopkeeper_glide_batch,
                             };
                             draw_glyph_fancy(
                                 batch,
@@ -103,6 +108,9 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                             IdleSpriteSheet::CharacterEffect => {
                                 effect_batch.set(*pos - offset, color, glyph);
                             }
+                            IdleSpriteSheet::Shopkeeper => {
+                                shopkeeper_batch.set(*pos - offset, color, glyph);
+                            }
                         },
                     }
                 });
@@ -115,6 +123,8 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             character_glide_batch.submit(5150).expect("Batch error");
             enemy_glide_batch.submit(5175).expect("Batch error");
             effect_glide_batch.submit(5180).expect("Batch error");
+            shopkeeper_batch.submit(5085).expect("Batch error");
+            shopkeeper_glide_batch.submit(5185).expect("Batch error");
         }
         Some((ox, oy)) => {
             // The camera itself is panning - the player is mid-glide
@@ -143,6 +153,8 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             enemy_scroll_batch.target(ENEMY_IDLE_SCROLL_CONSOLE);
             let mut effect_scroll_batch = DrawBatch::new();
             effect_scroll_batch.target(CHARACTER_EFFECT_SCROLL_CONSOLE);
+            let mut shopkeeper_scroll_batch = DrawBatch::new();
+            shopkeeper_scroll_batch.target(SHOPKEEPER_IDLE_SCROLL_CONSOLE);
 
             renderables
                 .iter(ecs)
@@ -157,6 +169,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
                         IdleSpriteSheet::CharacterIdle => &mut character_scroll_batch,
                         IdleSpriteSheet::EnemyIdle => &mut enemy_scroll_batch,
                         IdleSpriteSheet::CharacterEffect => &mut effect_scroll_batch,
+                        IdleSpriteSheet::Shopkeeper => &mut shopkeeper_scroll_batch,
                     };
                     draw_glyph_fancy(batch, fx - ox, fy - oy, color, glyph);
                 });
@@ -165,6 +178,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
             character_scroll_batch.submit(5050).expect("Batch error");
             enemy_scroll_batch.submit(5075).expect("Batch error");
             effect_scroll_batch.submit(5080).expect("Batch error");
+            shopkeeper_scroll_batch.submit(5085).expect("Batch error");
         }
     }
 }

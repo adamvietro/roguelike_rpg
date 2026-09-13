@@ -865,6 +865,20 @@ pub enum IdleSpriteSheet {
     /// frame's glyph index belong to" question every other variant here
     /// answers.
     CharacterEffect,
+    /// `resources/shopkeeper_idle.png`'s own console trio
+    /// (SHOPKEEPER_IDLE_CONSOLE/_SCROLL_/_GLIDE_) - added 2026-09-13 so
+    /// the Shopkeeper always plays its real `Idle_Selling` loop instead
+    /// of a static glyph. Its own dedicated sheet/lookup domain rather
+    /// than more rows on CharacterIdle/EnemyIdle, same reasoning enemies
+    /// got their own sheet instead of more character_idle.png rows - the
+    /// Shopkeeper is neither a playable class nor a real enemy. The
+    /// GLIDE console specifically is never actually drawn to in
+    /// practice (the Shopkeeper never moves, so gliding_position never
+    /// returns Some for it) - kept anyway purely so this variant's match
+    /// arms stay exhaustive/consistent with every sibling here, the same
+    /// "correct even if provably unused" call this codebase already
+    /// makes elsewhere.
+    Shopkeeper,
 }
 
 /// Which of the 4 cardinal directions an entity most recently moved -
@@ -1308,6 +1322,42 @@ pub fn attack_animation_for_enemy(name: &str) -> Option<OneShotAnimation> {
     })
 }
 
+/// Which row an enemy occupies on `resources/enemy_death.png` (added
+/// 2026-09-13, boss enemies only) - `None` for a basic enemy (Goblin/
+/// Orc/Ogre/Ettin), which still just vanishes instantly on death rather
+/// than playing anything, per the design decision recorded in
+/// docs/ideas.md. Same `EXTRA_ANIM_COLS`-wide, forbidden-row-3 shape as
+/// `character_death_row` rather than `ENEMY_BATTLE_COLS` - Death is a
+/// played-once 9-frame animation like the player's own, not a looping
+/// battle-idle.
+fn enemy_death_row(name: &str) -> Option<u16> {
+    match name {
+        "Orc Warlord" => Some(0),
+        "Ogre Warlord" => Some(1),
+        "Ettin Overlord" => Some(2),
+        // Row 3 deliberately skipped - see this fn's own doc comment.
+        "Goblin Chieftain" => Some(4),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing enemy `name`'s death
+/// sequence - `None` if `name` has no row (see `enemy_death_row`), in
+/// which case the caller keeps the old instant-removal behavior.
+pub fn death_animation_for_enemy(name: &str) -> Option<OneShotAnimation> {
+    let row = enemy_death_row(name)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: IDLE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
 /// The full frame list for enemy `name` facing `direction` on
 /// `resources/enemy_idle.png` - `None` if `name` has no row there. Same
 /// role as `character_idle_frames`, enemy side: shared by
@@ -1320,6 +1370,31 @@ pub fn enemy_idle_frames(name: &str, direction: Direction) -> Option<Vec<FontCha
             .map(|col| row * ENEMY_IDLE_COLS + col)
             .collect(),
     )
+}
+
+/// How many frame columns `resources/shopkeeper_idle.png` has - its own
+/// constant rather than reusing CHARACTER_IDLE_COLS/ENEMY_IDLE_COLS,
+/// since this sheet holds the Shopkeeper's real 9-frame Idle_Selling
+/// loop in full rather than sampling down to MAX_IDLE_FRAMES the way a
+/// directional Walk cycle does - there's no walking here to justify that
+/// budget, and the Shopkeeper never needs more than this one row.
+pub const SHOPKEEPER_IDLE_COLS: u16 = 9;
+
+/// Builds the Shopkeeper's permanent `IdleAnimation` - always the same
+/// 9-frame Idle_Selling loop on row 0 of `resources/shopkeeper_idle.png`
+/// (south-facing only; the Shopkeeper never turns, so unlike
+/// character_idle_row/enemy_idle_row there's no Direction to key on).
+/// Called once at spawn time (see spawner::spawn_shopkeeper) - never
+/// rebuilt afterward the way a moving entity's frames are on a facing
+/// change, since this entity never moves.
+pub fn idle_frames_for_shopkeeper() -> IdleAnimation {
+    let frames = (0..SHOPKEEPER_IDLE_COLS).collect();
+    IdleAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        sheet: IdleSpriteSheet::Shopkeeper,
+    }
 }
 
 /// Builds a fresh IdleAnimation for an enemy, pulling real walk-cycle
@@ -1575,6 +1650,312 @@ pub fn victory_animation_for_class(class: &str) -> Option<OneShotAnimation> {
         frame_duration_ms: IDLE_FRAME_DURATION_MS,
         repeat: false,
     })
+}
+
+/// Which row a class occupies on `resources/character_victory.png` for
+/// its `VictoryPose::ClimbAway` pose (2026-09-13) - a second block of 6
+/// rows (8-13) appended after the original 8-row sheet, one per class,
+/// rather than a separate sheet: same "grow the sheet" convention
+/// `character_idle.png` used for 4-directional Walk. Forbidden-row 3
+/// (32 / EXTRA_ANIM_COLS == 3) is unaffected by adding more rows below
+/// it - that formula only depends on column count. North-east facing
+/// (a 3/4 back view, "walking/climbing away") rather than this sheet's
+/// usual south/face-camera content.
+fn character_victory_stairs_row(class: &str) -> Option<u16> {
+    match class {
+        "Rogue" => Some(8),
+        "Debug" => Some(9),
+        "Hunter" => Some(10),
+        "Barbarian" => Some(11),
+        "Amazon" => Some(12),
+        "Mage" => Some(13),
+        _ => None,
+    }
+}
+
+/// Builds a fresh `OneShotAnimation` playing `class`'s ClimbAway pose -
+/// see `character_victory_stairs_row`. Same shape as
+/// `victory_animation_for_class`, just a different row block on the same
+/// sheet.
+pub fn victory_climb_animation_for_class(class: &str) -> Option<OneShotAnimation> {
+    let row = character_victory_stairs_row(class)?;
+    let frames = (0..EXTRA_ANIM_COLS)
+        .map(|col| row * EXTRA_ANIM_COLS + col)
+        .collect();
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: IDLE_FRAME_DURATION_MS,
+        repeat: false,
+    })
+}
+
+/// Which painted backdrop a Victory screen shows, and (via `pose`) which
+/// pose the player's own animation needs to strike against it - see
+/// `screens/end.rs::victory`. Every variant shares `resources/
+/// battle_backgrounds.png`'s existing 6x6 glyph grid (see
+/// BATTLE_BACKDROP_CONSOLE in main.rs) rather than a dedicated sheet/
+/// console of its own - that atlas is already padded to 36 cells for the
+/// glyph-32 gotcha and only used 3 of them (one per MapTheme), so there's
+/// plenty of room without registering anything new.
+///
+/// Keyed by the run's own `EndSceneTheme` (Forest/Dungeon/Sewer) plus
+/// Arena, NOT by a generic "Dungeon Crawl" bucket - a 2026-09-13 replan
+/// after the original generic-dungeon pool could hand a Forest run a
+/// stone-vault Victory scene that made no sense for the theme actually
+/// explored. Each Dungeon-Crawl theme gets 2 variants (randomized
+/// between them - see `random_for_theme`); Arena gets 1 (nothing to
+/// randomize).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VictoryBackground {
+    Arena,
+    ForestStairs,
+    ForestStance,
+    DungeonStance,
+    DungeonCorridor,
+    SewerWalk,
+    SewerStance,
+}
+
+impl VictoryBackground {
+    /// Battle Arena's win always shows the same courtyard - only one
+    /// Arena victory scene exists, so there's nothing to randomize.
+    pub fn arena() -> Self {
+        VictoryBackground::Arena
+    }
+
+    /// Dungeon Crawl's win picks one of `theme`'s own 2 scenes at random
+    /// - deliberately unconditional (doesn't check whether that specific
+    /// variant's art/pose is actually ready yet), since `background_row`/
+    /// `pose` below both degrade gracefully on their own (old procedural
+    /// fill, existing face-camera animation) when they aren't. That means
+    /// a variant "goes live" the moment a real Some(row)/real pose is
+    /// filled in below - no other code changes needed.
+    pub fn random_for_theme(theme: EndSceneTheme) -> Self {
+        let mut rng = RandomNumberGenerator::new();
+        match theme {
+            EndSceneTheme::Forest => {
+                const POOL: [VictoryBackground; 2] =
+                    [VictoryBackground::ForestStairs, VictoryBackground::ForestStance];
+                *rng.random_slice_entry(&POOL).unwrap_or(&POOL[0])
+            }
+            EndSceneTheme::Dungeon => {
+                const POOL: [VictoryBackground; 2] = [
+                    VictoryBackground::DungeonStance,
+                    VictoryBackground::DungeonCorridor,
+                ];
+                *rng.random_slice_entry(&POOL).unwrap_or(&POOL[0])
+            }
+            EndSceneTheme::Sewer => {
+                const POOL: [VictoryBackground; 2] =
+                    [VictoryBackground::SewerWalk, VictoryBackground::SewerStance];
+                *rng.random_slice_entry(&POOL).unwrap_or(&POOL[0])
+            }
+        }
+    }
+
+    /// Row on `resources/battle_backgrounds.png` - `None` until a clean
+    /// (non-watermarked) final image is composited in for that variant,
+    /// same Option<u16>-with-fallback shape as `MapTheme::
+    /// battle_background_row`; callers fall back to the old procedural
+    /// tinted-fill background (see draw_end_screen_background).
+    pub fn background_row(self) -> Option<u16> {
+        match self {
+            VictoryBackground::Arena => Some(3),
+            VictoryBackground::ForestStairs => Some(4),
+            VictoryBackground::ForestStance => Some(6),
+            // Clean regen landed 2026-09-13 (a 4th attempt - the first
+            // three all came back watermarked, each with a different
+            // mark - see the Done writeup).
+            VictoryBackground::DungeonStance => Some(7),
+            // Clean regen landed 2026-09-13 (first two attempts were
+            // watermarked - see the Done writeup).
+            VictoryBackground::DungeonCorridor => Some(13),
+            // Clean regen landed 2026-09-13 (first attempt was
+            // watermarked - see the Done writeup).
+            VictoryBackground::SewerWalk => Some(8),
+            VictoryBackground::SewerStance => Some(12),
+        }
+    }
+
+    /// Which pose the player's own animation should strike against this
+    /// background - see `VictoryPose`.
+    pub fn pose(self) -> VictoryPose {
+        match self {
+            VictoryBackground::Arena
+            | VictoryBackground::ForestStance
+            | VictoryBackground::DungeonStance
+            | VictoryBackground::SewerStance => VictoryPose::FaceCamera,
+            VictoryBackground::DungeonCorridor | VictoryBackground::SewerWalk => {
+                VictoryPose::WalkAway
+            }
+            VictoryBackground::ForestStairs => VictoryPose::ClimbAway,
+        }
+    }
+
+    /// Roughly where this background's own painted composition wants the
+    /// hero standing - a coarse BATTLE_PORTRAIT_COLS x BATTLE_PORTRAIT_
+    /// ROWS grid position (see main.rs), used by the FaceCamera/ClimbAway
+    /// poses (both draw onto that grid via CHARACTER_VICTORY_CONSOLE -
+    /// see screens/end.rs::draw_end_screen_portrait). A first guess from
+    /// looking at each scene (2026-09-13), not yet screenshot-verified
+    /// live - see CLAUDE.md's own convention for bracket-lib layout
+    /// guesses made without being able to render and check; expect a
+    /// correction round once real play confirms it. Replaces the old
+    /// single fixed col=1 used by every background alike, which left
+    /// enough room beside it for the now-removed Amulet of Yala icon -
+    /// with that gone, every FaceCamera/ClimbAway background can center
+    /// the hero properly instead.
+    pub fn portrait_grid_position(self) -> (i32, i32) {
+        match self {
+            VictoryBackground::Arena => (2, 3),
+            VictoryBackground::ForestStance => (2, 3),
+            // Was row 4 - confirmed too low via a real screenshot
+            // (2026-09-13): sat directly on top of "Press Enter..."
+            // (row 60/67 = ~90%, same band as row 4's ~90% center).
+            // Row 3 matches every other FaceCamera background's own
+            // foreground placement and clears that text.
+            VictoryBackground::ForestStairs => (2, 3),
+            VictoryBackground::DungeonStance => (2, 3),
+            VictoryBackground::SewerStance => (2, 3),
+            // WalkAway poses never read this - see walk_away_position
+            // instead. Included only for match exhaustiveness.
+            VictoryBackground::DungeonCorridor | VictoryBackground::SewerWalk => (2, 2),
+        }
+    }
+
+    /// Same idea as `portrait_grid_position`, for `VictoryPose::WalkAway`
+    /// specifically - that pose draws on the fine DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT dungeon-tile grid via CHARACTER_IDLE_CONSOLE
+    /// instead of the coarse BATTLE_PORTRAIT one every other pose uses,
+    /// a completely different scale/console (see draw_end_screen_
+    /// portrait). Both current WalkAway scenes (a torch-lit corridor, a
+    /// sewer corridor) share the same "centered, a bit above true
+    /// midground" composition, hence the same value - kept as an
+    /// explicit per-variant match anyway rather than a single constant,
+    /// matching this file's own convention, in case a future WalkAway
+    /// scene needs to differ.
+    /// `f32` (not the coarse grid's `i32`) - this pose draws via
+    /// `set_fancy` (see `WALK_AWAY_SCALE`'s own doc comment) for
+    /// fractional positioning/scaling, not the plain whole-cell `.set()`
+    /// every other pose uses.
+    pub fn walk_away_position(self) -> (f32, f32) {
+        let midground = (DISPLAY_WIDTH as f32 / 2.0, DISPLAY_HEIGHT as f32 * 0.6);
+        match self {
+            VictoryBackground::DungeonCorridor => midground,
+            VictoryBackground::SewerWalk => midground,
+            _ => midground,
+        }
+    }
+}
+
+/// See `VictoryBackground::pose`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VictoryPose {
+    /// The existing character_victory.png OneShotAnimation, unchanged -
+    /// used whenever the background looks straight at the player.
+    FaceCamera,
+    /// Reuses character_idle.png's real North-facing walk-loop frames
+    /// (see `victory_walk_away_animation`) - the background looks away
+    /// from the player, down a receding corridor, so the pose should
+    /// too. Already fully playable - no new art needed.
+    WalkAway,
+    /// The player looking up and climbing away up the Forest Stairs
+    /// scene - a real north-east-facing animation (see
+    /// `victory_climb_animation_for_class`), added 2026-09-13 as a new
+    /// row block on `character_victory.png` rather than a separate sheet.
+    ClimbAway,
+}
+
+/// Builds a looping (`repeat: true`, so it never `finished()`s) "walking
+/// away" pose from `class`'s existing North-facing walk frames on
+/// `resources/character_idle.png` - `None` for a class with no idle art
+/// at all (shouldn't happen for any real player class, but mirrors every
+/// other `_for_class` builder's Option shape rather than assuming). Used
+/// for `VictoryPose::WalkAway` instead of a dedicated victory animation,
+/// since the existing directional walk-cycle art already fits a
+/// "receding down a corridor" pose with no new art needed.
+pub fn victory_walk_away_animation(class: &str) -> Option<OneShotAnimation> {
+    let frames = character_idle_frames(class, Direction::North)?;
+    Some(OneShotAnimation {
+        frames,
+        frame_index: 0,
+        elapsed_ms: 0.0,
+        frame_duration_ms: IDLE_FRAME_DURATION_MS,
+        repeat: true,
+    })
+}
+
+/// Which painted backdrop a Game Over screen shows - see
+/// `VictoryBackground`'s own doc comment for the shared-atlas reasoning
+/// and the 2026-09-13 theme-keyed replan. Unlike Victory, there's no
+/// randomization (see `screens/end.rs::game_over`) - always the one
+/// scene matching the run's own theme/mode, paired with the existing
+/// character_death.png animation regardless of which variant this is
+/// (Defeat's pose never changes, only the backdrop behind it does).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefeatBackground {
+    Arena,
+    Forest,
+    Dungeon,
+    Sewer,
+}
+
+impl DefeatBackground {
+    pub fn arena() -> Self {
+        DefeatBackground::Arena
+    }
+
+    pub fn for_theme(theme: EndSceneTheme) -> Self {
+        match theme {
+            EndSceneTheme::Forest => DefeatBackground::Forest,
+            EndSceneTheme::Dungeon => DefeatBackground::Dungeon,
+            EndSceneTheme::Sewer => DefeatBackground::Sewer,
+        }
+    }
+
+    /// Same Option<u16>/shared-atlas shape as `VictoryBackground::
+    /// background_row`.
+    pub fn background_row(self) -> Option<u16> {
+        match self {
+            DefeatBackground::Arena => Some(5),
+            // Clean regen landed 2026-09-13 (first two attempts were
+            // watermarked - see the Done writeup).
+            DefeatBackground::Dungeon => Some(9),
+            // Clean regen landed 2026-09-13 (first attempt was
+            // watermarked - see the Done writeup).
+            DefeatBackground::Sewer => Some(10),
+            // Clean regen landed 2026-09-13 (first attempt was
+            // watermarked - see the Done writeup).
+            DefeatBackground::Forest => Some(11),
+        }
+    }
+
+    /// Same idea as `VictoryBackground::portrait_grid_position` - a
+    /// coarse BATTLE_PORTRAIT grid position, used by
+    /// `draw_end_screen_fallen_portrait`'s death-animation branch. Fixes
+    /// a real bug found 2026-09-13: that branch kept using a fixed
+    /// col=1 (left over from before Victory's own position rework) that
+    /// was never updated when the Amulet-of-Yala icon it used to leave
+    /// room for was removed - confirmed via a real screenshot showing
+    /// the corpse sitting well off-center on the Arena courtyard's own
+    /// centered staircase. Every Defeat scene is a roughly-symmetric
+    /// "centered path/focal point" composition (unlike Victory's much
+    /// more varied set), so all four currently share the same value -
+    /// kept as an explicit per-variant match anyway, matching this
+    /// file's own convention, in case a future Defeat scene needs to
+    /// differ. First guess, not yet screenshot-verified for the other
+    /// three themes.
+    pub fn portrait_grid_position(self) -> (i32, i32) {
+        let centered = (2, 3);
+        match self {
+            DefeatBackground::Arena => centered,
+            DefeatBackground::Dungeon => centered,
+            DefeatBackground::Sewer => centered,
+            DefeatBackground::Forest => centered,
+        }
+    }
 }
 
 /// Which row a (class, technique name) pair occupies on

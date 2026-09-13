@@ -296,6 +296,19 @@ pub struct EnemyCombatant {
     /// alongside battle_idle_elapsed_ms above, and cleared back to None
     /// in dismiss_action_result the same moment turn returns to Filling.
     pub attack_animation: Option<OneShotAnimation>,
+    /// This enemy's own played-once death animation, when it has a row on
+    /// `resources/enemy_death.png` (see components::
+    /// death_animation_for_enemy - boss enemies only). `Some` the instant
+    /// a killing blow lands (see screens/battle.rs::record_enemy_kill)
+    /// and stays `Some` for the rest of this enemy's lifetime in
+    /// `battle.enemies` - unlike attack_animation, this is never cleared
+    /// back to `None`, since a dying enemy has no "next turn" to return
+    /// to. Its presence IS the "this enemy is dying, not actually dead
+    /// yet" flag: record_enemy_kill defers the real ECS removal/loot/
+    /// retain bookkeeping until `anim.finished()`, checked once per frame
+    /// (see tick_dying_enemies) - a basic enemy with no row here instead
+    /// keeps the old instant-removal behavior unchanged.
+    pub death_animation: Option<OneShotAnimation>,
 }
 
 /// Which combatant is acting - Player, or a specific enemy (there can be
@@ -488,6 +501,40 @@ pub struct Battle {
     /// and cleared together (resolve_player_action's match arms,
     /// dismiss_action_result's clear).
     pub player_action_kind: Option<PlayerActionKind>,
+    /// Boss corpses still playing their death animation (see
+    /// components::death_animation_for_enemy) after record_enemy_kill
+    /// removed them from `enemies` above - a pure decorative overlay,
+    /// ticked/drawn every battle_tick frame and dropped once each
+    /// animation finishes (see DyingEnemyEffect). Deliberately NOT a
+    /// blocker on anything: rewards/removal/the is-the-fight-over check
+    /// all still happen exactly when they did before this existed - see
+    /// record_enemy_kill's own doc comment for why (the alternative,
+    /// keeping a "dying" enemy in `enemies` until its animation finished,
+    /// would have meant auditing every ATB-gauge/targeting loop that
+    /// iterates `enemies` for a "still dying" guard, including the
+    /// headless class-survivability simulation's own copy of the battle
+    /// loop - not worth the risk for a purely cosmetic payoff). The one
+    /// real consequence: if the LAST enemy in a fight has a death
+    /// animation, the Victory screen still appears immediately (unchanged
+    /// timing) and this overlay simply gets cut short by that screen
+    /// transition, same as every other in-flight battle-screen effect
+    /// (flash, wiggle, popup) already does.
+    pub dying_effects: Vec<DyingEnemyEffect>,
+}
+
+/// One boss corpse still playing its death animation - see
+/// `Battle::dying_effects`. `col`/`row` are a snapshot of `enemy_
+/// portrait_position`'s fractional BATTLE_PORTRAIT-grid output at the
+/// moment of death (index/count as they were right before removal) -
+/// captured once rather than recomputed later, since the enemy's own
+/// index/the fight's own enemy count may both have changed by the time
+/// this finishes playing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DyingEnemyEffect {
+    pub col: f32,
+    pub row: f32,
+    pub color: ColorPair,
+    pub animation: OneShotAnimation,
 }
 
 /// See `Battle::player_action_kind`'s own doc comment.
@@ -612,6 +659,7 @@ impl Battle {
                 battle_idle_frame: 0,
                 battle_idle_elapsed_ms: 0.0,
                 attack_animation: None,
+                death_animation: None,
             })
             .collect();
         Self {
@@ -638,6 +686,7 @@ impl Battle {
             player_idle_elapsed_ms: 0.0,
             player_action_animation: None,
             player_action_kind: None,
+            dying_effects: Vec::new(),
         }
     }
 
