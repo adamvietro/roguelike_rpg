@@ -1027,40 +1027,17 @@ pub fn character_portrait_glyph(class: &str) -> Option<FontCharType> {
 }
 
 /// Which row a class occupies on `resources/character_idle.png`
-/// SPECIFICALLY - deliberately NOT class_sheet_row, for the identical
-/// reason character_battle_row below needs its own mapping: a plain
-/// console's `cls()` fills every never-drawn-this-frame cell with glyph
-/// 32 by default, and this sheet's own column count (CHARACTER_IDLE_COLS,
-/// 6) puts that at row 5, column 2 (32 / 6 == 5, 32 % 6 == 2). Unlike
-/// character_portrait_glyph above, this sheet fills EVERY column of a
-/// class's row with a real walk-cycle frame, so column 2 is never
-/// guaranteed blank - row 5 has to stay permanently unassigned here, the
-/// same way character_battle_row permanently skips row 4. Confirmed for
-/// real, not just reasoned: assigning Debug to row 5 here (the hidden
-/// dev/test class, added after Barbarian/Rogue/Amazon/Hunter/Mage had
-/// already safely filled rows 0-4) reproduced the exact Mage-tiling bug
-/// on this sheet instead of character_battle.png - the entire title/
-/// adventure-select screen filled with tiled Robot portraits, since
-/// CHARACTER_IDLE_CONSOLE spans the full display and was never NOT
-/// showing that leaked content. The single source of truth shared by
-/// idle_frames_for_class (builds a full IdleAnimation up front, at spawn
-/// time) and the Class Select screen's highlighted-class preview
-/// (screens/title.rs::class_select, which looks up one frame at a time
-/// off its own menu timer instead of a real IdleAnimation component,
-/// since a roster entry there isn't a real ECS entity) - both stay in
-/// sync automatically if a class's row on THIS sheet ever moves.
-/// Widened 2026-09-11 from one row per class to FOUR (one per
-/// `Direction`), for real directional Walk art - `resources/
-/// character_idle.png` grew from 8 rows to 25. Row 5 is still this
-/// sheet's one permanently forbidden row (32 / 6 == 5, unchanged - the
-/// column count didn't change, only the row count), so whichever
-/// (class, direction) pair would naturally land there needs moving
-/// somewhere else instead: with 4 sequential rows per class in
-/// Barbarian/Rogue/Amazon/Hunter/Mage/Debug order, that's Rogue's own
-/// North (row 4 is Rogue's South, so row 5 is Rogue's North) - moved to
-/// row 24, appended after every class's natural block, the same "one
-/// exception, explicitly documented" shape as Debug's own row 5->6 move
-/// before this sheet went directional.
+/// SPECIFICALLY - deliberately NOT class_sheet_row (see CLAUDE.md's
+/// glyph-32 standing gotcha: a plain console's `cls()` default fills
+/// row `32 / cols`, which real content can't safely occupy). This sheet
+/// fills every column of a class's row with a real walk-cycle frame, so
+/// its forbidden row (32 / 6 == 5) has to stay permanently unassigned.
+/// 4 rows per class (one per `Direction`, since 2026-09-11's directional
+/// Walk art) means Rogue's North would naturally land on row 5 - moved
+/// to row 24 (appended after every class's block) instead. Shared
+/// source of truth for `idle_frames_for_class` (spawn time) and the
+/// Class Select screen's highlighted-class preview
+/// (`screens/title.rs::class_select`).
 fn character_idle_row(class: &str, direction: Direction) -> Option<u16> {
     let base = match class {
         "Barbarian" => 0,
@@ -1121,23 +1098,11 @@ pub fn character_idle_frames(class: &str, direction: Direction) -> Option<Vec<Fo
 pub const CHARACTER_BATTLE_COLS: u16 = 8;
 
 /// Which row a class occupies on `resources/character_battle.png`
-/// SPECIFICALLY - deliberately its own mapping, not shared with
-/// character_idle_row or class_sheet_row, and this is load-bearing, not
-/// a stylistic choice: a console's `cls()` fills every never-drawn-this-
-/// frame cell with glyph 32 by default (see CLAUDE.md's standing
-/// gotchas), and which ROW that lands on depends on THIS sheet's own
-/// column count (32 / 8 = 4 exactly) - independent of how many columns
-/// any OTHER sheet has. A naive plain 0..4 assignment would put row 4 at
-/// Mage, and Mage's frames would silently replace every undrawn cell
-/// across the WHOLE console (which spans the full display) on every
-/// screen, all the time - confirmed for real: the entire title screen
-/// filled with tiled Mage portraits before this was caught. Row 4 is
-/// left deliberately blank here and Mage moved to row 5 instead. (The
-/// exact same class of bug hit character_idle.png too, once Debug's row
-/// landed on ITS sheet's own forbidden row 5 - see character_idle_row's
-/// own doc comment for that second confirmed occurrence. Every
-/// per-class sheet needs this check done fresh for its own column count,
-/// never assumed safe by analogy with another sheet.)
+/// SPECIFICALLY - its own mapping, not shared with character_idle_row/
+/// class_sheet_row (see CLAUDE.md's glyph-32 gotcha: this sheet's
+/// forbidden row is 32 / 8 == 4, different from character_idle.png's
+/// row 5 purely because the column counts differ). Row 4 is left
+/// blank; Mage moved to row 5 instead.
 fn character_battle_row(class: &str) -> Option<u16> {
     match class {
         "Barbarian" => Some(0),
@@ -1197,16 +1162,11 @@ pub fn idle_frames_for_class(class: &str, base_glyph: FontCharType) -> IdleAnima
 /// domain entirely - keyed by name, not class).
 pub const ENEMY_IDLE_COLS: u16 = MAX_IDLE_FRAMES as u16;
 
-/// Widened 2026-09-11 from one row per enemy to FOUR (one per
-/// `Direction`), for real directional Walk art - `resources/
-/// enemy_idle.png` grew from 9 rows to 33. Row 5 is still this sheet's
-/// one permanently forbidden row (32 / 6 == 5, unchanged - still 6
-/// columns), so whichever (enemy, direction) pair would naturally land
-/// there needs moving: with 4 sequential rows per enemy in Goblin/Orc/
-/// Ogre/Ettin/Goblin Chieftain/Orc Warlord/Ogre Warlord/Ettin Overlord
-/// order, that's Orc's own North (row 4 is Orc's South) - moved to row
-/// 32, appended after every enemy's natural block, same shape as
-/// character_idle_row's own Rogue/North exception.
+/// 4 rows per enemy (one per `Direction`, since 2026-09-11's directional
+/// Walk art). Row 5 is this sheet's forbidden row (32 / 6 == 5, see
+/// CLAUDE.md's glyph-32 gotcha), so Orc's own North (which would
+/// naturally land there) moves to row 32 instead - same shape as
+/// character_idle_row's Rogue/North exception.
 fn enemy_idle_row(name: &str, direction: Direction) -> Option<u16> {
     let base = match name {
         "Goblin" => 0,
@@ -1247,11 +1207,9 @@ fn enemy_idle_row(name: &str, direction: Direction) -> Option<u16> {
 pub const ENEMY_BATTLE_COLS: u16 = 8;
 
 /// Which row an enemy occupies on `resources/enemy_battle.png`
-/// SPECIFICALLY - see character_battle_row's own doc comment for why this
-/// needs its own mapping, never shared across sheets. This sheet also
-/// happens to share character_battle.png's 8-column layout, so its own
-/// forbidden row is also 4 (32 / 8 == 4) - independently re-derived here,
-/// not assumed safe from that coincidence.
+/// SPECIFICALLY - its own mapping (see character_battle_row). Shares
+/// character_battle.png's 8-column layout, so its forbidden row is also
+/// 4 (32 / 8 == 4).
 fn enemy_battle_row(name: &str) -> Option<u16> {
     match name {
         "Goblin" => Some(0),
@@ -1765,15 +1723,8 @@ impl VictoryBackground {
             VictoryBackground::Arena => Some(3),
             VictoryBackground::ForestStairs => Some(4),
             VictoryBackground::ForestStance => Some(6),
-            // Clean regen landed 2026-09-13 (a 4th attempt - the first
-            // three all came back watermarked, each with a different
-            // mark - see the Done writeup).
             VictoryBackground::DungeonStance => Some(7),
-            // Clean regen landed 2026-09-13 (first two attempts were
-            // watermarked - see the Done writeup).
             VictoryBackground::DungeonCorridor => Some(13),
-            // Clean regen landed 2026-09-13 (first attempt was
-            // watermarked - see the Done writeup).
             VictoryBackground::SewerWalk => Some(8),
             VictoryBackground::SewerStance => Some(12),
         }
@@ -1920,14 +1871,8 @@ impl DefeatBackground {
     pub fn background_row(self) -> Option<u16> {
         match self {
             DefeatBackground::Arena => Some(5),
-            // Clean regen landed 2026-09-13 (first two attempts were
-            // watermarked - see the Done writeup).
             DefeatBackground::Dungeon => Some(9),
-            // Clean regen landed 2026-09-13 (first attempt was
-            // watermarked - see the Done writeup).
             DefeatBackground::Sewer => Some(10),
-            // Clean regen landed 2026-09-13 (first attempt was
-            // watermarked - see the Done writeup).
             DefeatBackground::Forest => Some(11),
         }
     }

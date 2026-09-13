@@ -36,60 +36,22 @@ struct EnemyPortrait {
 /// render_helpers.rs's draw_portrait_fancy/draw_wiggling_portrait, both
 /// fractional for exactly this reason.
 ///
-/// Retuned twice on 2026-09-11 for the real painted battle backgrounds
-/// (resources/battle_backgrounds.png). First pass replaced the original
-/// 2-tier "pyramid" formation (a pair up top, a pair below) - tuned back
-/// when the arena background was a flat procedural fill with nothing
-/// near the edges - with a single row, after a real 2-enemy screenshot
-/// showed the old rightmost column (4.0, cell spanning 80-100% of the
-/// screen width) sitting flush against the frame's own right edge on
-/// EVERY theme, and the old upper tier (row 0.6) reaching up into
-/// Forest's own tree/fence perimeter art specifically. That single row
-/// worked geometrically (verified against all three themes' actual art)
-/// but read as visually flat/robotic once seen live - explicit user
-/// feedback ("I dont like the line of enemies").
+/// A shallow zigzag between `rows.0` (back) and `rows.1` (front),
+/// alternating by index parity - a 3-enemy fight reads as a wedge
+/// (back-front-back), a 2 or 4-enemy fight as a full zigzag. Index 0
+/// (leftmost, closest to the player's own bottom-left spot) always
+/// lands on the back row, since a front-row placement there risks
+/// visually overlapping the player's portrait. `rows` comes from the
+/// live theme's own `MapTheme::enemy_formation_rows` rather than one
+/// shared constant - each theme's painted background has different
+/// headroom before the formation clips its perimeter art (a wall, a
+/// fence, a pipe band), tuned against real screenshots per theme; see
+/// `MapTheme::enemy_formation_rows`'s own doc comment for the default
+/// Forest uses and why it stays the conservative fallback.
 ///
-/// Second pass: a shallow zigzag between ROW_BACK (1.9 - the exact row
-/// already verified clear of Forest's perimeter) and ROW_FRONT (2.3,
-/// further from the perimeter and still safely above the Actions box
-/// once BOX_Y_BASE below was pushed down to match - see its own doc
-/// comment). Alternates by index parity, so a 3-enemy fight reads as a
-/// wedge (back-front-back) and a 2 or 4-enemy fight as a diagonal/full
-/// zigzag - re-verified against all three themes' actual art the same
-/// way the first pass was, not re-guessed blind. Index 0 (the leftmost
-/// position, closest to the player's own bottom-left spot) always lands
-/// on ROW_BACK specifically, since LEFT (1.4) is close enough to the
-/// player's own column (1.0-2.0) that a front-row placement there could
-/// visually overlap the player's portrait - confirmed clear by the same
-/// grid-overlay check.
-///
-/// Single-enemy fights are untouched (3.0, 1.0) - never the bug that was
-/// reported, confirmed fine live both times. 5+ enemies (not currently a
-/// normal battle size) reuse the 4-enemy layout's rightmost slot rather
-/// than attempting to cram a 5th position into the same two rows -
-/// matches the original code's own handling of that case, not a new
-/// limitation.
-///
-/// Third pass (same day): shifted LEFT/RIGHT right by 0.5 (1.4->1.9,
-/// 3.8->3.9) after live feedback that the formation as a whole still
-/// read as too close to the player/too central - "move it up and to the
-/// right". RIGHT only had ~0.1 unit of headroom left before re-clipping
-/// the frame edge (the original reported bug), so 3.9 is close to the
-/// practical ceiling, not a round number picked for looks. Pushing
-/// ROW_BACK up to 1.7 immediately clipped Forest's fence again on both
-/// sides (screenshot-verified) - 1.9 is a hard ceiling for THAT theme
-/// specifically, not for every theme.
-///
-/// Fourth pass (same day, "we need to move them up" after the third
-/// pass still wasn't enough): rather than one shared row pair, `rows`
-/// now comes from the live theme's own `MapTheme::enemy_formation_rows`
-/// - Dungeon/Sewer's much thinner top wall/pipe band has real headroom
-/// Forest's tree/fence perimeter doesn't (screenshot-verified: as high
-/// as row 0.9 still clipped Dungeon's window sill/torch/crate, but
-/// 1.5/1.9 sits clear on both, with Sewer having room to spare beyond
-/// that). Forest keeps the original 1.9/2.3 via `enemy_formation_rows`'
-/// own default - see MapTheme's doc comment for why that stays the
-/// conservative fallback for any future theme too.
+/// Single-enemy fights are untouched (3.0, 1.0). 5+ enemies (not
+/// currently a normal battle size) reuse the 4-enemy layout's rightmost
+/// slot rather than a 5th position.
 fn enemy_portrait_position(count: usize, index: usize, rows: (f32, f32)) -> (f32, f32) {
     if count <= 1 {
         return (3.0, 1.0);
