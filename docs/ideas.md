@@ -662,7 +662,7 @@ land, each verified against the actual theme art (crop each theme's cell
 out of `resources/battle_backgrounds.png`, overlay the candidate grid,
 check for overlap) rather than guessed blind:
 - **Single row, evenly spread** - fixed the edge-clipping and fence-
-  overlap, but read as visually flat/robotic once seen live ("I dont
+  overlap, but read as visually flat/robotic once seen live ("I don't
   like the line of enemies").
 - **Shallow zigzag** between a back row and a front row, alternating by
   index parity (a 3-enemy fight reads as a wedge, 2/4-enemy as a
