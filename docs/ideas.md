@@ -128,69 +128,54 @@ Roughly in the order they've come up:
 9. **Refactoring opportunities** — a read-through of the codebase
     looking specifically for what a refactor could improve, not a bug
     hunt. **Stage 1 done (2026-09-13, branch `refactor-item-9-cleanup`):
-    the three concrete duplication fixes below, plus a broader comment-
-    reduction pass** (this codebase runs ~39% comment lines to code -
-    `main.rs`'s console-constant block alone carried ~400 lines of stale
-    "was slot N, then M, then P" renumbering history that its own text
-    admitted was outdated; trimmed to the facts that matter, and the
-    45-pair per-frame `ctx.cls()` sweep collapsed into a loop over one
-    `ALL_CONSOLES` array. Net six files, ~556 fewer lines, all three
-    headless simulations rerun clean after each change - see
-    `docs/journal.md`'s 2026-09-13 entry for the full list). What's
-    still open, all bigger structural moves not attempted yet:
-    - **`main.rs` doesn't follow its own established convention for
-      where `State`'s methods live.** Every dungeon/menu screen
-      (`screens/pause.rs`, `screens/battle.rs`, `screens/item_menu.rs`,
-      `screens/chest.rs`, ...) already adds its own methods to `State`
-      from its own file - Rust privacy lets a descendant module see an
-      ancestor's private fields, so this works with no `pub` needed.
-      Battle Arena's own orchestration (`start_arena`, `arena_begin_wave`,
+    three duplication fixes (find_player/reveal_and_freeze_fov/
+    find_prefab_placement) plus a broader comment-reduction pass** (this
+    codebase ran ~39% comment lines to code; `main.rs`'s console-constant
+    block alone carried ~400 lines of stale "was slot N, then M, then P"
+    renumbering history its own text admitted was outdated - trimmed to
+    the facts that matter, and the 45-pair per-frame `ctx.cls()` sweep
+    collapsed into a loop over one `ALL_CONSOLES` array).
+    **Stage 2 done (2026-09-13, branch `refactor-item-9-stage2`): all
+    four remaining structural splits below**, each verified with both
+    headless class-survivability simulations after every logic-touching
+    change - see `docs/journal.md`'s 2026-09-13 entries for the full
+    write-up of both stages:
+    - ~~`main.rs` doesn't follow its own established convention for
+      where `State`'s methods live~~ - Battle Arena's own orchestration
+      (9 methods: `start_arena`, `arena_begin_wave`,
       `arena_advance_to_next_shop`, `arena_spawn_boss_on_current_map`,
       `handle_arena_kill`, `arena_transition_tick`,
       `arena_wave_cleared_tick`, `boost_arena_enemy_fov`,
-      `arena_rebuild_keep_player` - nine methods) never got the same
-      treatment and still lives directly in `main.rs`, which is ~1850
-      lines partly because of it. Moving these into their own file (an
-      `arena_state.rs`, say) would cut main.rs down to general State
-      bootstrap/dispatch plus Dungeon Crawl's own two methods
-      (`advance_level`, `dungeon_shop_transition`) - a much smaller, more
-      focused file.
+      `arena_rebuild_keep_player`) moved into a new `arena_state.rs`,
+      matching every other screen's own convention.
+    - ~~Pure battle-resolution logic and battle rendering share one
+      file~~ - `resolve_player_action`/`trigger_enemy_action`/
+      `dismiss_action_result`/`record_enemy_kill`/`finish_battle` (plus
+      the `ResultOutcome` enum they share) moved into a new
+      `battle/resolve.rs`, alongside the module's existing damage/heal/
+      dot/buff/counter/status/stun submodules.
+    - ~~`components.rs` (~2300 lines) is a grab-bag of several unrelated
+      domains~~ - split into `components/{mod,bars,animation,glide,
+      tiles}.rs` by domain (plain data components, Ability/Battle/Item
+      Bar slot logic, the ~1250-line sprite-sheet/animation-lookup
+      system, camera/glide math, tile rendering).
+    - ~~`battle/mod.rs` (~1230 lines) has similarly distinguishable
+      groups~~ - split into `battle/{mod,menu,stats}.rs` (core
+      Battle/combat resolution, menu/display concerns, entity-stat
+      accessors).
+
+    **Still open, deliberately saved for last given its size/risk:**
     - **`screens/battle.rs`'s `battle_tick` is about 735 lines** - by a
       wide margin the single largest function in the codebase - handling
       both rendering AND input for every `BattleTurn` state
       (`PlayerMenu`, `Filling`, `ActionResult` for both the player and
       each enemy) in one function. Worth splitting into one handler per
-      state.
-    - **Pure battle-resolution logic and battle rendering share one
-      file** (`screens/battle.rs`). `resolve_player_action`/
-      `trigger_enemy_action`/`dismiss_action_result`/`record_enemy_kill`/
-      `finish_battle` never touch `ctx` at all - they're plain logic -
-      while `battle_tick`/`draw_battle_arena`/`battle_victory_tick` are
-      rendering-heavy. The headless class-survivability simulation needed
-      exactly this split to exist (it calls the logic functions directly
-      and can never call the rendering ones, which need a real window's
-      console registry) - formalizing it into two files (e.g. a
-      `battle/resolve.rs` for the logic half) would make that reuse
-      pattern the obvious one instead of something that only worked
-      because both happened to live in the same module.
-    - **`components.rs` (~2300 lines) is a grab-bag of several unrelated
-      domains**, not really "components" in a narrow sense: plain data
-      components (`Health`, `Gold`, `Speed`, ...), a genuine UI subsystem
-      (`ability_bar_slots`/`battle_bar_slots`/`item_bar_slots`/
-      `usable_menu_items`/`group_items`/`build_roster_slots` and friends
-      - real algorithmic logic, not data), animation/camera math
-      (`gliding_position`, `camera_render_offset`), and tile-rendering
-      helpers (`tile_render_at`). Splitting by domain (e.g. a
-      `components/bars.rs` for the UI-bar-slot logic alone) would make
-      each piece easier to find and reason about independently.
-    - **`battle/mod.rs` (~1230 lines) has similarly distinguishable
-      groups** worth splitting: entity-stat accessors
-      (`entity_damage`/`entity_speed`/`entity_evasion`/`entity_health`/
-      `carried_weapon_damage`/...), core combat resolution
-      (`resolve_enemy_attack`/`apply_damage`/`apply_player_technique`/
-      `tick_dot`/`heal_entity`), and menu/display concerns
-      (`available_actions`/`action_name`/`MenuCursor`/`hp_bar_string`)
-      all currently live in the one file.
+      state - unlike the four items above, this isn't a clean "move
+      already-separate functions to a new file": much of the function is
+      shared per-frame preamble (timer ticking, ATB gauge fill, arena
+      rendering) that every state needs, with only later sections being
+      genuinely state-specific, so the split itself needs real
+      restructuring, not just relocation.
 10. **Content / world**
     - **More winnable item variety** — right now a chest/shop can only
       ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
