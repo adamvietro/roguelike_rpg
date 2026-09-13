@@ -66,9 +66,23 @@ const CHEST_ROOM: (&str, i32, i32) = (
     6,
 );
 
-pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
-    let mut placement = None;
-
+/// One random-placement attempt loop, shared by apply_prefab and
+/// apply_chest below: up to 10 tries at a `width`x`height` rectangle
+/// that's reachable from the player's start (a real Dijkstra distance,
+/// not just "somewhere on the map"), far enough away to not trivially
+/// stumble onto (distance > 20.0), not so far it's on an unreachable
+/// island (distance < 2000.0), and never overlapping the amulet/exit
+/// point. Returns the rectangle's top-left corner, and - as a side
+/// effect on success - clears any rolled `monster_spawns` that would
+/// have landed inside it, so a prefab room's own hand-placed 'M'/'S'/'C'
+/// markers below aren't double-booked with the general ambient spawn
+/// pool.
+fn find_prefab_placement(
+    mb: &mut MapBuilder,
+    rng: &mut RandomNumberGenerator,
+    width: i32,
+    height: i32,
+) -> Option<Point> {
     let dijkstra_map = DijkstraMap::new(
         SCREEN_WIDTH,
         SCREEN_HEIGHT,
@@ -77,6 +91,35 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
         1024.0,
     );
 
+    let mut attempts = 0;
+    while attempts < 10 {
+        let dimensions = Rect::with_size(
+            rng.range(0, SCREEN_WIDTH - width),
+            rng.range(0, SCREEN_HEIGHT - height),
+            width,
+            height,
+        );
+
+        let mut can_place = false;
+        dimensions.for_each(|pt| {
+            let idx = mb.map.point2d_to_index(pt);
+            let distance = dijkstra_map.map[idx];
+            if distance < 2000.0 && distance > 20.0 && mb.amulet_start != pt {
+                can_place = true;
+            }
+        });
+
+        if can_place {
+            let points = dimensions.point_set();
+            mb.monster_spawns.retain(|pt| !points.contains(pt));
+            return Some(Point::new(dimensions.x1, dimensions.y1));
+        }
+        attempts += 1;
+    }
+    None
+}
+
+pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
     let template = match rng.range(0, 3) {
         0 => FORTRESS,
         1 => TURRET,
@@ -84,36 +127,7 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
         _ => unreachable!(),
     };
 
-    let mut attempts = 0; // (1)
-    while placement.is_none() && attempts < 10 {
-        // (2)
-        let dimensions = Rect::with_size(
-            // (3)
-            rng.range(0, SCREEN_WIDTH - template.1),
-            rng.range(0, SCREEN_HEIGHT - template.2),
-            template.1,
-            template.2,
-        );
-
-        let mut can_place = false; // (4)
-        dimensions.for_each(|pt| {
-            // (5)
-            let idx = mb.map.point2d_to_index(pt);
-            let distance = dijkstra_map.map[idx];
-            if distance < 2000.0 && distance > 20.0 && mb.amulet_start != pt {
-                // (6)
-                can_place = true;
-            }
-        });
-
-        if can_place {
-            // (7)
-            placement = Some(Point::new(dimensions.x1, dimensions.y1));
-            let points = dimensions.point_set();
-            mb.monster_spawns.retain(|pt| !points.contains(pt)); // (8)
-        }
-        attempts += 1;
-    }
+    let placement = find_prefab_placement(mb, rng, template.1, template.2);
 
     if let Some(placement) = placement {
         // (9)
@@ -161,52 +175,16 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
 /// Always-attempted (not a one-of-three random pick like apply_prefab
 /// above) placement of a single guaranteed loot chest, guarded by 1-2 of
 /// this dungeon level's toughest ordinary enemy - see
-/// spawner::spawn_prefab_chest_guards. Reuses the exact same Dijkstra-
-/// distance placement-attempt loop as apply_prefab (reachable from the
-/// player's start, far enough away to not trivially stumble onto it,
-/// never on top of the amulet/exit point), just against a single fixed
+/// spawner::spawn_prefab_chest_guards. Uses the same
+/// find_prefab_placement as apply_prefab, just against a single fixed
 /// room instead of a random pick of three. "Always place a chest" only
 /// means "always attempt it, don't roll whether to" - placement can still
 /// rarely fail to find room on a very cramped map, the same best-effort
 /// guarantee apply_prefab's own weapon/guard markers already have.
 pub fn apply_chest(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
-    let mut placement = None;
-
-    let dijkstra_map = DijkstraMap::new(
-        SCREEN_WIDTH,
-        SCREEN_HEIGHT,
-        &vec![mb.map.point2d_to_index(mb.player_start)],
-        &mb.map,
-        1024.0,
-    );
-
     let template = CHEST_ROOM;
 
-    let mut attempts = 0;
-    while placement.is_none() && attempts < 10 {
-        let dimensions = Rect::with_size(
-            rng.range(0, SCREEN_WIDTH - template.1),
-            rng.range(0, SCREEN_HEIGHT - template.2),
-            template.1,
-            template.2,
-        );
-
-        let mut can_place = false;
-        dimensions.for_each(|pt| {
-            let idx = mb.map.point2d_to_index(pt);
-            let distance = dijkstra_map.map[idx];
-            if distance < 2000.0 && distance > 20.0 && mb.amulet_start != pt {
-                can_place = true;
-            }
-        });
-
-        if can_place {
-            placement = Some(Point::new(dimensions.x1, dimensions.y1));
-            let points = dimensions.point_set();
-            mb.monster_spawns.retain(|pt| !points.contains(pt));
-        }
-        attempts += 1;
-    }
+    let placement = find_prefab_placement(mb, rng, template.1, template.2);
 
     if let Some(placement) = placement {
         let string_vec: Vec<char> = template
