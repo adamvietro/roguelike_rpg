@@ -221,102 +221,14 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-11. **Defeat and Victory screens need to be redone** (added 2026-09-11,
-    scoped 2026-09-13, implemented 2026-09-13) — real background images
-    behind the played-once Death/Victory animations, the same "sourced
-    externally, one full painted scene" approach already proven for
-    Battle Arena's backgrounds (see "Battle arena backgrounds" in Done
-    below). Implemented on branch `enemy-death-victory-backgrounds`:
-    `components::VictoryBackground`/`DefeatBackground` pick a background
-    (+ for Victory, a matching pose) keyed to the run's own
-    `MapTheme::end_scene_theme()` (Forest/Dungeon/Sewer) or Arena, sharing
-    `resources/battle_backgrounds.png`'s existing padded 6x6 glyph grid
-    rather than any new console. Each dungeon theme randomly picks
-    between 2 Victory scenes; Defeat is one fixed scene per theme/mode,
-    no randomization. Full technical detail in `docs/journal.md`.
-    - **`VictoryPose::ClimbAway` now has a real animation** (delivered in
-      the 2026-09-13 full animation batch alongside the Attack/Defend/
-      Death/Idle_Battle_Stance/Walk/technique refresh for all 6 classes,
-      4 boss Death animations, Goblin's walk fix, and the Shopkeeper's
-      first-ever animation - see "Character & enemy animation" in Done
-      for the full writeup) - north-east-facing, new rows 8-13 on
-      `character_victory.png`.
-    - **The Amulet of Yala icon was removed from the Victory screen**
-      (2026-09-13, explicit user call) - it was a small flat dungeonfont
-      glyph designed for the old plain-fill background, and read as a
-      mismatched artifact next to these painted scenes. The body text
-      ("You put on the Amulet of Yala...") still carries that narrative
-      beat on its own; the actual in-dungeon Amulet item/pickup mechanic
-      is unaffected, only the End-screen icon is gone.
-    - **The hero's own position is now per-background**
-      (`VictoryBackground::portrait_grid_position`/`walk_away_position`,
-      components.rs) instead of one fixed spot for every scene - screenshot-
-      verified across every Victory variant as of 2026-09-13 (Arena,
-      Forest Stance, Dungeon Stance, Sewer Stance, Dungeon Corridor,
-      Sewer Walk all confirmed good). Forest Stairs needed one real fix
-      along the way: was row 4 (bottom), confirmed via screenshot sitting
-      directly on top of "Press Enter..." - moved to row 3, matching
-      every other foreground pose. The WalkAway pose (Dungeon Corridor/
-      Sewer Walk) also needed a real fix, not just positioning: it drew
-      at native 1x dungeon-tile size on a plain console and read as an
-      almost-invisible speck - switched to `CHARACTER_IDLE_GLIDE_CONSOLE`
-      (fancy, otherwise unused here) with a 4x `set_fancy` scale
-      (`VICTORY_WALK_AWAY_SCALE`), confirmed via screenshot afterward.
-      Defeat's fallen-portrait position stayed at its existing dead-center
-      spot - every Defeat scene is a roughly-symmetric "centered focal
-      point" composition, unlike Victory's much more varied set, so no
-      per-background variation seemed needed there.
-    - **A real Defeat-screen positioning bug found via user screenshot and
-      fixed (2026-09-13).** The death-animation branch of
-      `draw_end_screen_fallen_portrait` still had the OLD fixed col=1
-      left over from before the Amulet-of-Yala icon (which that offset
-      used to leave room for) was removed - a real screenshot of a Debug-
-      class Defeat on the Arena background showed the corpse sitting
-      well off the courtyard's own centered staircase. Fixed with a new
-      `DefeatBackground::portrait_grid_position` (currently the same
-      centered value for all four scenes, kept as an explicit per-variant
-      match for future flexibility).
-    - **The Defeat screen's own bottom text also needed fixing (2026-09-13,
-      confirmed via screenshot).** "Don't worry, you can always try again
-      with a new hero." is gone entirely - it wasn't earning its line, and
-      sat at a row the fallen portrait could overlap depending on the
-      active background. "Press Enter to return to the title screen."
-      now sits at row 60, matching Victory's own equivalent line (the two
-      screens used to put it in different places).
-    - **A text-legibility scrim was tried and reverted (2026-09-13).** A
-      real problem: on a bright background (Forest Stairs' own archway
-      light), the header/body text washed out completely, confirmed via
-      screenshot. Traced bracket-lib's actual shader source to confirm why
-      HUD_CONSOLE/BIG_TEXT_CONSOLE (both `_no_bg`) can't take a print-call
-      backing color at all (their shader discards near-transparent glyph
-      pixels outright, before `bg` ever matters), and added a translucent
-      dark band behind the text via a "fancy" console instead (whose
-      shader has no such discard, the same mechanism this project's own
-      transparent-background trick already relies on) - technically
-      correct, but the user disliked how it looked (a flat rectangle with
-      hard edges, out of place against painted art) and asked for it
-      gone until real UI art exists to do this properly - see item 14
-      below. Reverted; the underlying legibility problem is untouched
-      (still there on a bright-enough background) but accepted as a known
-      gap for now rather than shipping a placeholder that reads as a bug.
-    - **Every background is now clean - watermark-free (2026-09-13,
-      final pass).** The Dungeon theme needed the most regen attempts by
-      far: Victory Dungeon "Stance" (vault, atlas glyph 7) came back
-      watermarked three times in a row (a different mark each time)
-      before a 4th attempt finally landed clean; Victory Dungeon
-      "Corridor" (glyph 13) and Defeat Dungeon (glyph 9) each needed one
-      regen. Sewer and Forest needed only one regen each across their
-      Victory/Defeat art. All 11 backgrounds (7 Victory + 4 Defeat) are
-      composited into `resources/battle_backgrounds.png` and confirmed
-      watermark-free - nothing left on this front for this branch.
-12. **Ability Bar/other HUD panels should go transparent when the player
+11. **Ability Bar/other HUD panels should go transparent when the player
     is underneath them** (added 2026-09-11) — a side effect of the camera
     changes: the player can now end up positioned under the Ability
     Bar/similar fixed UI panels, which currently just draw solid on top
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
-13. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
+12. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
     box border** (added 2026-09-13) — every box border in the game is
     currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
     draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
@@ -367,7 +279,7 @@ Roughly in the order they've come up:
     download -> composite-into-a-real-sheet pipeline could be scripted
     directly instead of a manual round trip. Not started - no token
     provided yet, nothing generated.
-14. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+13. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
     existing games/trademarks before deciding (see docs/journal.md's
@@ -1213,3 +1125,90 @@ instead of the plain console (console 0) that was failing. Console 0 is
 no longer used by map rendering at all as a result. Floor/Wall's
 real-texture rendering (`MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE`)
 wasn't reported broken and keeps its original plain/fancy split.
+
+## Victory/Defeat screens — real per-theme painted backgrounds
+Implemented 2026-09-13 (added to the backlog 2026-09-11) - real background
+images behind the played-once Death/Victory animations, the same "sourced
+externally, one full painted scene" approach already proven for Battle
+Arena's backgrounds (see "Battle arena backgrounds" in Done below).
+`components::VictoryBackground`/`DefeatBackground` pick a background (+ for
+Victory, a matching pose) keyed to the run's own `MapTheme::end_scene_theme()`
+(Forest/Dungeon/Sewer) or Arena, sharing `resources/battle_backgrounds.png`'s
+existing padded 6x6 glyph grid rather than any new console. Each dungeon
+theme randomly picks between 2 Victory scenes; Defeat is one fixed scene per
+theme/mode, no randomization. Full technical detail in `docs/journal.md`.
+- **`VictoryPose::ClimbAway` now has a real animation** (delivered in
+  the 2026-09-13 full animation batch alongside the Attack/Defend/
+  Death/Idle_Battle_Stance/Walk/technique refresh for all 6 classes,
+  4 boss Death animations, Goblin's walk fix, and the Shopkeeper's
+  first-ever animation - see "Character & enemy animation" in Done
+  for the full writeup) - north-east-facing, new rows 8-13 on
+  `character_victory.png`.
+- **The Amulet of Yala icon was removed from the Victory screen**
+  (2026-09-13, explicit user call) - it was a small flat dungeonfont
+  glyph designed for the old plain-fill background, and read as a
+  mismatched artifact next to these painted scenes. The body text
+  ("You put on the Amulet of Yala...") still carries that narrative
+  beat on its own; the actual in-dungeon Amulet item/pickup mechanic
+  is unaffected, only the End-screen icon is gone.
+- **The hero's own position is now per-background**
+  (`VictoryBackground::portrait_grid_position`/`walk_away_position`,
+  components.rs) instead of one fixed spot for every scene - screenshot-
+  verified across every Victory variant as of 2026-09-13 (Arena,
+  Forest Stance, Dungeon Stance, Sewer Stance, Dungeon Corridor,
+  Sewer Walk all confirmed good). Forest Stairs needed one real fix
+  along the way: was row 4 (bottom), confirmed via screenshot sitting
+  directly on top of "Press Enter..." - moved to row 3, matching
+  every other foreground pose. The WalkAway pose (Dungeon Corridor/
+  Sewer Walk) also needed a real fix, not just positioning: it drew
+  at native 1x dungeon-tile size on a plain console and read as an
+  almost-invisible speck - switched to `CHARACTER_IDLE_GLIDE_CONSOLE`
+  (fancy, otherwise unused here) with a 4x `set_fancy` scale
+  (`VICTORY_WALK_AWAY_SCALE`), confirmed via screenshot afterward.
+  Defeat's fallen-portrait position stayed at its existing dead-center
+  spot - every Defeat scene is a roughly-symmetric "centered focal
+  point" composition, unlike Victory's much more varied set, so no
+  per-background variation seemed needed there.
+- **A real Defeat-screen positioning bug found via user screenshot and
+  fixed (2026-09-13).** The death-animation branch of
+  `draw_end_screen_fallen_portrait` still had the OLD fixed col=1
+  left over from before the Amulet-of-Yala icon (which that offset
+  used to leave room for) was removed - a real screenshot of a Debug-
+  class Defeat on the Arena background showed the corpse sitting
+  well off the courtyard's own centered staircase. Fixed with a new
+  `DefeatBackground::portrait_grid_position` (currently the same
+  centered value for all four scenes, kept as an explicit per-variant
+  match for future flexibility).
+- **The Defeat screen's own bottom text also needed fixing (2026-09-13,
+  confirmed via screenshot).** "Don't worry, you can always try again
+  with a new hero." is gone entirely - it wasn't earning its line, and
+  sat at a row the fallen portrait could overlap depending on the
+  active background. "Press Enter to return to the title screen."
+  now sits at row 60, matching Victory's own equivalent line (the two
+  screens used to put it in different places).
+- **A text-legibility scrim was tried and reverted (2026-09-13).** A
+  real problem: on a bright background (Forest Stairs' own archway
+  light), the header/body text washed out completely, confirmed via
+  screenshot. Traced bracket-lib's actual shader source to confirm why
+  HUD_CONSOLE/BIG_TEXT_CONSOLE (both `_no_bg`) can't take a print-call
+  backing color at all (their shader discards near-transparent glyph
+  pixels outright, before `bg` ever matters), and added a translucent
+  dark band behind the text via a "fancy" console instead (whose
+  shader has no such discard, the same mechanism this project's own
+  transparent-background trick already relies on) - technically
+  correct, but the user disliked how it looked (a flat rectangle with
+  hard edges, out of place against painted art) and asked for it
+  gone until real UI art exists to do this properly - see item 12
+  below. Reverted; the underlying legibility problem is untouched
+  (still there on a bright-enough background) but accepted as a known
+  gap for now rather than shipping a placeholder that reads as a bug.
+- **Every background is now clean - watermark-free (2026-09-13,
+  final pass).** The Dungeon theme needed the most regen attempts by
+  far: Victory Dungeon "Stance" (vault, atlas glyph 7) came back
+  watermarked three times in a row (a different mark each time)
+  before a 4th attempt finally landed clean; Victory Dungeon
+  "Corridor" (glyph 13) and Defeat Dungeon (glyph 9) each needed one
+  regen. Sewer and Forest needed only one regen each across their
+  Victory/Defeat art. All 11 backgrounds (7 Victory + 4 Defeat) are
+  composited into `resources/battle_backgrounds.png` and confirmed
+  watermark-free - nothing left on this front for this branch.
