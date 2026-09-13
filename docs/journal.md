@@ -3837,7 +3837,7 @@ The user's own live screenshots (all three themes, mid-battle) showed jagged whi
 Fixed by reprocessing all three images with every channel floored to `>=30` (imperceptible - verified against the patched Forest image, both clone-stamp fixes held up) and switching the fallback color from white to black as defense-in-depth, so any pixel that somehow still slips through blends into a dark scene instead of standing out. Added this as a documented third variant of the glyph-32-adjacent near-black-pixel gotcha in both CLAUDE.md and DEVLOG.md, since it's the same underlying rule biting a new asset type (a full-scene backdrop) that nobody had reason to think needed the same treatment as a character sprite sheet.
 <br />
 
-# Title screen upgrades - a new branch, camera clamping, and the frozen background enemies
+## Title screen upgrades - a new branch, camera clamping, and the frozen background enemies
 Merged the battle-background work into `master` directly (no branch this time), then started a genuinely new branch for the next ask: "the enemies on the title screen should walk in place too" plus a related camera bug the user had separately noticed - visible black space around the map's edges, both on the title screen and, it turned out, during real dungeon-crawl play too.
 <br />
 
@@ -3866,7 +3866,7 @@ A user screenshot of a real 2-enemy Forest fight showed the second enemy pushed 
 
 ---
 
-# A real regression, then the enemy-position follow-up gets its own branch
+## A real regression, then the enemy-position follow-up gets its own branch
 Merged the title-screen work into `master` directly, then a doc-restructuring pass on `docs/ideas.md` after realizing my own "what's on the todo" summary had missed whole sections - several already-finished items were still sitting in the numbered Working list with "(fixed)" notes instead of moving to Done, and two entire sections (Refactoring opportunities, Content/world) held real open work with no number at all. Folded both into the numbered list, moved finished work to Done, and wrote the fix into the doc's own header as a standing rule - every open item gets a number from now on, no exceptions.
 <br />
 
@@ -3937,3 +3937,63 @@ Last piece: real walk-cycle animation synced to actual movement, using the 4-dir
 <br />
 
 Session ended with the user heading to bed and asking for the branch finished by morning - out-of-combat animations, the pixel-health floor fix, and real directional movement all shipped and verified (build, tests, and a live launch check each) without a further check-in.
+
+
+---
+
+# 9/13/26
+
+## Victory/Defeat screens redone, keyed to the actual dungeon theme
+New branch, `enemy-death-victory-backgrounds`. The starting ask was simple - real painted backgrounds for the Victory/Game Over screens, the same "sourced externally, one full painted scene" approach already proven for Battle Arena - but the design changed shape twice before any art actually shipped.
+<br />
+
+First pass: one background per mode (Arena fixed, Dungeon Crawl randomized across three generic "vault/corridor/stairs" scenes). Looked reasonable until the user pointed out the obvious problem - finishing a Forest run and getting a stone dungeon vault made no sense. Replanned around the run's own `MapTheme` instead: a new `MapTheme::end_scene_theme()` (Forest/Dungeon/Sewer) plus Arena as its own fixed case, `components::VictoryBackground`/`DefeatBackground` picking a background (and for Victory, a matching pose) keyed to that. Each dungeon theme got two Victory scenes to randomize between; Defeat stayed one fixed scene per theme, no randomization. All of it shares `resources/battle_backgrounds.png`'s existing 6x6 glyph grid - that atlas was already padded to 36 cells to satisfy the glyph-32 gotcha and only used 3 of them, so there was room to grow it without registering a single new console.
+<br />
+
+### The watermark saga
+Nearly every delivered background needed at least one regen. Forest and Sewer needed one attempt each. Dungeon was the real holdout - the vault scene specifically came back watermarked three times running, each with a different mark, before a fourth attempt finally landed clean. Caught every one of them by actually zooming into all four corners of each image rather than trusting a glance, per the standing watermark-check rule - one mark was subtle enough at full size that a first look at the whole image missed it entirely.
+<br />
+
+### The Amulet of Yala icon, removed
+The old Victory screen showed a small flat dungeonfont glyph next to the hero for a dungeon-crawl win. Asked the user directly whether it still belonged next to real painted scenes rather than guessing - the answer was no, remove it outright. The body text already carries that narrative beat on its own; only the End-screen icon is gone, the actual in-dungeon Amulet pickup is untouched.
+<br />
+
+## A big new animation batch: boss deaths, Goblin's walk fix, the Shopkeeper's first animation, Victory's climbing pose
+The user delivered 12 zips in one batch - all 6 player classes, the 4 bosses, Goblin, and the Shopkeeper (its first animation ever). Looked everything over and reported back before writing any code, per the standing convention: the usual canvas-size drift (40x40/44x44/48x48 despite metadata.json's declared 32x32), and a real naming problem - 3 of 4 boss Death folders and 4 of 6 player climb-pose folders came back with PixelLab's own auto-generated captions instead of clean names (`The_knight_staggers_backward_as_its_stance_falters` instead of `Death`, and similar for the new north-east-facing "climbing away" pose). Confirmed each one was the right animation by actually opening frames and watching the motion, not by trusting the caption text.
+<br />
+
+### Boss Death animations, without auditing every targeting/gauge loop in the game
+New `enemy_death.png` sheet, one south-west-facing row per boss, matching `enemy_battle.png`'s own orientation. Wiring it into `record_enemy_kill` turned into a real design fork: keeping a "dying" enemy inside `battle.enemies` until its animation finished would have meant guarding every ATB-gauge-fill and targeting loop that iterates that list against it - several call sites, plus the headless class-survivability simulation's own copy of the battle loop. Instead, the death animation lives on a brand new, completely independent `Battle::dying_effects` list - a pure decorative overlay, ticked and drawn every `battle_tick` frame and dropped once it finishes. Rewards, removal, and the fight-over check all still happen exactly when they did before this existed. The one real consequence: if the last enemy in a fight has a death animation, the Victory screen still appears on the old timing and the overlay just gets cut short by that transition - same as every other in-flight battle effect (flash, wiggle, popup) already does. Confirmed safe by rerunning both the normal test suite and the headless survivability simulations afterward - unchanged results, nothing regressed.
+<br />
+
+Goblin's own walk cycle got replaced in the same batch, fixing a real complaint: the old art made the spear look like it was welded to Goblin's head. New art reads clean in all four directions. The Shopkeeper got real animated art for the first time ever - a new `IdleSpriteSheet::Shopkeeper` variant and its own dedicated console trio (`SHOPKEEPER_IDLE_CONSOLE`/`_SCROLL_`/`_GLIDE_`), reusing the existing `IdleAnimation`/`tick_idle_animation` machinery outright rather than a bespoke component, since the Shopkeeper never moves or turns and none of the facing-rebuild logic built for real entities ever triggers for it. Plays `Idle_Selling` as its permanent standing loop; `Walk`/`Breathing_Idle` from the same zip go unused since it never needs them.
+<br />
+
+Victory's own "climbing away" pose (the missing piece from the Forest Stairs background) finally got real art too - a new row block (8-13) on `character_victory.png` rather than a separate sheet, the same "grow the sheet" convention `character_idle.png` used for 4-directional Walk, wired into the `VictoryPose::ClimbAway` slot that had been silently falling back to the ordinary face-camera animation since the backgrounds work shipped.
+<br />
+
+## Real screenshots catch three real bugs the first pass missed
+None of these were guessed - all three came from the user actually running the game and sending screenshots, which this session leaned on hard once it became clear synthetic input doesn't work in this environment (more below).
+<br />
+
+Forest Stairs' climbing pose was sitting at row 4 (intended: near the base of the stairs) - a real screenshot showed it sitting directly on top of "Press Enter to return to the title screen." Moved to row 3, matching every other foreground pose. Separately, the Defeat screen's own fallen-portrait position turned out to still be using a fixed col=1 left over from before the Amulet icon (which that offset used to leave room for) was removed - a Debug-class Defeat on the Arena background showed the corpse sitting well off the courtyard's own centered staircase. Fixed with a new `DefeatBackground::portrait_grid_position`, the same per-background approach Victory already had.
+<br />
+
+The third: the "walking away" pose used for the two corridor-style Victory backgrounds (Dungeon Corridor, Sewer Walk) was drawing at native 1x dungeon-tile size on a plain console, and read as an almost-invisible speck against a full painted scene. Fixed by switching that one draw call onto `CHARACTER_IDLE_GLIDE_CONSOLE` (already registered as a fancy console, otherwise unused during this screen) purely to get `set_fancy`'s scale parameter - 4x bigger, confirmed via a follow-up screenshot.
+<br />
+
+### A text-legibility scrim, tried and correctly reverted
+A fourth real problem showed up the same way: Forest Stairs' own archway light completely washed out the header/body text on top of it. Rather than guess a color swap, traced bracket-lib's actual shader source (`console_no_bg.wgsl` vs `fancy.wgsl`) to confirm why - the console types used for that text discard near-transparent glyph pixels outright, so no background color passed to a print call can ever show through; a "fancy" console's shader has no such discard and honors real alpha instead, the same mechanism this project's own transparent-background trick already relies on. Built a translucent dark band behind the text using that mechanism - technically correct, confirmed working - but the user disliked how it actually looked (a flat rectangle with hard edges, sitting on top of painted art like a placeholder) and asked for it gone until real UI art can do this properly. Reverted cleanly rather than leaving a stopgap the user had already said didn't work; the underlying legibility gap is now a known, accepted tradeoff logged against the new PixelLab UI item instead.
+<br />
+
+## A new Theme Select screen, so testing one theme doesn't mean re-rolling runs
+Separately requested: picking a Dungeon Crawl theme kept requiring restarting runs over and over to land on the one you wanted to actually test. Added `TurnState::ThemeSelect`, reached from Class Select's hidden Debug shortcut - Dungeon-Crawl-only, Debug-only, since Arena's own end screens don't depend on the theme at all. A same-shape arrow-key menu as every other title-flow screen (Random/Forest/Dungeon/Sewer), and the pick sticks for the WHOLE run, not just the first floor - `MapBuilder::new` gained a `forced_theme` parameter, applied before tile-variant assignment runs (applying it after would have left variants assigned under the wrong theme's own variant-style rules).
+<br />
+
+## Confirming, properly this time, that live input-driving doesn't work here
+Made a real second attempt at synthetic X11 input after the user asked directly whether it could be made to work - not just XTEST key/mouse events again, but a proper EWMH `_NET_ACTIVE_WINDOW` activation message, the standards-based way a window manager is supposed to hand focus to a window. Confirmed via `_NET_ACTIVE_WINDOW`'s own root-window property that it genuinely never took effect. Static screenshots of the game (direct X11 window capture) work fine - it's specifically driving input that doesn't, consistent with this project's own previously-documented WSLg focus-arbitration theory. Rather than keep re-diagnosing it each time it comes up, wrote the conclusion into `CLAUDE.md` as a standing rule: ask the user for screenshots of live/interactive game states instead of attempting to drive the game directly.
+<br />
+
+## Researching PixelLab's UI-generation API for a future overhaul
+The user asked to look into whether PixelLab (already used for every character/enemy sheet this project has) can also generate real UI art - panel borders, buttons, health bars - to replace the plain `-`/`|`/`+` ASCII boxes used everywhere (`render_helpers::draw_ascii_box`, one shared helper reused by the Item Menu, Battle screen, Pause screen, and every dungeon HUD bar frame). Pulled PixelLab's actual OpenAPI spec (not just its marketing page) and confirmed it has a dedicated UI path: `POST /generate-ui-v2` for a single element from a text description, and `POST /create-ui-asset` for a whole panel with named sub-elements (button, health_bar, toolbar, window, and more) auto-positioned on a canvas. Both are real polling REST endpoints, not a web-UI-only tool - once the user provides an API token, the generate/poll/download/composite pipeline could be scripted directly instead of the manual zip round-trip character art has used so far. Logged as its own numbered backlog item with the full endpoint details and the complete catalog of every existing box border in the game; nothing generated yet, no token provided.
+
