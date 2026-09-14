@@ -4387,3 +4387,13 @@ A fourth round: the fleck fix held up at rest, but a screen recording (not just 
 <br />
 
 Rather than keep chasing a subtle sub-pixel/rendering-order theory blind (the continuously-changing fractional position every frame during a glide is the leading suspect - a seam that's easy to miss in one static frame could read as real "clipping" once it's animating), took the pragmatic path instead: a horizontal path tile now simply doesn't rotate at all while the camera is actively panning, falling back to its own plain unrotated glyph exactly like every other MapTiles tile during a pan - the same behavior that existed before this whole feature, for that one brief (~150ms) window only. Rotation still applies the instant the camera settles, which is where the fix has already been confirmed clean. Verified with the fast suite; still needs a live recording to confirm the clipping is actually gone during the glide now.
+
+## The real problem wasn't rotation itself - it was two different renderings fighting each other
+
+A second recording still showed real clipping, described by the user as "crazy... clipping and tile swapping." Pushed back directly rather than proposing a fifth speculative patch - asked whether to keep guessing or revert rotation outright, and got pointed back to first principles instead: "why didn't we work on a rotation that works?"
+<br />
+
+Walking back through the actual sequence exposed the real mistake: the previous session's "don't rotate during panning" fix (the entry just above) made a path tile render via two COMPLETELY DIFFERENT code paths depending on `is_panning` - plain glyph while panning, grass-base-plus-rotated-overlay at rest. Real movement isn't one continuous glide, though - it's a rapid sequence of short per-tile glides with only a brief instant at rest between each step. That fix was inadvertently making the tile's look FLIP between two different renderings many times a second during ordinary walking - which is almost certainly the actual "tile swapping," independent of whatever fine clipping either individual state might still have.
+<br />
+
+Fixed by removing that divergence entirely: both the panning and at-rest branches now run the identical base_glyph + rotated-overlay logic, so there's no flicker between two different looks regardless of which state any given frame lands in. Verified with the fast suite; still needs a live recording to confirm this actually reads as one consistent tile during real movement now, not two fighting for the same cell.

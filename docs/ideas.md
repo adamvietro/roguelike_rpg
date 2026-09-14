@@ -1056,8 +1056,18 @@ L2/L3):
     (falls back to its own plain glyph for that ~150ms window only,
     exactly like every other MapTiles tile during a pan) - rotation still
     applies the instant the camera settles, which is where it's already
-    confirmed clean. Still needs a live recording to confirm the glide
-    itself is clean now too.
+    confirmed clean. **A second recording still showed real clipping -
+    the actual problem turned out to be the fix just above, not
+    rotation's own geometry**: real movement is a rapid sequence of short
+    per-tile glides with only a brief instant at rest between steps, not
+    one continuous glide, so making panning render differently from rest
+    meant a path tile's look flipped between two different renderings
+    many times a second during ordinary walking - the real source of the
+    reported "tile swapping." Fixed by removing that divergence: both
+    branches now run the identical base-layer-plus-rotated-overlay logic,
+    so there's no flicker between two different looks regardless of
+    which state a given frame lands in. Still needs a live recording to
+    confirm this reads as one consistent tile during real movement.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:
