@@ -98,17 +98,20 @@ fn print_box(
     selected: Option<usize>,
 ) {
     draw_filled_pixel_box(batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
-    // Row y+1, not y - confirmed live 2026-09-14 that the title printed at
-    // the box's own nominal top row (y) sits visibly ABOVE where the
-    // pixel-art border's top edge actually renders, instead of "on" it as
-    // asked for. The border tiles get an extra north-anchor correction
-    // (WIGGLE_CONSOLE_Y_ANCHOR_OFFSET - see draw_panel_tile) that the
-    // title text, printed through plain print_color, never goes through -
-    // a one-row nudge is the simplest way to land the title back on the
-    // border's own real position rather than chasing the offset itself.
-    // First-pass guess pending another screenshot, same as every other
-    // pixel value in this file.
-    batch.print_color(Point::new(x + 2, y + 1), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
+    // Back to row y, not y+1 - the y+1 nudge (tried 2026-09-14, aiming to
+    // land the title "on" the border per direct feedback) turned out to be
+    // a real architectural dead end, not a pixel-tuning miss: the border
+    // draws on UI_PANEL_CONSOLE, a console registered (and therefore
+    // z-ordered) AFTER HUD_CONSOLE - wherever the title's row coincides
+    // with the border's own real footprint, the border's fully opaque
+    // tile paints directly over the title and hides it completely,
+    // regardless of DrawBatch command order within HUD_CONSOLE itself
+    // (confirmed live: the nudge didn't misplace the title, it erased it
+    // outright on every box). Reverted to the row that's actually
+    // confirmed visible. Getting a title to read as genuinely embedded
+    // in the border art would need a real new console layered even later
+    // than UI_PANEL_CONSOLE - not attempted here.
+    batch.print_color(Point::new(x + 2, y), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
 
     if slots.is_empty() {
         batch.print_color(
@@ -309,10 +312,11 @@ impl State {
             STATS_HEIGHT,
             UiPanelTheme::Dungeon,
         );
-        // STATS_Y + 1, not STATS_Y - see print_box's own comment on the
-        // same title-row nudge.
+        // Back to STATS_Y, not STATS_Y + 1 - see print_box's own comment
+        // on why that nudge got reverted (it hid the title entirely, not
+        // just misplaced it).
         batch.print_color(
-            Point::new(LEFT_X + 2, STATS_Y + 1),
+            Point::new(LEFT_X + 2, STATS_Y),
             " Stats ",
             ColorPair::new(YELLOW, BLACK),
         );
