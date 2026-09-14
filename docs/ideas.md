@@ -574,14 +574,20 @@ without real art yet still falls back to the old procedural fill
 unchanged. Confirmed live in a real fight, all three original themes.
 
 - **Swamp's own background** (2026-09-13, cell 14 of the atlas) is a
-  TOP-DOWN enclosed marsh pool, unlike the other three's own compositions
-  - the first generation attempt came back with no clearly distinct
-    standing area (the whole scene read as open water), so the prompt
-    was sharpened to explicitly call for a solid, dry ground patch in
-    the top-right, separate from the water - the second attempt fixed
-    it cleanly. Not yet screenshot-verified live in a real fight (unlike
-    the original three) - worth a real check next time Swamp comes up in
-    a run.
+  LOW TOP-DOWN enclosed marsh clearing, unlike the other three's own
+  compositions - took three real generation rounds. The first came back
+  with no clearly distinct standing area (the whole scene read as open
+  water); the second added a top-right ground patch but left the
+  player's own separate (fixed, not per-theme) position on the water;
+  live play then showed even that still wasn't enough usable ground for
+  either the enemies or the player. The fix that actually worked wasn't
+  another wording tweak - it was flipping which element the prompt
+  described as dominant: solid ground as 80%+ of the frame with water as
+  a minor accent (one small puddle), instead of a mostly-water scene
+  with ground carved out as the minority feature. Came back clean on the
+  first try once framed that way. Not yet screenshot-verified live in a
+  real fight with this final version - worth a real check next time
+  Swamp comes up in a run.
 
 - **Getting the art right took real iteration.** Sourced externally
   (PixelLab is built for character sprites, not full painted scenes) -

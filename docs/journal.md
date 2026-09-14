@@ -4480,3 +4480,13 @@ Rather than trade one imperfect whole-cell guess for another, gave this specific
 <br />
 
 Verified with the fast test suite (46 console registrations, indices 0-45, no gaps) - still needs a live screenshot to confirm the fractional position actually reads right, same as every bracket-lib layout value in this project until it's been checked against real play.
+
+## The Battle Arena background needed a composition rethink, not another prompt tweak
+
+The "top-right for enemies, bottom-left for the player" revision (previous entry) still wasn't giving enough usable ground on either side - the user reported it plainly: "the current prompt is just not giving enough land for the player and the enemies." Every attempt so far had been asking for a mostly-WATER scene with ground carved out as the minority feature (an enclosed marsh pool with dry patches) - fighting the generator's own instinct every round rather than working with it.
+<br />
+
+Flipped the ratio instead of tweaking wording again: told the prompt explicitly that solid ground is the DOMINANT feature (80%+ of the frame) and water is a minor accent (one small puddle, not the base layer) - "this is NOT a water scene with a bit of dry land - it's a dry clearing with only a small water feature." Came back clean on the first try - a large sunlit muddy clearing fills nearly the whole frame, with only a thin ring of water visible at the edges through the root/vine border. Passed the same checks as every other piece of full-scene art in this project (zero watermarks across 4 corners, near-black floored to 30/channel). Composited into cell 14, replacing the previous attempt - confirmed via byte diff against the last commit that only that one cell changed.
+<br />
+
+**Worth remembering for the next piece of environment art**: when a generator keeps defaulting to a look that doesn't leave enough usable space (here, water as the dominant terrain), the fix is rebalancing which element is described as dominant vs. accent, not just adding more qualifiers to the existing composition.
