@@ -1103,43 +1103,52 @@ impl DefeatBackground {
         }
     }
 
-    /// Same idea as `VictoryBackground::portrait_grid_position` - a
-    /// coarse BATTLE_PORTRAIT grid position, used by
-    /// `draw_end_screen_fallen_portrait`'s death-animation branch. Fixes
-    /// a real bug found 2026-09-13: that branch kept using a fixed
-    /// col=1 (left over from before Victory's own position rework) that
-    /// was never updated when the Amulet-of-Yala icon it used to leave
-    /// room for was removed - confirmed via a real screenshot showing
-    /// the corpse sitting well off-center on the Arena courtyard's own
-    /// centered staircase. Every Defeat scene is a roughly-symmetric
-    /// "centered path/focal point" composition (unlike Victory's much
-    /// more varied set), so all four currently share the same value -
-    /// kept as an explicit per-variant match anyway, matching this
-    /// file's own convention, in case a future Defeat scene needs to
-    /// differ. First guess, not yet screenshot-verified for the other
-    /// three themes.
+    /// A position in the same coarse `BATTLE_PORTRAIT_COLS` x `_ROWS`
+    /// grid `VictoryBackground::portrait_grid_position` uses, but `f32`
+    /// - drawn via `set_fancy` on `CHARACTER_DEATH_GLIDE_CONSOLE` (not
+    /// the whole-cell-only `.set()` `CHARACTER_DEATH_CONSOLE` used
+    /// before) so a theme can place the corpse anywhere within the
+    /// grid, not just on one of its 25 whole-cell intersections. Fixes
+    /// a real bug found 2026-09-13: this used to be a fixed col=1 (left
+    /// over from before Victory's own position rework), never updated
+    /// when the Amulet-of-Yala icon it used to leave room for was
+    /// removed - confirmed via a real screenshot showing the corpse
+    /// sitting well off-center on the Arena courtyard's own centered
+    /// staircase. Every Defeat scene is a roughly-symmetric "centered
+    /// path/focal point" composition (unlike Victory's much more varied
+    /// set), so the original four all still share the same whole-cell
+    /// (2.0, 3.0) - kept as an explicit per-variant match anyway,
+    /// matching this file's own convention, in case a future Defeat
+    /// scene needs to differ. First guess, not yet screenshot-verified
+    /// for these four.
     ///
-    /// Swamp is the one confirmed exception (real screenshot, 2026-09-13
-    /// - the corpse rendering visibly in the pool below the dead tree).
-    /// First attempted fix was (1,3) (left of center, majority grass but
-    /// still dipping into the pool along its lower edge) - the user then
-    /// marked up the SAME screenshot directly with a box showing exactly
-    /// where they wanted it instead: the ground patch to the right of
-    /// the pool. (4,3) is that patch - sampled directly against the
-    /// composited image and confirmed clean solid grass, no water
-    /// anywhere in the cell (unlike (4,4) just below it, which is
-    /// mostly swallowed by the scene's own dark corner vignette). Still
-    /// a first guess by the same standard as every other value here -
-    /// expect a follow-up correction round from a real screenshot rather
-    /// than treating this as final.
-    pub fn portrait_grid_position(self) -> (i32, i32) {
-        let centered = (2, 3);
+    /// Swamp is the one confirmed exception, and the reason this became
+    /// fractional at all - three real screenshot rounds: (2.0, 3.0)
+    /// rendered in the pool below the dead tree; (1.0, 3.0) still dipped
+    /// into the pool along its own lower edge; (4.0, 3.0) - the user's
+    /// own marked-up screenshot pointed at this exact patch - was
+    /// finally clean solid grass, but sitting almost flush with the
+    /// grid's own right edge read as clipped/too far right. Every whole
+    /// cell in this scene's grid was EITHER on water OR at the frame
+    /// edge, never both clear at once - sampled real pixel colors across
+    /// a range of x/y values directly against the composited image
+    /// (not eyeballed) to find (3.4, 3.4), solid grass with real margin
+    /// from the edge. Drawn via the existing `draw_portrait_fancy`
+    /// helper, so it automatically picks up `WIGGLE_CONSOLE_Y_ANCHOR_
+    /// OFFSET` - the same "set_fancy renders one cell too far north"
+    /// correction every other fancy console on this exact coarse grid
+    /// has needed. `CHARACTER_DEATH_GLIDE_CONSOLE` is a brand new
+    /// pairing though, never itself screenshot-verified, so that carried
+    /// -over assumption is still worth checking first if the corpse
+    /// renders visibly high.
+    pub fn fallen_portrait_position(self) -> (f32, f32) {
+        let centered = (2.0, 3.0);
         match self {
             DefeatBackground::Arena => centered,
             DefeatBackground::Dungeon => centered,
             DefeatBackground::Sewer => centered,
             DefeatBackground::Forest => centered,
-            DefeatBackground::Swamp => (4, 3),
+            DefeatBackground::Swamp => (3.4, 3.4),
         }
     }
 }

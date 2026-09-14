@@ -283,44 +283,55 @@ mod prelude {
     /// class`/`OneShotAnimation`) for any class with a row there,
     /// replacing the old "rotate the static portrait 90 degrees" hack.
     pub const CHARACTER_DEATH_CONSOLE: usize = 35;
-    /// Console 36, battle-only: plain, same grid, `character_
+    /// Console 36, battle-only: FANCY, same grid/font as CHARACTER_
+    /// DEATH_CONSOLE - `set_fancy`'s fractional positioning for the
+    /// Defeat screen's own fallen-portrait placement
+    /// (`components::DefeatBackground::fallen_portrait_position`), added
+    /// 2026-09-13 once Swamp's own Defeat art proved the coarse 5x5
+    /// `BATTLE_PORTRAIT` grid genuinely couldn't place the corpse on
+    /// solid ground AND clear of the frame edge at the same time - every
+    /// integer cell tried was one or the other, never both. Every other
+    /// theme's own position still just widens its existing (col, row)
+    /// into (col as f32, row as f32) - unaffected, exact same spot.
+    pub const CHARACTER_DEATH_GLIDE_CONSOLE: usize = 36;
+    /// Console 37, battle-only: plain, same grid, `character_
     /// victory.png` - a real played-once victory-pose animation
     /// (`components::victory_animation_for_class`), shared by the
     /// in-battle Victory screen and the run-ending Victory screen.
-    pub const CHARACTER_VICTORY_CONSOLE: usize = 36;
-    /// Console 37, battle-only: plain, same grid, `character_
+    pub const CHARACTER_VICTORY_CONSOLE: usize = 37;
+    /// Console 38, battle-only: plain, same grid, `character_
     /// technique.png` - keyed by (class, technique) pairs rather than
     /// class alone (`components::technique_animation_for`/`Battle::
     /// player_technique_animation`). Replaces the ordinary battle-idle
     /// loop for exactly the duration of a technique's own display.
-    pub const CHARACTER_TECHNIQUE_CONSOLE: usize = 37;
-    /// Console 38, battle-only: plain, same grid, `character_
+    pub const CHARACTER_TECHNIQUE_CONSOLE: usize = 38;
+    /// Console 39, battle-only: plain, same grid, `character_
     /// attack.png` - the generic basic-Attack one-shot animation
     /// (`components::attack_animation_for_class`).
-    pub const CHARACTER_ATTACK_CONSOLE: usize = 38;
-    /// Console 39, battle-only: plain, same grid, `character_
+    pub const CHARACTER_ATTACK_CONSOLE: usize = 39;
+    /// Console 40, battle-only: plain, same grid, `character_
     /// defend.png` - Defend's equivalent of CHARACTER_ATTACK_CONSOLE.
-    pub const CHARACTER_DEFEND_CONSOLE: usize = 39;
-    /// Console 40, battle-only: FANCY (unlike CHARACTER_ATTACK/DEFEND_
+    pub const CHARACTER_DEFEND_CONSOLE: usize = 40;
+    /// Console 41, battle-only: FANCY (unlike CHARACTER_ATTACK/DEFEND_
     /// CONSOLE), `enemy_attack.png` (`components::attack_animation_for_
     /// enemy`/`EnemyCombatant::attack_animation`) - needs `set_fancy`'s
     /// fractional positioning so a 2+ enemy fight's zigzag formation
     /// still lines up during an enemy's own Attack animation.
-    pub const ENEMY_ATTACK_CONSOLE: usize = 40;
-    /// Console 41, battle-only: FANCY (same reasoning as ENEMY_ATTACK_
+    pub const ENEMY_ATTACK_CONSOLE: usize = 41;
+    /// Console 42, battle-only: FANCY (same reasoning as ENEMY_ATTACK_
     /// CONSOLE), `enemy_death.png` (`components::death_animation_for_
     /// enemy`/`EnemyCombatant::death_animation`).
-    pub const ENEMY_DEATH_CONSOLE: usize = 41;
-    /// Consoles 42/43/44, dungeon-view: the Shopkeeper's own plain/
+    pub const ENEMY_DEATH_CONSOLE: usize = 42;
+    /// Consoles 43/44/45, dungeon-view: the Shopkeeper's own plain/
     /// scroll/glide trio, same shape as CHARACTER_IDLE_CONSOLE/
     /// ENEMY_IDLE_CONSOLE/CHARACTER_EFFECT_CONSOLE's trios above (see
     /// `IdleSpriteSheet::Shopkeeper`'s own doc comment for why it needs a
     /// dedicated sheet). Appended at the end rather than inserted early -
     /// a single always-decorative NPC has nothing that requires the
     /// lower slot the earlier trios needed.
-    pub const SHOPKEEPER_IDLE_CONSOLE: usize = 42;
-    pub const SHOPKEEPER_IDLE_SCROLL_CONSOLE: usize = 43;
-    pub const SHOPKEEPER_IDLE_GLIDE_CONSOLE: usize = 44;
+    pub const SHOPKEEPER_IDLE_CONSOLE: usize = 43;
+    pub const SHOPKEEPER_IDLE_SCROLL_CONSOLE: usize = 44;
+    pub const SHOPKEEPER_IDLE_GLIDE_CONSOLE: usize = 45;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -367,6 +378,7 @@ mod prelude {
         ENEMY_BATTLE_CONSOLE,
         ENEMY_BATTLE_WIGGLE_CONSOLE,
         CHARACTER_DEATH_CONSOLE,
+        CHARACTER_DEATH_GLIDE_CONSOLE,
         CHARACTER_VICTORY_CONSOLE,
         CHARACTER_TECHNIQUE_CONSOLE,
         CHARACTER_ATTACK_CONSOLE,
@@ -1528,6 +1540,14 @@ fn main() -> BError {
         // coarse grid as console 3, sourced from character_death.png -
         // see its own doc comment above.
         .with_simple_console_no_bg(
+            BATTLE_PORTRAIT_COLS,
+            BATTLE_PORTRAIT_ROWS,
+            "character_death.png",
+        )
+        // Console (CHARACTER_DEATH_GLIDE_CONSOLE): a fancy console, same
+        // grid/font as the plain one just above - see its own doc
+        // comment above.
+        .with_fancy_console(
             BATTLE_PORTRAIT_COLS,
             BATTLE_PORTRAIT_ROWS,
             "character_death.png",

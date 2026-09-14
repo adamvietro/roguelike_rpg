@@ -296,16 +296,24 @@ impl State {
         // rotation, no scale, full color) on the coarse BATTLE_PORTRAIT
         // grid just like draw_end_screen_portrait's victory animation.
         // Position comes from the active DefeatBackground's own
-        // portrait_grid_position (see components::DefeatBackground) -
+        // fallen_portrait_position (see components::DefeatBackground) -
         // fixes a real bug found 2026-09-13 via screenshot: this used to
         // be a fixed col=1, left off-center on the Arena courtyard's own
         // centered staircase, never updated when Victory's Amulet-of-
         // Yala icon (which col=1 used to leave room for) was removed.
+        // Drawn via set_fancy on CHARACTER_DEATH_GLIDE_CONSOLE (not the
+        // whole-cell-only CHARACTER_DEATH_CONSOLE used before) - a
+        // second real screenshot round on Swamp's own Defeat scene
+        // proved the coarse integer grid alone couldn't place the corpse
+        // on solid ground AND clear of the frame edge at once. Reuses
+        // the same draw_portrait_fancy helper the multi-enemy battle
+        // formation already relies on for fractional positions on this
+        // exact grid shape.
         if let (Some(render), Some(anim)) = (render, self.death_animation.as_ref()) {
-            let (col, row) = defeat_background.portrait_grid_position();
+            let (col, row) = defeat_background.fallen_portrait_position();
             let mut death = DrawBatch::new();
-            death.target(CHARACTER_DEATH_CONSOLE);
-            death.set(Point::new(col, row), render.color, anim.current_glyph());
+            death.target(CHARACTER_DEATH_GLIDE_CONSOLE);
+            draw_portrait_fancy(&mut death, col, row, Render { color: render.color, glyph: anim.current_glyph() });
             death.submit(0).expect("Batch error");
             return;
         }
@@ -396,7 +404,7 @@ impl State {
         // "Don't worry, you can always try again..." removed (2026-09-13,
         // explicit user call) - it sat at row 45, which the fallen
         // portrait's own per-background position (see components::
-        // DefeatBackground::portrait_grid_position) can overlap depending
+        // DefeatBackground::fallen_portrait_position) can overlap depending
         // on the active theme, and it wasn't earning its own line either
         // way. "Press Enter..." alone now sits at row 60 - same row
         // Victory's own equivalent line uses (see victory() below), so
