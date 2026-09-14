@@ -488,27 +488,10 @@ impl State {
 
 
     /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
-    pub fn battle_tick(&mut self, ctx: &mut BTerm) {
-        let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
-        let mut battle = match battle_snapshot {
-            Some(b) => b,
-            None => {
-                // Shouldn't happen, but don't get stuck if it does.
-                self.resources.insert(TurnState::AwaitingInput);
-                return;
-            }
-        };
-
-        // Whether Enter is the key physically down THIS frame - computed
-        // once here and threaded into every call this frame that could
-        // transition into a screen Enter also dismisses (GameOver,
-        // BattleVictory), so that transition can arm
-        // pending_enter_release regardless of which of several call
-        // paths (a plain kill, a Counter kill, a DoT kill, the player's
-        // own death) actually triggered it. See pending_enter_release's
-        // own doc comment on State for the full mechanism.
-        let enter_held = ctx.key == Some(VirtualKeyCode::Return);
-
+    /// Ticks every purely time-based piece of Battle state that advances
+    /// unconditionally, every single battle_tick frame, regardless of
+    /// battle.turn - see the inline comments below for each piece.
+    fn tick_battle_timers(&mut self, battle: &mut Battle, ctx: &mut BTerm) {
         // Tick down any active post-action portrait flash/damage popup -
         // the player's own (still flat fields on Battle) and every
         // enemy's own (now on EnemyCombatant - see that struct's doc
@@ -592,8 +575,23 @@ impl State {
         // arm further below - it holds off its own auto-advance timer
         // while this is still Some, so the summary line has actually
         // been pushed before the result screen can dismiss.
-        damage::tick_hit_queue(&mut self.ecs, &mut battle, ctx.frame_time_ms);
+        damage::tick_hit_queue(&mut self.ecs, battle, ctx.frame_time_ms);
+    }
 
+    /// ATB gauge fill and the Filling-state transition it can trigger
+    /// (into PlayerMenu, or directly into an enemy's own ActionResult
+    /// via trigger_enemy_action). Returns true if battle_tick should
+    /// return immediately this frame (that enemy action just ended the
+    /// whole battle via its own DoT tick - see trigger_enemy_action's
+    /// own doc comment).
+    fn tick_atb_and_maybe_act(
+        &mut self,
+        battle: &mut Battle,
+        ctx: &mut BTerm,
+        enter_held: bool,
+        atb_mode: AtbMode,
+        battle_speed: BattleSpeed,
+    ) -> bool {
         // --- ATB gauges: fill continuously from Speed (see
         // BattleTurn::Filling's doc comment and atb_fill_rate) - the
         // FFVII-style replacement for the old fixed "whoever's faster
@@ -620,8 +618,6 @@ impl State {
         // ActionResult - but still freezes everything during the
         // PLAYER's own ActionResult, the one deliberate exception (see
         // AtbMode::Active's doc comment for why).
-        let battle_speed = *self.resources.get::<BattleSpeed>().unwrap();
-        let atb_mode = *self.resources.get::<AtbMode>().unwrap();
         let (tick_player, tick_enemies) = match battle.turn {
             BattleTurn::Filling => (true, true),
             BattleTurn::PlayerMenu => (false, atb_mode == AtbMode::Active),
@@ -655,7 +651,7 @@ impl State {
                 // what made queuing possible in the first place), and the
                 // whole point of queuing was to not make the player wait
                 // any longer than necessary once it's finally safe to act.
-                self.resolve_player_action(&mut battle, chosen);
+                self.resolve_player_action(battle, chosen);
             } else if battle.player_gauge >= ATB_GAUGE_MAX {
                 // A same-frame tie always favors the player - simplest
                 // deterministic rule, and it means the player is never the
@@ -671,12 +667,20 @@ impl State {
                 // those ready wins a same-frame tie, mirroring the
                 // player-favoring rule above - simple and deterministic,
                 // not meant to imply anything about "real" simultaneity.
-                if self.trigger_enemy_action(&mut battle, attacker, enter_held) {
-                    return;
+                if self.trigger_enemy_action(battle, attacker, enter_held) {
+                    return true;
                 }
             }
         }
+        false
+    }
 
+    /// Draws everything about the arena and combatants that isn't the
+    /// Actions box/menu itself: the arena portraits (see
+    /// draw_battle_arena), each enemy's name/HP/ATB/status text, the
+    /// player's own HP/ATB/status text, the battle log box, and
+    /// floating damage-number popups.
+    fn draw_battle_hud(&mut self, ctx: &mut BTerm, battle: &Battle) {
         let (player_hp, player_max) = entity_health(&self.ecs, battle.player);
         let player_render = entity_render_component(&self.ecs, battle.player);
 
@@ -712,27 +716,6 @@ impl State {
             battle.player_action_kind,
             None,
         );
-
-        // --- "You can act" indicator: whether the player can issue an
-        // action RIGHT NOW - either a normal open PlayerMenu, or (True
-        // ATB only) the queuing window during some enemy's own
-        // ActionResult (see Battle::queued_player_action's doc comment).
-        // Drives the Actions box border color below (green normally,
-        // yellow while this is true) rather than tinting the player's
-        // own portrait - a portrait tint turned out to read as a stray
-        // color change with no clear meaning, and worse, it silently
-        // went dark again the instant an enemy interrupted (turn moved
-        // off PlayerMenu) even though - under True ATB - the player
-        // could very much still act in that moment via queuing. The box
-        // color is checked here, once, against the SAME condition that
-        // actually gates input capture in both spots below (PlayerMenu's
-        // own key handling and ActionResult(Enemy(_))'s queuing capture),
-        // so it can never drift out of sync with what's actually
-        // interactive.
-        let player_can_act = battle.turn == BattleTurn::PlayerMenu
-            || (atb_mode == AtbMode::Active
-                && battle.queued_player_action.is_none()
-                && battle.player_gauge >= ATB_GAUGE_MAX);
 
         // --- Text: name + HP bar anchored next to each portrait, and a
         // message/menu panel centered in the gap between them.
@@ -862,11 +845,11 @@ impl State {
         if let Some(armor) = entity_ice_armor(&self.ecs, battle.player) {
             player_statuses.push(format!("Ice Armor ({} left)", armor.attacks_remaining));
         }
-        if let Some(remaining) = buff::remaining(&battle, BuffKind::DamageReduction) {
+        if let Some(remaining) = buff::remaining(battle, BuffKind::DamageReduction) {
             player_statuses.push(format!("Battle Cry ({} left)", remaining));
         }
-        if let Some(remaining) = buff::remaining(&battle, BuffKind::Evasion) {
-            let chance = buff::flat_value(&battle, BuffKind::Evasion);
+        if let Some(remaining) = buff::remaining(battle, BuffKind::Evasion) {
+            let chance = buff::flat_value(battle, BuffKind::Evasion);
             player_statuses.push(format!("Dodge (+{}% evasion, {} left)", chance, remaining));
         }
         if battle.player_statuses.is_active(StatusKind::Counter) {
@@ -950,6 +933,62 @@ impl State {
             ctx.print_color(start_col, 17, RED, BLACK, &text);
         }
         ctx.set_active_console(FINE_TEXT_CONSOLE);
+    }
+
+    /// Called from main.rs's tick() dispatcher, so this needs to be `pub`.
+    pub fn battle_tick(&mut self, ctx: &mut BTerm) {
+        let battle_snapshot = self.resources.get::<Option<Battle>>().unwrap().clone();
+        let mut battle = match battle_snapshot {
+            Some(b) => b,
+            None => {
+                // Shouldn't happen, but don't get stuck if it does.
+                self.resources.insert(TurnState::AwaitingInput);
+                return;
+            }
+        };
+
+        // Whether Enter is the key physically down THIS frame - computed
+        // once here and threaded into every call this frame that could
+        // transition into a screen Enter also dismisses (GameOver,
+        // BattleVictory), so that transition can arm
+        // pending_enter_release regardless of which of several call
+        // paths (a plain kill, a Counter kill, a DoT kill, the player's
+        // own death) actually triggered it. See pending_enter_release's
+        // own doc comment on State for the full mechanism.
+        let enter_held = ctx.key == Some(VirtualKeyCode::Return);
+
+        self.tick_battle_timers(&mut battle, ctx);
+
+        let battle_speed = *self.resources.get::<BattleSpeed>().unwrap();
+        let atb_mode = *self.resources.get::<AtbMode>().unwrap();
+        if self.tick_atb_and_maybe_act(&mut battle, ctx, enter_held, atb_mode, battle_speed) {
+            return;
+        }
+
+        self.draw_battle_hud(ctx, &battle);
+
+        // --- "You can act" indicator: whether the player can issue an
+        // action RIGHT NOW - either a normal open PlayerMenu, or (True
+        // ATB only) the queuing window during some enemy's own
+        // ActionResult (see Battle::queued_player_action's doc comment).
+        // Drives the Actions box border color below (green normally,
+        // yellow while this is true) rather than tinting the player's
+        // own portrait - a portrait tint turned out to read as a stray
+        // color change with no clear meaning, and worse, it silently
+        // went dark again the instant an enemy interrupted (turn moved
+        // off PlayerMenu) even though - under True ATB - the player
+        // could very much still act in that moment via queuing. The box
+        // color is checked here, once, against the SAME condition that
+        // actually gates input capture in both spots below (PlayerMenu's
+        // own key handling and ActionResult(Enemy(_))'s queuing capture),
+        // so it can never drift out of sync with what's actually
+        // interactive.
+        let player_can_act = battle.turn == BattleTurn::PlayerMenu
+            || (atb_mode == AtbMode::Active
+                && battle.queued_player_action.is_none()
+                && battle.player_gauge >= ATB_GAUGE_MAX);
+
+
 
         // --- Actions box, on the HUD console (107x67 grid, ~12px cells -
         // the same "1.5x" size used for the dungeon HUD) rather than the

@@ -125,58 +125,7 @@ Roughly in the order they've come up:
    rethinking of map generation/tile assignment, but `map_builder`'s
    architects still bake in some single-tile-set assumptions worth
    revisiting once that's been lived with for a while.
-9. **Refactoring opportunities** — a read-through of the codebase
-    looking specifically for what a refactor could improve, not a bug
-    hunt. **Stage 1 done (2026-09-13, branch `refactor-item-9-cleanup`):
-    three duplication fixes (find_player/reveal_and_freeze_fov/
-    find_prefab_placement) plus a broader comment-reduction pass** (this
-    codebase ran ~39% comment lines to code; `main.rs`'s console-constant
-    block alone carried ~400 lines of stale "was slot N, then M, then P"
-    renumbering history its own text admitted was outdated - trimmed to
-    the facts that matter, and the 45-pair per-frame `ctx.cls()` sweep
-    collapsed into a loop over one `ALL_CONSOLES` array).
-    **Stage 2 done (2026-09-13, branch `refactor-item-9-stage2`): all
-    four remaining structural splits below**, each verified with both
-    headless class-survivability simulations after every logic-touching
-    change - see `docs/journal.md`'s 2026-09-13 entries for the full
-    write-up of both stages:
-    - ~~`main.rs` doesn't follow its own established convention for
-      where `State`'s methods live~~ - Battle Arena's own orchestration
-      (9 methods: `start_arena`, `arena_begin_wave`,
-      `arena_advance_to_next_shop`, `arena_spawn_boss_on_current_map`,
-      `handle_arena_kill`, `arena_transition_tick`,
-      `arena_wave_cleared_tick`, `boost_arena_enemy_fov`,
-      `arena_rebuild_keep_player`) moved into a new `arena_state.rs`,
-      matching every other screen's own convention.
-    - ~~Pure battle-resolution logic and battle rendering share one
-      file~~ - `resolve_player_action`/`trigger_enemy_action`/
-      `dismiss_action_result`/`record_enemy_kill`/`finish_battle` (plus
-      the `ResultOutcome` enum they share) moved into a new
-      `battle/resolve.rs`, alongside the module's existing damage/heal/
-      dot/buff/counter/status/stun submodules.
-    - ~~`components.rs` (~2300 lines) is a grab-bag of several unrelated
-      domains~~ - split into `components/{mod,bars,animation,glide,
-      tiles}.rs` by domain (plain data components, Ability/Battle/Item
-      Bar slot logic, the ~1250-line sprite-sheet/animation-lookup
-      system, camera/glide math, tile rendering).
-    - ~~`battle/mod.rs` (~1230 lines) has similarly distinguishable
-      groups~~ - split into `battle/{mod,menu,stats}.rs` (core
-      Battle/combat resolution, menu/display concerns, entity-stat
-      accessors).
-
-    **Still open, deliberately saved for last given its size/risk:**
-    - **`screens/battle.rs`'s `battle_tick` is about 735 lines** - by a
-      wide margin the single largest function in the codebase - handling
-      both rendering AND input for every `BattleTurn` state
-      (`PlayerMenu`, `Filling`, `ActionResult` for both the player and
-      each enemy) in one function. Worth splitting into one handler per
-      state - unlike the four items above, this isn't a clean "move
-      already-separate functions to a new file": much of the function is
-      shared per-frame preamble (timer ticking, ATB gauge fill, arena
-      rendering) that every state needs, with only later sections being
-      genuinely state-specific, so the split itself needs real
-      restructuring, not just relocation.
-10. **Content / world**
+9. **Content / world**
     - **More winnable item variety** — right now a chest/shop can only
       ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
       could be equipment, trinkets, or anything else worth finding.
@@ -185,14 +134,14 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-11. **Ability Bar/other HUD panels should go transparent when the player
+10. **Ability Bar/other HUD panels should go transparent when the player
     is underneath them** (added 2026-09-11) — a side effect of the camera
     changes: the player can now end up positioned under the Ability
     Bar/similar fixed UI panels, which currently just draw solid on top
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
-12. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
+11. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
     box border** (added 2026-09-13) — every box border in the game is
     currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
     draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
@@ -243,7 +192,7 @@ Roughly in the order they've come up:
     download -> composite-into-a-real-sheet pipeline could be scripted
     directly instead of a manual round trip. Not started - no token
     provided yet, nothing generated.
-13. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+12. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
     existing games/trademarks before deciding (see docs/journal.md's
@@ -1075,6 +1024,63 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
   access-checked as strictly as bulk queries are. Kept the declaration
   anyway since it's correct and matches `entity_render.rs`/
   `map_render.rs`'s own convention for this exact same helper call.
+- **Refactoring opportunities** — a read-through of the codebase looking
+  specifically for what a refactor could improve, not a bug hunt.
+  **Stage 1 (2026-09-13, branch `refactor-item-9-cleanup`): three
+  duplication fixes** (find_player/reveal_and_freeze_fov/
+  find_prefab_placement) **plus a broader comment-reduction pass** (this
+  codebase ran ~39% comment lines to code; `main.rs`'s console-constant
+  block alone carried ~400 lines of stale "was slot N, then M, then P"
+  renumbering history its own text admitted was outdated - trimmed to
+  the facts that matter, and the 45-pair per-frame `ctx.cls()` sweep
+  collapsed into a loop over one `ALL_CONSOLES` array).
+  **Stage 2 (2026-09-13, branch `refactor-item-9-stage2`): four
+  structural splits, each verified with both headless class-
+  survivability simulations after every logic-touching change:**
+  - `main.rs` didn't follow its own established convention for where
+    `State`'s methods live - Battle Arena's own orchestration (9
+    methods: `start_arena`, `arena_begin_wave`,
+    `arena_advance_to_next_shop`, `arena_spawn_boss_on_current_map`,
+    `handle_arena_kill`, `arena_transition_tick`,
+    `arena_wave_cleared_tick`, `boost_arena_enemy_fov`,
+    `arena_rebuild_keep_player`) moved into a new `arena_state.rs`,
+    matching every other screen's own convention.
+  - Pure battle-resolution logic and battle rendering shared one file -
+    `resolve_player_action`/`trigger_enemy_action`/
+    `dismiss_action_result`/`record_enemy_kill`/`finish_battle` (plus
+    the `ResultOutcome` enum they share) moved into a new
+    `battle/resolve.rs`, alongside the module's existing damage/heal/
+    dot/buff/counter/status/stun submodules.
+  - `components.rs` (~2300 lines) was a grab-bag of several unrelated
+    domains - split into `components/{mod,bars,animation,glide,
+    tiles}.rs` by domain (plain data components, Ability/Battle/Item
+    Bar slot logic, the ~1250-line sprite-sheet/animation-lookup
+    system, camera/glide math, tile rendering).
+  - `battle/mod.rs` (~1230 lines) had similarly distinguishable groups -
+    split into `battle/{mod,menu,stats}.rs` (core Battle/combat
+    resolution, menu/display concerns, entity-stat accessors).
+
+  **Final piece (2026-09-13, same branch): `screens/battle.rs`'s
+  `battle_tick`**, at ~735 lines by a wide margin the single largest
+  function in the codebase, handled both rendering AND input for every
+  `BattleTurn` state (`PlayerMenu`, `Filling`, `ActionResult` for both
+  the player and each enemy) in one function. Unlike the four splits
+  above, this wasn't a clean "move already-separate functions to a new
+  file" - most of the length was shared per-frame preamble (timer
+  ticking, ATB gauge fill/state-transition, arena+HUD rendering) that
+  every state needs, with only the Actions-box/cursor-nav/match block
+  actually being state-specific. Split into three new helper methods
+  covering that shared preamble - `tick_battle_timers` (flash/popup/
+  idle-frame/action-animation/dying-effects/hit-queue ticking),
+  `tick_atb_and_maybe_act` (ATB fill and the Filling-state transition,
+  returning early if that triggered an enemy action that itself ended
+  the battle), `draw_battle_hud` (arena portraits, name/HP/ATB/status
+  text, message log, damage popups) - leaving `battle_tick` itself as
+  just the state-specific match block plus calls into the three
+  helpers. Verified zero content loss via a sorted-line diff against
+  the pre-split file, both headless class-survivability simulations
+  still show the same patterns (Mage weakest, boss walls at L2/L3)
+  post-split.
 
 ## Stats tracking
 
@@ -1190,7 +1196,7 @@ theme/mode, no randomization. Full technical detail in `docs/journal.md`.
   transparent-background trick already relies on) - technically
   correct, but the user disliked how it looked (a flat rectangle with
   hard edges, out of place against painted art) and asked for it
-  gone until real UI art exists to do this properly - see item 12
+  gone until real UI art exists to do this properly - see item 11
   below. Reverted; the underlying legibility problem is untouched
   (still there on a bright-enough background) but accepted as a known
   gap for now rather than shipping a placeholder that reads as a bug.
