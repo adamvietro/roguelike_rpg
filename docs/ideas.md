@@ -1036,8 +1036,16 @@ L2/L3):
     the tile's ordinary unrotated draw always happens first now (instead
     of the rotated draw replacing it), so any gap in the rotated overlay
     reveals the correct texture underneath instead of solid black,
-    regardless of the exact cause. Still needs a real screenshot to
-    confirm.
+    regardless of the exact cause. **A third screenshot confirmed the
+    black bars were gone but caught a smaller new artifact** - brown
+    flecks bleeding out above/below the horizontal run, since the base
+    layer being the tile's own UNROTATED glyph (a directional north-
+    south trail, not a uniform fill) meant any gap in the rotated overlay
+    revealed real dirt-brown pixels instead of grass. Fixed by swapping
+    the base layer to the theme's plain default floor glyph (variant 0,
+    Grass) instead of the tile's own glyph - a uniform fill has no wrong
+    orientation to reveal. Still needs a live screenshot to confirm this
+    round is actually clean.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:

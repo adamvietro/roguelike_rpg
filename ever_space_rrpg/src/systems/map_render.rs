@@ -119,26 +119,29 @@ pub fn map_render(
                 let fx = pt.x as f32 - ox;
                 let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
                 // A horizontal-running path tile gets a second, rotated
-                // draw LAYERED on top of its own ordinary unrotated one
-                // (never used exclusively) - see path_tile_is_horizontal's
-                // own doc comment for why this texture needs a 90-degree
-                // turn at all. Layering rather than replacing is a
-                // deliberate safety net: an earlier version routed these
-                // tiles through set_fancy exclusively and produced visible
-                // black bars in real play (2026-09-13, screenshot-caught)
-                // that weren't fully explained even after tracing
-                // bracket-terminal's actual fragment shader (FANCY_CONSOLE_
-                // FS falls back to the vertex's own background color -
-                // opaque BLACK here - for any near-black/near-transparent
-                // source pixel, but that exact same shader path is already
-                // proven fine for every OTHER MapTiles tile while panning,
-                // so a rotated quad not fully covering its cell is the
-                // more likely culprit than the art itself, though this
-                // wasn't pinned down with full certainty without being
-                // able to render and check directly). Whatever the exact
-                // cause, drawing the correct (if not perfectly oriented)
-                // texture underneath first means any gap in the rotated
-                // overlay reveals that instead of solid black.
+                // draw LAYERED on top of a SAFE base layer (never used
+                // exclusively) - see path_tile_is_horizontal's own doc
+                // comment for why this texture needs a 90-degree turn at
+                // all, and why layering beats a single rotated draw
+                // (2026-09-13, screenshot-caught black bars from an
+                // earlier exclusive-rotation version - the rotated quad
+                // not fully covering its own cell is the likely cause,
+                // though not pinned down with full certainty without
+                // being able to render and check directly).
+                //
+                // The base layer is deliberately the theme's PLAIN
+                // DEFAULT floor glyph (variant 0, e.g. Grass) - NOT this
+                // tile's own unrotated glyph. A second screenshot caught
+                // exactly why that distinction matters: the dirt-path art
+                // is a north-south trail with grass-colored corners baked
+                // in, not a uniform fill - using the tile's own (wrong-
+                // orientation) glyph as the base meant any gap in the
+                // rotated overlay revealed real dirt-brown pixels from
+                // the UNROTATED trail's own top/bottom edges instead of
+                // grass, which read as stray brown flecks bleeding out
+                // above/below the horizontal run. Grass has no directional
+                // shape, so the same kind of gap just shows plain grass -
+                // unremarkable instead of visibly wrong.
                 let path_rotation = match (sheet, path_main_variant) {
                     (TileSpriteSheet::MapTiles, Some(main))
                         if path_tile_is_horizontal(map, pt, main) =>
@@ -147,6 +150,10 @@ pub fn map_render(
                     }
                     _ => None,
                 };
+                let base_glyph = path_rotation
+                    .and_then(|_| theme.tile_row())
+                    .and_then(|base_row| map_tile_glyph(theme.as_ref(), Some(base_row), TileType::Floor, 0))
+                    .unwrap_or(glyph);
                 match sheet {
                     TileSpriteSheet::Dungeon => {
                         dungeon_scroll_batch.set_fancy(
@@ -165,7 +172,7 @@ pub fn map_render(
                             Degrees::new(0.0),
                             PointF::new(1.0, 1.0),
                             color_pair,
-                            glyph,
+                            base_glyph,
                         );
                         if let Some(rotation) = path_rotation {
                             tile_scroll_batch.set_fancy(
@@ -180,7 +187,7 @@ pub fn map_render(
                     }
                     TileSpriteSheet::MapTiles => {
                         let offset = Point::new(camera.left_x, camera.top_y);
-                        tile_draw_batch.set(pt - offset, color_pair, glyph);
+                        tile_draw_batch.set(pt - offset, color_pair, base_glyph);
                         if let Some(rotation) = path_rotation {
                             tile_scroll_batch.set_fancy(
                                 PointF::new(fx, fy),
