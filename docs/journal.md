@@ -4490,3 +4490,5 @@ Flipped the ratio instead of tweaking wording again: told the prompt explicitly 
 <br />
 
 **Worth remembering for the next piece of environment art**: when a generator keeps defaulting to a look that doesn't leave enough usable space (here, water as the dominant terrain), the fix is rebalancing which element is described as dominant vs. accent, not just adding more qualifiers to the existing composition.
+
+# 9/14/26

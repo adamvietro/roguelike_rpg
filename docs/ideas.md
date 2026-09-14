@@ -60,6 +60,12 @@ Roughly in the order they've come up:
 3. **Standing "fix issues with the battle system" bucket** — not a fixed
    list, just wherever ATB/multi-enemy/the cursor system turns up real
    bugs as they get more play.
+   - **The battle log box overflows** (added 2026-09-14) — flagged at
+     end of session, not yet reproduced/investigated. Likely
+     `screens/battle.rs`'s message log box (`MSG_BOX_*`/`MAX_LOG_LINES`
+     in `draw_battle_hud`) - check both "a single line too long for the
+     box width" and "more lines queued than `MAX_LOG_LINES`" as the two
+     obvious candidates before assuming either.
 4. **Battle screen redesign — now that classes have real animated art**
    (added 2026-09-08, explicit ask: "we can do soooo much better now").
    Not scoped yet - needs a real design conversation before code, per
