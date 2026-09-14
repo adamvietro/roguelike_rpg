@@ -303,18 +303,34 @@ impl UiPanelTheme {
 /// direct feedback that the Item Menu's own (large) boxes read too
 /// thin/small once live - then dropped to 0.3 (~9.6px) the SAME day on
 /// the opposite complaint once the dungeon HUD bars (much smaller boxes
-/// than the Item Menu) were seen live: at 0.5 the border's own frame
-/// color was visibly eating into a small bar's total footprint more
-/// than the icon content itself. One shared constant can't perfectly
-/// satisfy both box sizes at once (border weight relative to box size
-/// isn't fixed) - if this tension recurs, the real fix is a per-caller
-/// scale parameter, not another single-number retune; not built yet
-/// since it hasn't been asked for. Still a first-pass guess pending a
-/// fresh screenshot, same as every other bracket-lib pixel value in
-/// this project. Deliberately doesn't touch icon/portrait rendering -
-/// those go through their own separate scale (draw_portrait/
+/// than the Item Menu) were seen live. The default (large-box) scale
+/// for `draw_filled_pixel_box` - see `PIXEL_BOX_TILE_SCALE_COMPACT`
+/// just below for the small-box counterpart this tension ended up
+/// actually needing. Deliberately doesn't touch icon/portrait
+/// rendering - those go through their own separate scale (draw_portrait/
 /// draw_portrait_fancy), not this constant.
 const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
+
+/// The compact counterpart to `PIXEL_BOX_TILE_SCALE`, for boxes small in
+/// EITHER dimension - the dungeon HUD's Item/Ability/Battle Bars (as few
+/// as ONE icon wide) and the shop-item tooltip (only 3 HUD_CONSOLE rows
+/// tall). Added 2026-09-14 after `PIXEL_BOX_TILE_SCALE` alone turned out
+/// not to be the single-constant fix its own doc comment hoped for -
+/// real numbers, not eyeballing, confirmed why: a border tile's PIXEL
+/// size is fixed regardless of the box's own size, so a box small in
+/// some dimension has the border eating a much bigger FRACTION of that
+/// dimension than a big box does. Computed directly from this project's
+/// own real geometry (`ability_bar_box_bounds`/`SHOP_TOOLTIP_WIDTH`/
+/// `SHOP_TOOLTIP_HEIGHT`, not guessed): at the shared 0.3 scale, a
+/// single-icon Ability Bar box's two border columns alone were ~29% of
+/// its total WIDTH, and the shop tooltip's two border rows were fully
+/// ~50% of its total HEIGHT - both confirmed live as "still not right"
+/// even after 0.5 (too thick everywhere) was already fixed down to 0.3.
+/// 0.15 (~4.8px tiles) brings the worst case (the 1-icon Ability Bar)
+/// down to ~13%, comparable to what 0.3 already gives the Item Menu's
+/// own much larger boxes. Still a first-pass guess pending a fresh
+/// screenshot, same as `PIXEL_BOX_TILE_SCALE` itself.
+pub const PIXEL_BOX_TILE_SCALE_COMPACT: f32 = 0.15;
 
 /// Draws one `ui_panels.png` tile via `set_fancy` at `PIXEL_BOX_TILE_SCALE`,
 /// at a fractional (col, row) already in UI_PANEL_CONSOLE's native 32px-cell
@@ -328,8 +344,8 @@ const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
 /// `base_pos = (aPos - center_pos) * scale + center_pos`), so shrinking
 /// tiles without ALSO closing up the spacing between their centers would
 /// open a gap between adjacent tiles - `draw_pixel_box` accounts for this
-/// by stepping tile positions by `PIXEL_BOX_TILE_SCALE` cell-units per
-/// tile instead of a full 1.0.
+/// by stepping tile positions by `scale` cell-units per tile instead of a
+/// full 1.0.
 ///
 /// Reuses the same `WIGGLE_CONSOLE_Y_ANCHOR_OFFSET` north-anchor
 /// correction `draw_portrait_fancy` applies, on the assumption (not yet
@@ -338,13 +354,20 @@ const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
 /// of the glyph's own rendered scale - same reasoning that constant's own
 /// doc comment already gives for why it transfers between different
 /// fancy consoles.
-fn draw_panel_tile(batch: &mut DrawBatch, col: f32, row: f32, glyph: FontCharType, tint: ColorPair) {
+fn draw_panel_tile(
+    batch: &mut DrawBatch,
+    col: f32,
+    row: f32,
+    glyph: FontCharType,
+    tint: ColorPair,
+    scale: f32,
+) {
     let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
     batch.set_fancy(
         PointF::new(col, row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
         0,
         Degrees::new(0.0),
-        PointF::new(PIXEL_BOX_TILE_SCALE, PIXEL_BOX_TILE_SCALE),
+        PointF::new(scale, scale),
         ColorPair::new(tint.fg, bg_transparent),
         glyph,
     );
@@ -353,19 +376,20 @@ fn draw_panel_tile(batch: &mut DrawBatch, col: f32, row: f32, glyph: FontCharTyp
 /// Converts a box given in HUD_CONSOLE cell units into UI_PANEL_CONSOLE's
 /// own 32px-tile terms: a fractional (base_col, base_row) - the box's real
 /// top-left corner, pixel-precise - and a whole (tiles_w, tiles_h) tile
-/// count at `PIXEL_BOX_TILE_SCALE`, rounded to the nearest whole
-/// (scaled) tile (see `draw_pixel_box`'s own doc comment for why size,
-/// not position, is what's approximated). Factored out from
+/// count at the given `scale` (`PIXEL_BOX_TILE_SCALE` or `PIXEL_BOX_TILE_
+/// SCALE_COMPACT`, whichever the caller picked), rounded to the nearest
+/// whole (scaled) tile (see `draw_pixel_box`'s own doc comment for why
+/// size, not position, is what's approximated). Factored out from
 /// `draw_pixel_box` so the conversion math can be checked directly
 /// against real numbers rather than only indirectly through whatever
 /// `DrawBatch` ends up queued.
-fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i32) {
+fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32, scale: f32) -> (f32, f32, i32, i32) {
     let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
     let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
     let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
     let px_y1 = ((y + height) * 800) as f32 / HUD_ROWS as f32;
 
-    let tile_px = 32.0 * PIXEL_BOX_TILE_SCALE;
+    let tile_px = 32.0 * scale;
     let tiles_w = (((px_x1 - px_x0) / tile_px).round() as i32).max(2);
     let tiles_h = (((px_y1 - px_y0) / tile_px).round() as i32).max(2);
 
@@ -408,8 +432,14 @@ fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i
 /// `base_col + 0.5 + s*(tiles_w - 1)/2`, width `tiles_w * s`. Matching
 /// that with one `set_fancy` call means: `position = center - 0.5`
 /// (`base_col + s*(tiles_w - 1)/2`), `scale = (tiles_w*s, tiles_h*s)`.
-fn draw_panel_fill(batch: &mut DrawBatch, base_col: f32, base_row: f32, tiles_w: i32, tiles_h: i32) {
-    let s = PIXEL_BOX_TILE_SCALE;
+fn draw_panel_fill(
+    batch: &mut DrawBatch,
+    base_col: f32,
+    base_row: f32,
+    tiles_w: i32,
+    tiles_h: i32,
+    s: f32,
+) {
     let center_col = base_col + s * (tiles_w - 1) as f32 / 2.0;
     let center_row = base_row + s * (tiles_h - 1) as f32 / 2.0;
     let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
@@ -437,10 +467,11 @@ fn draw_panel_fill(batch: &mut DrawBatch, base_col: f32, base_row: f32, tiles_w:
 /// over unchanged, just swap the function. `batch` must already be
 /// targeting UI_PANEL_CONSOLE.
 ///
-/// Every tile draws at `PIXEL_BOX_TILE_SCALE` (see that constant's own
-/// doc comment), not the source art's native 32px - drawn at full size
-/// the border was confirmed, live, to swallow an entire Item Menu box's
-/// own content. Two real simplifications versus a true pixel-perfect box
+/// Every tile draws at the given `scale` (`PIXEL_BOX_TILE_SCALE` or
+/// `PIXEL_BOX_TILE_SCALE_COMPACT` - see those constants' own doc
+/// comments), not the source art's native 32px - drawn at full size the
+/// border was confirmed, live, to swallow an entire Item Menu box's own
+/// content. Two real simplifications versus a true pixel-perfect box
 /// remain even at the smaller scale, both because tiles only ever draw as
 /// whole units (no per-tile stretching yet - see UI_PANEL_CONSOLE's own
 /// doc comment in main.rs for why that's deliberate for now):
@@ -460,45 +491,49 @@ pub fn draw_pixel_box(
     height: i32,
     theme: UiPanelTheme,
     tint: ColorPair,
+    scale: f32,
 ) {
-    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
-    let s = PIXEL_BOX_TILE_SCALE;
+    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height, scale);
+    let s = scale;
     let last_col = tiles_w - 1;
     let last_row = tiles_h - 1;
 
     // Corners - drawn once each, never tiled or stretched.
-    draw_panel_tile(batch, base_col, base_row, theme.glyph(0, 0), tint);
-    draw_panel_tile(batch, base_col + last_col as f32 * s, base_row, theme.glyph(2, 0), tint);
-    draw_panel_tile(batch, base_col, base_row + last_row as f32 * s, theme.glyph(0, 2), tint);
+    draw_panel_tile(batch, base_col, base_row, theme.glyph(0, 0), tint, s);
+    draw_panel_tile(batch, base_col + last_col as f32 * s, base_row, theme.glyph(2, 0), tint, s);
+    draw_panel_tile(batch, base_col, base_row + last_row as f32 * s, theme.glyph(0, 2), tint, s);
     draw_panel_tile(
         batch,
         base_col + last_col as f32 * s,
         base_row + last_row as f32 * s,
         theme.glyph(2, 2),
         tint,
+        s,
     );
 
     // Top/bottom edges - tiled across whatever's between the corners.
     for c in 1..last_col {
-        draw_panel_tile(batch, base_col + c as f32 * s, base_row, theme.glyph(1, 0), tint);
+        draw_panel_tile(batch, base_col + c as f32 * s, base_row, theme.glyph(1, 0), tint, s);
         draw_panel_tile(
             batch,
             base_col + c as f32 * s,
             base_row + last_row as f32 * s,
             theme.glyph(1, 2),
             tint,
+            s,
         );
     }
 
     // Left/right edges - tiled across whatever's between the corners.
     for r in 1..last_row {
-        draw_panel_tile(batch, base_col, base_row + r as f32 * s, theme.glyph(0, 1), tint);
+        draw_panel_tile(batch, base_col, base_row + r as f32 * s, theme.glyph(0, 1), tint, s);
         draw_panel_tile(
             batch,
             base_col + last_col as f32 * s,
             base_row + r as f32 * s,
             theme.glyph(2, 1),
             tint,
+            s,
         );
     }
 }
@@ -546,6 +581,13 @@ pub fn draw_pixel_box(
 /// light, the title becomes hard to read exactly like any other
 /// unfilled text would. One full-box fill for every caller, no
 /// exceptions.
+///
+/// Draws at `PIXEL_BOX_TILE_SCALE`, the default sized for large boxes
+/// (the Item Menu, the Paused screen's Hints box) - use `draw_filled_
+/// pixel_box_scaled` directly for anything small in either dimension
+/// (the dungeon HUD bars, the shop tooltip), which need `PIXEL_BOX_
+/// TILE_SCALE_COMPACT` instead. See that constant's own doc comment for
+/// the real numbers behind why one scale doesn't fit every box size.
 pub fn draw_filled_pixel_box(
     panel_batch: &mut DrawBatch,
     x: i32,
@@ -554,14 +596,29 @@ pub fn draw_filled_pixel_box(
     height: i32,
     theme: UiPanelTheme,
 ) {
-    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+    draw_filled_pixel_box_scaled(panel_batch, x, y, width, height, theme, PIXEL_BOX_TILE_SCALE);
+}
+
+/// `draw_filled_pixel_box` with an explicit `scale` instead of always
+/// `PIXEL_BOX_TILE_SCALE` - see that function's own doc comment, and
+/// `PIXEL_BOX_TILE_SCALE_COMPACT`'s, for when to reach for this instead.
+pub fn draw_filled_pixel_box_scaled(
+    panel_batch: &mut DrawBatch,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    theme: UiPanelTheme,
+    scale: f32,
+) {
+    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height, scale);
     // Fill drawn BEFORE the border so the border's own corner/edge art
     // still paints over it wherever they'd otherwise coincide - see
     // draw_panel_fill's own doc comment for why this doesn't erase the
     // fill the way it would on a SimpleConsole (it can't; this console
     // only ever adds tiles, never overwrites one already queued).
-    draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h);
-    draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
+    draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h, scale);
+    draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK), scale);
 }
 
 /// Small horizontal shake for a portrait mid-"Attacking" flash - a few

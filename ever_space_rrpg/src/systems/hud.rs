@@ -445,13 +445,19 @@ pub fn hud(
                 shop_text_batch.target(PANEL_TEXT_CONSOLE);
                 // Swamp, not Dungeon - direct request 2026-09-14 ("I want
                 // the tooltips to be the wooden and green corners").
-                draw_filled_pixel_box(
+                // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale -
+                // this box is only 3 HUD_CONSOLE rows tall, short enough
+                // that the default scale's border rows alone were ~50%
+                // of its total height (see that constant's own doc
+                // comment for the real numbers).
+                draw_filled_pixel_box_scaled(
                     &mut shop_panel_batch,
                     box_x,
                     box_y,
                     SHOP_TOOLTIP_WIDTH,
                     SHOP_TOOLTIP_HEIGHT,
                     UiPanelTheme::Swamp,
+                    PIXEL_BOX_TILE_SCALE_COMPACT,
                 );
                 shop_text_batch.print_color(
                     Point::new(box_x + 2, box_y + 1),
@@ -629,7 +635,21 @@ pub fn hud(
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
             // Swamp, not Dungeon - direct request 2026-09-14, so all 3
             // dungeon HUD bars match (the other two already were/are).
-            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
+            // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale - this
+            // box can be as narrow as ONE icon wide, where the default
+            // scale's two border columns alone were ~29% of the box's
+            // total width (see that constant's own doc comment for the
+            // real numbers behind this, computed from ability_bar_box_
+            // bounds' own real geometry, not eyeballed).
+            draw_filled_pixel_box_scaled(
+                &mut panel_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                UiPanelTheme::Swamp,
+                PIXEL_BOX_TILE_SCALE_COMPACT,
+            );
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -664,7 +684,16 @@ pub fn hud(
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(ability_start_col, ability_n, true);
             // Swamp, not Dungeon - see the Item Bar's own comment above.
-            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
+            // PIXEL_BOX_TILE_SCALE_COMPACT too - same reasoning.
+            draw_filled_pixel_box_scaled(
+                &mut panel_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                UiPanelTheme::Swamp,
+                PIXEL_BOX_TILE_SCALE_COMPACT,
+            );
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -705,7 +734,17 @@ pub fn hud(
             // Swamp - the first of the 3 dungeon HUD bars to switch
             // (2026-09-14); the Item and Ability Bars above joined it
             // the same day once asked for all 3 to match.
-            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
+            // PIXEL_BOX_TILE_SCALE_COMPACT too - see the Item Bar's own
+            // comment above.
+            draw_filled_pixel_box_scaled(
+                &mut panel_batch,
+                box_x,
+                box_y,
+                box_w,
+                box_h,
+                UiPanelTheme::Swamp,
+                PIXEL_BOX_TILE_SCALE_COMPACT,
+            );
         }
 
         bar_batch.submit(10001).expect("Batch error");
