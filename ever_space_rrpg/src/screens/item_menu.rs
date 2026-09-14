@@ -67,58 +67,23 @@ const FOOTER_Y: i32 = STATS_Y + STATS_HEIGHT + 2;
 /// the cursor is currently anywhere in THIS list (None otherwise) - see
 /// selected_local_index in item_menu_tick.
 ///
-/// `pixel_panel` is the first real in-game use of `draw_pixel_box` (item
-/// 10 in docs/ideas.md) - `Some((panel_batch, theme))` draws that box's
-/// real PixelLab border (tinted `border_color`, same as the ASCII
-/// version) onto UI_PANEL_CONSOLE instead of the plain `-`/`|`/`+`
-/// characters; `None` keeps today's `draw_ascii_box` behavior exactly.
-/// Deliberately per-call rather than a blanket switch - only the Items
-/// box has this wired up so far, one box at a time per this feature's own
-/// "create them 1 by 1" plan, pending a live screenshot to confirm the
-/// pixel-to-HUD_CONSOLE-cell conversion actually lands right before
-/// touching the other three.
+/// The real PixelLab border (item 10 in docs/ideas.md) via
+/// `draw_filled_pixel_box` - every box on this screen uses it now, no
+/// `draw_ascii_box` fallback left to switch on (dropped once the last of
+/// the 6 boxes on this screen was converted, rather than keep an unused
+/// branch around).
 fn print_box(
     batch: &mut DrawBatch,
+    panel_batch: &mut DrawBatch,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
-    border_color: (u8, u8, u8),
     title: &str,
     slots: &[AbilityBarSlot],
     selected: Option<usize>,
-    pixel_panel: Option<(&mut DrawBatch, UiPanelTheme)>,
 ) {
-    match pixel_panel {
-        Some((panel_batch, theme)) => {
-            // A deliberate solid black fill first - without this, the box's
-            // interior showed whatever the frozen dungeon view underneath
-            // happened to have (this screen reuses pause_systems to redraw
-            // it - see this module's own doc comment), which read as a
-            // distracting bleed-through once the border itself stopped
-            // being a dense enough ASCII pattern to fully hide it. Drawn on
-            // `batch` (HUD_CONSOLE), the SAME console the title/list text
-            // below draws on, specifically so text drawn after this in the
-            // same batch naturally overwrites the fill at its own cells -
-            // no separate console/z-order needed for that to just work.
-            batch.fill_region(
-                Rect::with_size(x, y, width, height),
-                ColorPair::new(BLACK, BLACK),
-                to_cp437(' '),
-            );
-            // WHITE, not border_color - a strong saturated tint crushes a
-            // shaded/textured stone material into a flat color wash (confirmed
-            // visually 2026-09-14: BLUE read as an unnatural neon frame,
-            // nothing like stone). Fine for flat icon art elsewhere in this
-            // project, wrong for this. The box's own title text below still
-            // carries the category color, so nothing is lost distinguishing
-            // one box from another.
-            draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
-        }
-        None => {
-            draw_ascii_box(batch, x, y, width, height, ColorPair::new(border_color, BLACK));
-        }
-    }
+    draw_filled_pixel_box(batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
     batch.print_color(Point::new(x + 2, y), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
 
     if slots.is_empty() {
@@ -265,63 +230,60 @@ impl State {
 
         print_box(
             &mut batch,
+            &mut panel_batch,
             LEFT_X,
             TOP_Y,
             LEFT_WIDTH,
             TOP_HEIGHT,
-            BLUE,
             "Items",
             &items,
             items_selected,
-            Some((&mut panel_batch, UiPanelTheme::Dungeon)),
         );
         print_box(
             &mut batch,
+            &mut panel_batch,
             RIGHT_X,
             TOP_Y,
             RIGHT_WIDTH,
             TOP_HEIGHT,
-            GREEN,
             "Battle Actions",
             &battle_actions,
             battle_selected,
-            None,
         );
         print_box(
             &mut batch,
+            &mut panel_batch,
             LEFT_X,
             BOTTOM_Y,
             LEFT_WIDTH,
             EQUIPPED_HEIGHT,
-            WHITE,
             "Equipped Items",
             &equipped,
             equipped_selected,
-            None,
         );
         print_box(
             &mut batch,
+            &mut panel_batch,
             RIGHT_X,
             BOTTOM_Y,
             RIGHT_WIDTH,
             BOTTOM_HEIGHT,
-            RED,
             "Dungeon Actions",
             &dungeon_actions,
             dungeon_selected,
-            None,
         );
 
         // Box 3 (Stats) - static, never gets the cursor (see this
         // module's doc comment). Sits directly below Equipped Items,
         // filling the rest of the left column's lower half.
-        draw_ascii_box(
+        draw_filled_pixel_box(
             &mut batch,
+            &mut panel_batch,
             LEFT_X,
             STATS_Y,
             LEFT_WIDTH,
             STATS_HEIGHT,
-            ColorPair::new(WHITE, BLACK),
+            UiPanelTheme::Dungeon,
         );
         batch.print_color(
             Point::new(LEFT_X + 2, STATS_Y),
@@ -418,13 +380,14 @@ impl State {
         // Box 1.1 - the shared description panel, full width, for
         // whichever slot the cursor currently sits on (across any of
         // the 4 navigable boxes).
-        draw_ascii_box(
+        draw_filled_pixel_box(
             &mut batch,
+            &mut panel_batch,
             DESC_X,
             DESC_Y,
             DESC_WIDTH,
             DESC_HEIGHT,
-            ColorPair::new(YELLOW, BLACK),
+            UiPanelTheme::Dungeon,
         );
         if let Some(slot) = selected_slot {
             let description = description_for_item_name(&slot.name)

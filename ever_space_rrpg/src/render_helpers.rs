@@ -439,6 +439,31 @@ pub fn draw_pixel_box(
     }
 }
 
+/// A `draw_pixel_box` border plus the solid-black interior fill every real
+/// call site needs alongside it (see `draw_pixel_box`'s own doc comment on
+/// why it doesn't fill the interior itself yet) - `text_batch` must target
+/// whatever console the box's own text/icons draw on (the fill needs to
+/// land there, UNDER that text, so drawing this before the text lets it
+/// naturally get overwritten at the right cells), `panel_batch` must
+/// target UI_PANEL_CONSOLE. Always WHITE tint - see `draw_pixel_box`'s own
+/// doc comment for why a category color crushes this shaded material.
+pub fn draw_filled_pixel_box(
+    text_batch: &mut DrawBatch,
+    panel_batch: &mut DrawBatch,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    theme: UiPanelTheme,
+) {
+    text_batch.fill_region(
+        Rect::with_size(x, y, width, height),
+        ColorPair::new(BLACK, BLACK),
+        to_cp437(' '),
+    );
+    draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
+}
+
 /// Small horizontal shake for a portrait mid-"Attacking" flash - a few
 /// quick back-and-forth oscillations that decay to nothing exactly as the
 /// flash itself expires, so the portrait is back in its resting spot the
