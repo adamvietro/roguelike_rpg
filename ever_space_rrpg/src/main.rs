@@ -348,6 +348,28 @@ mod prelude {
     /// text/icons draw on a console registered earlier, regardless of
     /// z-order between the two.
     pub const UI_PANEL_CONSOLE: usize = 46;
+    /// Console 47, dungeon/menu-view: plain (no_bg), same HUD_COLS x
+    /// HUD_ROWS grid as HUD_CONSOLE, terminal8x8.png - text printed OVER
+    /// a `draw_filled_pixel_box` fill needs to live on a console
+    /// registered LATER than the fill's own (HUD_CONSOLE), not just drawn
+    /// after it on the SAME console. Confirmed live 2026-09-14, traced to
+    /// bracket-terminal's real source, not guessed: `SimpleConsole::set`
+    /// REPLACES a cell's entire (glyph, fg, bg) tuple in its own `tiles`
+    /// array - printing text over a cell the fill already painted doesn't
+    /// layer on top of it, it OVERWRITES it outright, same array slot.
+    /// Once overwritten, the CELL's glyph is now the TEXT's own letter
+    /// shape - and a no_bg console's shader discards any pixel whose
+    /// SOURCE TEXTURE is near-black, which is exactly what the "empty"
+    /// space around a letter's own stroke looks like inside its 8x8
+    /// glyph cell. Discarding on a no_bg console reveals whatever's on
+    /// the console(s) below - previously the dungeon view, three-plus
+    /// layers down, since the fill that USED to be at that exact cell no
+    /// longer exists once text replaced it. Registering text on ITS OWN
+    /// LATER console instead means the fill's own tiles (on HUD_CONSOLE)
+    /// are never touched by a text draw at all - text's own discarded
+    /// pixels now reveal the fill sitting untouched one console down,
+    /// not the dungeon view several consoles further down still.
+    pub const PANEL_TEXT_CONSOLE: usize = 47;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -405,6 +427,7 @@ mod prelude {
         SHOPKEEPER_IDLE_SCROLL_CONSOLE,
         SHOPKEEPER_IDLE_GLIDE_CONSOLE,
         UI_PANEL_CONSOLE,
+        PANEL_TEXT_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -1629,6 +1652,9 @@ fn main() -> BError {
         // Console 46 (UI_PANEL_CONSOLE): fancy, console 0's own grid,
         // sourced from ui_panels.png - see its own doc comment above.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "ui_panels.png")
+        // Console 47 (PANEL_TEXT_CONSOLE): plain (no_bg), same grid as
+        // HUD_CONSOLE, terminal8x8.png - see its own doc comment above.
+        .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 
