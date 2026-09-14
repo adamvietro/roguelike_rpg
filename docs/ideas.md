@@ -276,6 +276,7 @@ Nothing below is scoped, designed in detail, or scheduled — pull
 individual items into a real session when ready to build them.
 
 ### Rogue
+
 - **Vanish** — Flee and Stealth at the same time.
 - **Riposte** — Counter attack for 2x damage.
 - **Backstab** — Bonus damage specifically when the attack comes from
@@ -288,12 +289,14 @@ individual items into a real session when ready to build them.
   a fight.
 
 ### Barbarian
+
 - **Rampage** — Damage scales up as your own HP drops (desperation-style).
 - **Second Wind** — Self-heal technique.
 - **Reckless Swing** — A big hit that costs you some HP as recoil.
 - **Berserk (passive)** — Bonus damage below some HP threshold.
 
 ### Mage
+
 - **Frost Bolt** — Chance to freeze the enemy briefly — an in-battle
   cousin to Hunter's Freeze Trap.
 - **Chain Lightning** — A single-target multi-hit spell (Blizzard covers
@@ -305,6 +308,7 @@ individual items into a real session when ready to build them.
 - **Drain Life** — Damage plus self-heal in one action.
 
 ### Hunter
+
 - **Multi-shot** — A single-target multi-hit (Arrow Volley covers the
   AOE version already).
 - **Trueshot** — Ignores some/all Defense — ranged cousin to Amazon's
@@ -315,6 +319,7 @@ individual items into a real session when ready to build them.
   Invisibility.
 
 ### Amazon
+
 - Animation for Throw Spear.
 - **Pierce Thrust** — A spear jab that ignores some or all of the enemy's
   Defense, rewarding you for facing armored enemies.
@@ -355,12 +360,14 @@ first one of these actually gets built.
 # Done
 
 ## Classes — all 5 real classes fully built
+
 Barbarian, Rogue, Amazon, Hunter, Mage are all fully implemented (stats,
 weapon tiers, starting kits, and in-battle techniques + out-of-combat
 abilities). Only the hidden Debug class remains an intentional
 placeholder/test tool.
 
 ## Combat system
+
 - **ATB (Active Time Battle)**, **multi-enemy battles**, **AOE
   techniques**, damage/status systems, boss-per-level, and the
   `battle/` category-module refactor — all from prior sessions.
@@ -390,6 +397,7 @@ placeholder/test tool.
   key.
 
 ## Dungeon Crawl economy — gold, a guaranteed chest, and a shop between floors
+
 - **Gold + the `shop_only` loot flag.** `Gold` (components.rs) was
   Battle Arena-exclusive - Dungeon Crawl players now get `Gold(0)` at
   `start_game` too, and every existing gold codepath (traps, ranged
@@ -457,6 +465,7 @@ placeholder/test tool.
   above for the one known open issue with the bot itself.
 
 ## Out-of-combat UI — Item Menu, Ability Bar, Battle Bar
+
 - **Item Menu** (press M) — a real arrow-key-navigable list of universal
   consumables (Healing Potion, Dungeon Map, future items), replacing the
   old fixed "1=potion, 2=map" hotkeys. Shows the selected item's live
@@ -525,17 +534,20 @@ placeholder/test tool.
   (the Item Menu already shows exact counts) - easy to revert if not.
 
 ## Battle screen / UI
+
 - Bordered actions box, Battle Victory screen, floating damage numbers,
   persistent battle log, active-effect status lines, theme-aware
   backgrounds, attack wiggle, and the bracket-lib black-pixel-culling
   workaround — all from prior sessions.
 
 ## Battle Arena mode — feature-complete for a full playable loop
+
 Adventure Select → starting shop → 3 levels of (5/5/3 waves + boss) each →
 shop between levels → Victory. Real gold economy, separated stats
 tracking, its own shop map/UI.
 
 ## Title / meta screens
+
 - **Theme Select screen (2026-09-13)** — a new `TurnState::ThemeSelect`,
   Debug-class-only and Dungeon-Crawl-only, reached from Class Select's
   hidden 'D' shortcut instead of starting the run immediately. Lets the
@@ -566,6 +578,7 @@ tracking, its own shop map/UI.
 - Victory and Game Over screens.
 
 ## Player / dungeon
+
 - Auto-pickup, smooth camera scrolling, idle animation infrastructure,
   map-generation and Amulet-of-Yala bug fixes — all from prior sessions.
 - **Camera now clamps to the map's own bounds** (2026-09-11,
@@ -591,6 +604,7 @@ tracking, its own shop map/UI.
   samples) that the window can never extend past bounds.
 
 ## Battle arena backgrounds — real painted scenes for Forest/Dungeon/Sewer
+
 Replaced the original theme-tinted-floor-and-border implementation (a
 flat tinted CP437 glyph fill plus a vignette and one of two generic
 scenery overlays, unchanged since before the game had any real pixel
@@ -602,6 +616,7 @@ avoid looking stale. Driven by a new `MapTheme::battle_background_row`
 (mirrors `tile_row`'s exact `Option<u16>` shape/fallback); a theme
 without real art yet still falls back to the old procedural fill
 unchanged. Confirmed live in a real fight, all three themes.
+
 - **Getting the art right took real iteration.** Sourced externally
   (PixelLab is built for character sprites, not full painted scenes) -
   Dungeon and Sewer worked on the first attempt; Forest took four
@@ -637,6 +652,7 @@ unchanged. Confirmed live in a real fight, all three themes.
   journal.md`'s 2026-09-11 entries.
 
 ## Battle arena enemy positions - a zigzag formation, per-theme rows, and a debug shortcut to test it
+
 `enemy_portrait_position`'s old fixed coarse-grid coordinates (tuned back
 when the arena background was a flat procedural fill with nothing near
 the edges) broke against the real painted backgrounds - confirmed by a
@@ -646,6 +662,7 @@ Forest's tree/fence perimeter. Took four rounds of real live feedback to
 land, each verified against the actual theme art (crop each theme's cell
 out of `resources/battle_backgrounds.png`, overlay the candidate grid,
 check for overlap) rather than guessed blind:
+
 - **Single row, evenly spread** - fixed the edge-clipping and fence-
   overlap, but read as visually flat/robotic once seen live ("I don't
   like the line of enemies").
@@ -678,6 +695,7 @@ check for overlap) rather than guessed blind:
   pick - the same "only a SubWorld + CommandBuffer available" shape.
 
 ## Character & enemy animation
+
 All 5 playable classes (Barbarian, Rogue, Amazon, Hunter, Mage) plus the
 hidden "Debug" dev/test class have real PixelLab.ai idle/walk art across
 every sheet, and all 8 enemies have their own dedicated idle/battle
@@ -686,6 +704,7 @@ sheets. Full row-mapping reference and every confirmed gotcha live in
 in `docs/journal.md`; condensed standing rules in `CLAUDE.md`. See
 "Animation work" in Working above for everything still outstanding now
 that a full new animation batch is being assembled.
+
 - `resources/character_idle.png` (6 cols x 8 rows) drives the dungeon/
   Battle Arena/Class-Select/title-screen walk-in-place loop, real Walk/
   south frames for all 6 classes. Row 5 permanently blank (glyph-32
@@ -942,6 +961,7 @@ that a full new animation batch is being assembled.
     unused per explicit instruction (it never moves).
 
 ## Sprite art
+
 - Full character portraits and all 18 ability icons across all 5
   classes, plus the Battle Arena Shopkeeper and the dungeon Treasure
   Chest (`c` glyph) — see `Dungeon_Font_Glyph_to_Cell_Map.md`.
@@ -962,6 +982,7 @@ that a full new animation batch is being assembled.
   ended up finalized anyway.
 
 ## Map tile themes — real per-tile textures, Forest/Dungeon/Sewer, and an easy-to-extend theme pool
+
 The old single-colored-glyph-per-`TileType` map rendering (`.`/`#` for
 Dungeon, `;`/`"` for Forest) is gone for three themes so far - real
 32x32 pixel-art tiles, randomly picked per generated level via
@@ -970,6 +991,7 @@ there, not a hand-counted range). Full template/row-mapping reference,
 every generator gotcha, and the generation algorithm's own reasoning
 live in `docs/Map_Tile_Theme_Guide.md` - the map-rendering counterpart
 to `Dungeon_Font_Glyph_to_Cell_Map.md`.
+
 - **Generation algorithm**: every tile starts on its theme's plain
   default (the whole point of requiring cell #1/#5 to be the plainest
   look in a theme's 16-cell set), then wall tiles get a scattered
@@ -997,6 +1019,7 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
   river, a lone obstacle) is its own deferred design pass.
 
 ## Documentation
+
 - **README.md pass** — controls table, combat system section, and
   current-state summary rewritten to match reality (M opens a full
   dashboard, number keys mean abilities, Item Bar/Ability Bar clicking,
@@ -1006,6 +1029,7 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
   doesn't use version numbers).
 
 ## Engineering / refactors
+
 - `main.rs`/`battle` module splits, persistent settings files
   (`keymap.ron`, `battle_speed.ron`, `atb_mode.ron`, `menu_memory.ron`,
   `last_battle_action.ron`, `stats.ron`), `.cargo/config.toml` X11 fix,
@@ -1053,11 +1077,13 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
   `map_render.rs`'s own convention for this exact same helper call.
 
 ## Stats tracking
+
 - Games played/won, enemies killed, deepest level reached, per-ability
   usage counts, and Battle Arena's own separated stats — all from prior
   sessions.
 
 ## Map render — stairs/counter rendering solid black while the camera was at rest
+
 `TileType::Exit` (the dungeon stairs) and `TileType::Counter` (the shop
 counter) - the only two tile types still on the old single-glyph
 dungeonfont rendering rather than a real per-theme texture - rendered
@@ -1091,6 +1117,7 @@ real-texture rendering (`MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE`)
 wasn't reported broken and keeps its original plain/fancy split.
 
 ## Victory/Defeat screens — real per-theme painted backgrounds
+
 Implemented 2026-09-13 (added to the backlog 2026-09-11) - real background
 images behind the played-once Death/Victory animations, the same "sourced
 externally, one full painted scene" approach already proven for Battle
@@ -1101,6 +1128,7 @@ Victory, a matching pose) keyed to the run's own `MapTheme::end_scene_theme()`
 existing padded 6x6 glyph grid rather than any new console. Each dungeon
 theme randomly picks between 2 Victory scenes; Defeat is one fixed scene per
 theme/mode, no randomization. Full technical detail in `docs/journal.md`.
+
 - **`VictoryPose::ClimbAway` now has a real animation** (delivered in
   the 2026-09-13 full animation batch alongside the Attack/Defend/
   Death/Idle_Battle_Stance/Walk/technique refresh for all 6 classes,
