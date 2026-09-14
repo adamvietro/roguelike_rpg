@@ -10,31 +10,36 @@ generating a new panel material.
 **Status as of 2026-09-14: all four materials generated and composited,
 every border on the dungeon-exploration screen AND the Paused screen's
 Hints box now converted (12 of 13 real sites); the Hints box confirmed
-"Perfect" live, the dungeon HUD bars and shop tooltip not yet
-reconfirmed since gaining their own compact border scale - see "Using
-it" below** - across thirteen-plus rounds of live feedback: a saturated
-tint crushing the stone's own shading, the border swallowing box text
-at native scale, a real no_bg-console fill bug, the fill not quite
-nesting inside the border, a title-on-border attempt that hid every
-title outright, a blank description panel when nothing's selected, a
-real detour where a `has_title` flag briefly excluded the title row
-from the fill (reverted on direct correction), a same-console text/fill
-overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a fill/border sub-pixel
-alignment fix, a border-scale round-trip (0.375 -> 0.5 -> 0.3) that
-turned out to be masking a deeper issue, the pixel-perfect fill's own
-regression hiding every bar icon (fixed with `ABILITY_BAR_ICON_CONSOLE`/
-`ABILITY_BAR_ICON_BADGE_CONSOLE`), every dungeon-screen panel (Item/
-Ability/Battle Bars, the shop tooltip) plus the Pause Hints box
-converging on the Swamp material, and - once a single shared border
-scale really did turn out not to fit every box size, confirmed with
-real numbers rather than another guess - a genuine second scale,
-`PIXEL_BOX_TILE_SCALE_COMPACT`, for boxes small in either dimension
-(see "Using it" below for the last few). `draw_filled_pixel_box` fills
-every box's full nominal area unconditionally, no exceptions; the Item
-Menu alone stays Dungeon/stone. The remaining 2 of 13 sites (the battle
-log and the in-combat Battle Actions box - see `docs/ideas.md` item 10
-for the full list) are
-battle-only and still on `draw_ascii_box`.
+"Perfect" live, the dungeon HUD bars and shop tooltip still getting
+their geometry corrected across rounds - see "Using it" below** -
+across fourteen-plus rounds of live feedback, most recently: the
+Ability Bar's icons reading as clipped/overlapped by its own border
+(traced to a top-clearance formula that was numerically identical to
+the unlabeled bars' despite needing to also clear the number label -
+fixed), noticeably excess dead space below the bar icons (the bottom
+edge's extra clearance row, sized for a much thicker pre-compact-scale
+border, trimmed off), and the shop tooltip's text sitting too close to
+its top edge (moved down into a taller box). Earlier rounds: a
+saturated tint crushing the stone's own shading, the border swallowing
+box text at native scale, a real no_bg-console fill bug, the fill not
+quite nesting inside the border, a title-on-border attempt that hid
+every title outright, a blank description panel when nothing's
+selected, a real detour where a `has_title` flag briefly excluded the
+title row from the fill (reverted on direct correction), a
+same-console text/fill overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a
+fill/border sub-pixel alignment fix, a border-scale round-trip (0.375
+-> 0.5 -> 0.3) that turned out to be masking a deeper issue, the
+pixel-perfect fill's own regression hiding every bar icon (fixed with
+`ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_BADGE_CONSOLE`), every
+dungeon-screen panel (Item/Ability/Battle Bars, the shop tooltip) plus
+the Pause Hints box converging on the Swamp material, and a genuine
+second border scale, `PIXEL_BOX_TILE_SCALE_COMPACT`, for boxes small in
+either dimension (see "Using it" below for the last few). `draw_filled_
+pixel_box` fills every box's full nominal area unconditionally, no
+exceptions; the Item Menu alone stays Dungeon/stone. The remaining 2 of
+13 sites (the battle log and the in-combat Battle Actions box - see
+`docs/ideas.md` item 10 for the full list) are battle-only and still on
+`draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
@@ -327,12 +332,17 @@ border-embedded look for now.
 
 ## Still open
 
-- A fresh screenshot confirming the dungeon HUD bars and shop tooltip at
-  their new `PIXEL_BOX_TILE_SCALE_COMPACT` (0.15x) - the Item Menu and
-  Hints box are confirmed good at the default 0.3x, but nothing has
-  confirmed 0.15x actually looks right on the bars/tooltip yet, only
-  that the real geometry math says it SHOULD read much thinner
-  proportionally than 0.3x did.
+- A fresh screenshot confirming this round's geometry fixes together:
+  the Ability Bar's own top-clearance bump (`label_row - 1` ->
+  `label_row - 2`, meant to stop the border from reading as clipping
+  into the icons), the trimmed bottom clearance on all 3 bars (`+ 1`
+  dropped), and the shop tooltip's text moved down into a taller box
+  (`SHOP_TOOLTIP_HEIGHT` 3 -> 4, text row `box_y + 1` -> `box_y + 2`).
+  None of this confirmed live yet - reasoned through by comparing the
+  Ability Bar's formula against the (working) Item/Battle Bar formula
+  and finding it numerically identical despite needing extra clearance
+  for the number label, not by tracing the exact rendering-level cause
+  of the reported overlap.
 - The remaining 2 of 13 sites: the battle log and the in-combat Battle
   Actions box (its border color already switches live between yellow/
   green - moot now that `draw_pixel_box` calls use WHITE regardless of

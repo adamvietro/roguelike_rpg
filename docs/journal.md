@@ -4647,3 +4647,19 @@ This is exactly the tension flagged (but not yet acted on) two rounds ago: "if t
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing (including catching and fixing a bad journal.md edit mid-session - a stray placeholder heading accidentally landed inside the previous round's own section instead of appending a new one; caught by re-reading the file rather than trusting the edit blindly, per CLAUDE.md's own standing rule about re-viewing the exact file after any large edit). `docs/UI_Panel_Sheet_Guide.md` updated with the real numbers behind the two-scale split. Next: a fresh screenshot of the dungeon HUD bars and shop tooltip at their new compact scale - the geometry says it should look right, but nothing's confirmed it live yet.
+
+## Wrong problem, twice - then a geometry fix instead of another scale guess
+
+The compact scale round came back with "Its still not right Looks about the same" - a strong signal, since 0.3 -> 0.15 should have been a very visible change if border thickness were really the bottleneck. Re-verified the fix had actually compiled and wired correctly (grepped every call site - it had), which meant the theory itself, not the implementation, was the problem.
+<br />
+
+Asked directly which "non-sprite color" was the issue - border frame, or dead black padding around the icon - expecting one clean answer to finally close this out. Got something more specific and useful instead: "The border is overlapping the icons for the abilities. Do you not see that? There is also far more space below than we need... Take some time and really look at the images." A fair, pointed correction - two rounds of scale tuning hadn't actually looked hard enough at what the screenshots were showing.
+<br />
+
+Described back precisely what was visible in all three screenshots (the Ability Bar's icons reading as clipped/obscured at the top, unlike the Item/Battle Bar's intact ones; the shop tooltip's text sitting close to the top with a visibly bigger gap below) before touching code, per CLAUDE.md's own "describe the plan, don't just guess" convention - but this time grounded the description in the actual pixel math too, not just eyeballing. Found the real, verifiable clue: `ability_bar_box_bounds`'s labeled-box top clearance (`label_row - 1`) was numerically IDENTICAL to the unlabeled branch's (`icons_top_px_row - 2`) - despite the Ability Bar needing to clear an EXTRA row of content (the number label) that the Item/Battle Bar never has. Bumped it to `label_row - 2`, one genuine extra row of real clearance. Also trimmed the bottom edge's `+ 1` (sized back when the border was much thicker, now just dead space under a thin compact-scale border) down to the bare ceiling-division clearance, and moved the shop tooltip's text down a row into a box bumped from 3 to 4 rows tall.
+<br />
+
+A real slip mid-edit: the bottom-clearance change accidentally dropped the `icons_bottom_row` variable itself, caught immediately by `cargo check` (not by re-reading first) - fixed before it went any further. Worth remembering: even a "just delete one line" edit on a multi-line block needs the same post-edit compile check as anything else, not just large edits.
+<br />
+
+`cargo check`/`build`/`test` clean after the fix, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated. Next: yet another fresh screenshot - this round is a geometry fix based on comparing formulas and matching the described symptoms, not a traced root cause at the rendering level, so it needs confirming like everything else has.
