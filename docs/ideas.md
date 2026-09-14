@@ -1066,8 +1066,22 @@ L2/L3):
     reported "tile swapping." Fixed by removing that divergence: both
     branches now run the identical base-layer-plus-rotated-overlay logic,
     so there's no flicker between two different looks regardless of
-    which state a given frame lands in. Still needs a live recording to
-    confirm this reads as one consistent tile during real movement.
+    which state a given frame lands in. **A third recording still showed
+    clipping, so this time did real research instead of another local
+    guess** (checked bracket-lib's own GitHub/usage guide/official
+    `flexible.rs` spinning-glyph example - this project's `set_fancy`
+    call shape already matches it exactly) and went deeper into the
+    vendored source: confirmed bracket-terminal's font textures use
+    `NEAREST` filtering with zero UV padding between atlas cells - a
+    well-documented class of bug for rotated pixel art generally, where
+    an edge fragment landing exactly on a texel boundary can round to
+    the wrong adjacent atlas cell, invisible when axis-aligned but a real
+    seam once rotated. Reverted to a genuine single draw per path tile
+    (no base layer, no second overlay call) with a small overscale
+    (`SCALE_FUDGE = 1.03`) - the standard fix for exactly this class of
+    bug, swallowing any hairline rounding gap in deliberate overlap
+    rather than leaving a seam. Still needs a live recording to confirm
+    this is actually clean, including during the glide.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:

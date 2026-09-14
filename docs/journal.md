@@ -4397,3 +4397,13 @@ Walking back through the actual sequence exposed the real mistake: the previous 
 <br />
 
 Fixed by removing that divergence entirely: both the panning and at-rest branches now run the identical base_glyph + rotated-overlay logic, so there's no flicker between two different looks regardless of which state any given frame lands in. Verified with the fast suite; still needs a live recording to confirm this actually reads as one consistent tile during real movement now, not two fighting for the same cell.
+
+## Actual research this time, not another guess - a single rotated draw with a small overscale
+
+A third recording still showed real clipping, and the user pushed back directly and correctly: layering two draws to work around a rotation problem was never actually fixing the rotation, and they explicitly asked for real research instead of another local guess, plus a hard requirement - a single rotated draw, no layering, period.
+<br />
+
+Searched bracket-lib's own GitHub, its usage guide, and its official `flexible.rs` example (a freely spinning, scaling `@` glyph) to confirm the `set_fancy` call shape this project already uses matches the library's own idiomatic usage exactly - no misuse found there. Went a level deeper into the vendored source itself: confirmed bracket-terminal's font textures use `NEAREST` filtering (not bilinear), and `FontScaler::glyph_position` computes each glyph's UV rect at exact cell boundaries with zero padding between atlas cells. That combination is a well-documented class of bug in pixel-art rendering generally - a rotated sprite's edge fragments can land exactly on a texel boundary and round to the wrong (adjacent) atlas cell, invisible when axis-aligned (screen pixels and texels line up exactly) but a real seam once rotated, worse in motion since the exact rounding point shifts every frame during a glide. Didn't find a bracket-lib issue describing this exact case, but the standard, broadly-used fix for exactly this class of bug doesn't require one: overscale the rotated sprite by a couple percent (`SCALE_FUDGE = 1.03`) so any hairline rounding gap gets swallowed by deliberate overlap into the surrounding same-colored grass, instead of leaving a visible seam.
+<br />
+
+Reverted to a genuine single draw per path tile - no base layer, no second overlay call, exactly what was asked for. Verified with the fast suite; still needs a live recording to confirm this is actually clean, including during the glide this time.

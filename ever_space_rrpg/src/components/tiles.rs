@@ -40,7 +40,7 @@ const WALL_TEXTURE_SHADE: f32 = 0.72;
 /// `exit_tile`/`counter_tile` give raw (row, col) coordinates anywhere
 /// in the shared atlas instead, since each is a single rare tile with no
 /// variant pool of its own.
-pub(crate) fn map_tile_glyph(
+fn map_tile_glyph(
     theme: &dyn MapTheme,
     base_row: Option<u16>,
     tile: TileType,

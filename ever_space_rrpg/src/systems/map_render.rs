@@ -118,30 +118,33 @@ pub fn map_render(
             {
                 let fx = pt.x as f32 - ox;
                 let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
-                // A horizontal-running path tile gets a second, rotated
-                // draw LAYERED on top of a SAFE base layer (never used
-                // exclusively) - see path_tile_is_horizontal's own doc
-                // comment for why this texture needs a 90-degree turn at
-                // all, and why layering beats a single rotated draw
-                // (2026-09-13, screenshot-caught black bars from an
-                // earlier exclusive-rotation version - the rotated quad
-                // not fully covering its own cell is the likely cause,
-                // though not pinned down with full certainty without
-                // being able to render and check directly).
-                //
-                // The base layer is deliberately the theme's PLAIN
-                // DEFAULT floor glyph (variant 0, e.g. Grass) - NOT this
-                // tile's own unrotated glyph. A second screenshot caught
-                // exactly why that distinction matters: the dirt-path art
-                // is a north-south trail with grass-colored corners baked
-                // in, not a uniform fill - using the tile's own (wrong-
-                // orientation) glyph as the base meant any gap in the
-                // rotated overlay revealed real dirt-brown pixels from
-                // the UNROTATED trail's own top/bottom edges instead of
-                // grass, which read as stray brown flecks bleeding out
-                // above/below the horizontal run. Grass has no directional
-                // shape, so the same kind of gap just shows plain grass -
-                // unremarkable instead of visibly wrong.
+                // A horizontal-running path tile always routes through
+                // the fancy scroll console (even at rest, unlike every
+                // other MapTiles tile) as ONE single rotated draw - see
+                // path_tile_is_horizontal's own doc comment for why this
+                // texture needs a 90-degree turn at all. No layering, no
+                // base-layer fallback: earlier versions tried that as a
+                // workaround for a visible hairline gap at the rotated
+                // tile's edge, but layering introduced its own new
+                // problems (a second, wrong-oriented tile fighting the
+                // first for the same cell) instead of fixing the real
+                // cause. bracket-terminal's own font textures use NEAREST
+                // (not bilinear) filtering with zero UV padding between
+                // atlas cells (confirmed in bracket-terminal 0.8.7's own
+                // source, vendored locally) - a well-documented class of
+                // bug for rotated pixel-art sprites in exactly this kind
+                // of engine: a rotated quad's edge fragments can land
+                // right on a texel boundary and round to the wrong
+                // (adjacent) texel, which shows as a hairline seam that's
+                // far more visible once it's animating (the exact
+                // rounding point shifts every frame during a glide) than
+                // in one static frame. SCALE_FUDGE overscales the
+                // rotated quad by a couple percent - standard fix for
+                // this exact class of bug - so any hairline rounding gap
+                // gets swallowed by deliberate overlap into the
+                // surrounding same-colored grass instead of showing a
+                // seam.
+                const SCALE_FUDGE: f32 = 1.03;
                 let path_rotation = match (sheet, path_main_variant) {
                     (TileSpriteSheet::MapTiles, Some(main))
                         if path_tile_is_horizontal(map, pt, main) =>
@@ -150,10 +153,6 @@ pub fn map_render(
                     }
                     _ => None,
                 };
-                let base_glyph = path_rotation
-                    .and_then(|_| theme.tile_row())
-                    .and_then(|base_row| map_tile_glyph(theme.as_ref(), Some(base_row), TileType::Floor, 0))
-                    .unwrap_or(glyph);
                 match sheet {
                     TileSpriteSheet::Dungeon => {
                         dungeon_scroll_batch.set_fancy(
@@ -165,57 +164,23 @@ pub fn map_render(
                             glyph,
                         );
                     }
-                    // A path tile renders IDENTICALLY here and in the
-                    // at-rest arm below - same base_glyph, same layered
-                    // rotation logic - deliberately, even though it means
-                    // repeating the same few lines. An earlier version
-                    // special-cased panning to skip rotation entirely,
-                    // which meant a path tile's look flipped between two
-                    // different renderings every time is_panning toggled -
-                    // and real movement is a rapid sequence of short
-                    // glides with only a brief instant at rest between
-                    // each step, not one long continuous glide, so that
-                    // flip was happening many times a second during
-                    // ordinary walking. That's the "tile swapping" a live
-                    // recording caught (2026-09-13) - not a rendering
-                    // defect in either state individually, but the two
-                    // states disagreeing with each other. Keeping both
-                    // arms in lockstep removes the flicker source
-                    // entirely, regardless of whatever finer clipping
-                    // this glide-specific path may still have.
-                    TileSpriteSheet::MapTiles if is_panning => {
+                    TileSpriteSheet::MapTiles if is_panning || path_rotation.is_some() => {
+                        let (rotation, scale) = match path_rotation {
+                            Some(rotation) => (rotation, SCALE_FUDGE),
+                            None => (Degrees::new(0.0), 1.0),
+                        };
                         tile_scroll_batch.set_fancy(
                             PointF::new(fx, fy),
                             0,
-                            Degrees::new(0.0),
-                            PointF::new(1.0, 1.0),
+                            rotation,
+                            PointF::new(scale, scale),
                             color_pair,
-                            base_glyph,
+                            glyph,
                         );
-                        if let Some(rotation) = path_rotation {
-                            tile_scroll_batch.set_fancy(
-                                PointF::new(fx, fy),
-                                0,
-                                rotation,
-                                PointF::new(1.0, 1.0),
-                                color_pair,
-                                glyph,
-                            );
-                        }
                     }
                     TileSpriteSheet::MapTiles => {
                         let offset = Point::new(camera.left_x, camera.top_y);
-                        tile_draw_batch.set(pt - offset, color_pair, base_glyph);
-                        if let Some(rotation) = path_rotation {
-                            tile_scroll_batch.set_fancy(
-                                PointF::new(fx, fy),
-                                0,
-                                rotation,
-                                PointF::new(1.0, 1.0),
-                                color_pair,
-                                glyph,
-                            );
-                        }
+                        tile_draw_batch.set(pt - offset, color_pair, glyph);
                     }
                 }
             }
