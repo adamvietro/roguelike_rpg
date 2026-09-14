@@ -254,6 +254,152 @@ pub fn draw_ascii_box(
     batch.set(Point::new(x + width - 1, y + height - 1), color, corner);
 }
 
+/// Which of `resources/ui_panels.png`'s four theme bands `draw_pixel_box`
+/// should draw from - see that sheet's own row-mapping doc
+/// (`docs/UI_Panel_Sheet_Guide.md`). Each theme owns 3 of the sheet's 12
+/// rows (a 3x3 nine-slice grid, 32px cells), in the same order
+/// `map_builder::dungeon_theme_pool()` already uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiPanelTheme {
+    Dungeon,
+    Forest,
+    Sewer,
+    Swamp,
+}
+
+impl UiPanelTheme {
+    /// The first of this theme's 3 rows on the 3-col x 12-row
+    /// `ui_panels.png` atlas.
+    fn base_row(self) -> i32 {
+        match self {
+            UiPanelTheme::Dungeon => 0,
+            UiPanelTheme::Forest => 1,
+            UiPanelTheme::Sewer => 2,
+            UiPanelTheme::Swamp => 3,
+        }
+    }
+
+    /// The CP437 glyph index for one of this theme's 9 nine-slice pieces,
+    /// given its (col, row) within that theme's own 3x3 block (0,0 =
+    /// top-left corner, 1,1 = center, etc.) - `ui_panels.png` is a plain
+    /// row-major atlas (glyph = row*3 + col, 3 cols), same convention
+    /// bracket-lib already uses for every other custom font in this
+    /// project.
+    fn glyph(self, local_col: i32, local_row: i32) -> FontCharType {
+        let row = self.base_row() * 3 + local_row;
+        (row * 3 + local_col) as FontCharType
+    }
+}
+
+/// Draws one `ui_panels.png` nine-slice tile via `draw_portrait_fancy` at
+/// a fractional (col, row) on UI_PANEL_CONSOLE - `col`/`row` are already
+/// in that console's own 32px-cell units (see `draw_pixel_box`'s own
+/// pixel-to-cell conversion). `tint` recolors the same source art the
+/// same way `UNOWNED_ICON_TINT` already does elsewhere in this project
+/// (the console shader multiplies texture color by whatever `ColorPair`
+/// is passed in) - callers pass WHITE for the art's own true colors, or a
+/// theme color to match whatever `draw_ascii_box` call this replaced.
+fn draw_panel_tile(batch: &mut DrawBatch, col: f32, row: f32, glyph: FontCharType, tint: ColorPair) {
+    draw_portrait_fancy(batch, col, row, Render { color: tint, glyph });
+}
+
+/// Real pixel-art replacement for `draw_ascii_box` - draws a hollow
+/// nine-slice border (4 corners + 4 tiled edges, no filled interior yet,
+/// same hollow shape `draw_ascii_box` already has) from
+/// `resources/ui_panels.png` instead of `-`/`|`/`+` characters. See
+/// `docs/UI_Panel_Sheet_Guide.md` for the full sheet layout and the
+/// generation recipe behind it.
+///
+/// `x`/`y`/`width`/`height` are in the SAME HUD_CONSOLE cell units a
+/// `draw_ascii_box` call already used - this converts them to real screen
+/// pixels internally (same ratio math `systems/hud.rs`'s pixel-overlap
+/// helpers already use) so an existing call site's box position carries
+/// over unchanged, just swap the function. `batch` must already be
+/// targeting UI_PANEL_CONSOLE.
+///
+/// Two real simplifications versus a true pixel-perfect box, both because
+/// `ui_panels.png`'s tiles only ever draw as WHOLE 32px cells (no
+/// per-tile stretching yet - see UI_PANEL_CONSOLE's own doc comment in
+/// main.rs for why that's deliberate for now):
+/// - The box's own TOP-LEFT corner lands at the exact right pixel (via
+///   `set_fancy`'s fractional positioning), but its overall WIDTH/HEIGHT
+///   is rounded to the nearest whole 32px tile count - up to ~16px larger
+///   or smaller than the original ASCII box's exact footprint. Visually
+///   negligible for this project's box sizes (all 200px+ wide) but a real,
+///   known difference, not pixel-identical.
+/// - `width`/`height` below this function's own minimum (needs at least
+///   2 tiles per axis to have distinct corners) are clamped up to that
+///   minimum rather than drawing something degenerate.
+/// Converts a box given in HUD_CONSOLE cell units into UI_PANEL_CONSOLE's
+/// own 32px-tile terms: a fractional (base_col, base_row) - the box's real
+/// top-left corner, pixel-precise - and a whole (tiles_w, tiles_h) tile
+/// count, rounded to the nearest 32px multiple (see `draw_pixel_box`'s own
+/// doc comment for why size, not position, is what's approximated).
+/// Factored out from `draw_pixel_box` so the conversion math can be
+/// checked directly against real numbers rather than only indirectly
+/// through whatever `DrawBatch` ends up queued.
+fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i32) {
+    let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
+    let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
+    let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
+    let px_y1 = ((y + height) * 800) as f32 / HUD_ROWS as f32;
+
+    let tiles_w = (((px_x1 - px_x0) / 32.0).round() as i32).max(2);
+    let tiles_h = (((px_y1 - px_y0) / 32.0).round() as i32).max(2);
+
+    (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
+}
+
+pub fn draw_pixel_box(
+    batch: &mut DrawBatch,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    theme: UiPanelTheme,
+    tint: ColorPair,
+) {
+    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+    let last_col = tiles_w - 1;
+    let last_row = tiles_h - 1;
+
+    // Corners - drawn once each, never tiled or stretched.
+    draw_panel_tile(batch, base_col, base_row, theme.glyph(0, 0), tint);
+    draw_panel_tile(batch, base_col + last_col as f32, base_row, theme.glyph(2, 0), tint);
+    draw_panel_tile(batch, base_col, base_row + last_row as f32, theme.glyph(0, 2), tint);
+    draw_panel_tile(
+        batch,
+        base_col + last_col as f32,
+        base_row + last_row as f32,
+        theme.glyph(2, 2),
+        tint,
+    );
+
+    // Top/bottom edges - tiled across whatever's between the corners.
+    for c in 1..last_col {
+        draw_panel_tile(batch, base_col + c as f32, base_row, theme.glyph(1, 0), tint);
+        draw_panel_tile(
+            batch,
+            base_col + c as f32,
+            base_row + last_row as f32,
+            theme.glyph(1, 2),
+            tint,
+        );
+    }
+
+    // Left/right edges - tiled across whatever's between the corners.
+    for r in 1..last_row {
+        draw_panel_tile(batch, base_col, base_row + r as f32, theme.glyph(0, 1), tint);
+        draw_panel_tile(
+            batch,
+            base_col + last_col as f32,
+            base_row + r as f32,
+            theme.glyph(2, 1),
+            tint,
+        );
+    }
+}
+
 /// Small horizontal shake for a portrait mid-"Attacking" flash - a few
 /// quick back-and-forth oscillations that decay to nothing exactly as the
 /// flash itself expires, so the portrait is back in its resting spot the

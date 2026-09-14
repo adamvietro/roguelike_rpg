@@ -332,6 +332,22 @@ mod prelude {
     pub const SHOPKEEPER_IDLE_CONSOLE: usize = 43;
     pub const SHOPKEEPER_IDLE_SCROLL_CONSOLE: usize = 44;
     pub const SHOPKEEPER_IDLE_GLIDE_CONSOLE: usize = 45;
+    /// Console 46, dungeon/menu-view: fancy, same DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT/32px grid as console 0, `ui_panels.png` - the real
+    /// PixelLab 9-slice panel borders (`render_helpers::draw_pixel_box`,
+    /// item 10 in docs/ideas.md), replacing `draw_ascii_box` one call site
+    /// at a time. FANCY (not plain) so a box's real pixel position can
+    /// land at a sub-cell offset via `set_fancy` - `draw_pixel_box` only
+    /// ever draws whole 32px tiles (no per-tile stretching), but the
+    /// WHOLE box's own top-left anchor still needs fractional placement,
+    /// since HUD_CONSOLE's own ~12px cells essentially never land on a
+    /// multiple of 32px. Appended at the very end rather than inserted
+    /// earlier: `draw_pixel_box` only ever draws a HOLLOW border (same as
+    /// draw_ascii_box - no filled interior yet, see its own doc comment),
+    /// so it can never actually overlap whatever a box's own interior
+    /// text/icons draw on a console registered earlier, regardless of
+    /// z-order between the two.
+    pub const UI_PANEL_CONSOLE: usize = 46;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -388,6 +404,7 @@ mod prelude {
         SHOPKEEPER_IDLE_CONSOLE,
         SHOPKEEPER_IDLE_SCROLL_CONSOLE,
         SHOPKEEPER_IDLE_GLIDE_CONSOLE,
+        UI_PANEL_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -1346,6 +1363,7 @@ fn main() -> BError {
         .with_font("character_effect.png", 32, 32)
         .with_font("map_tiles.png", 32, 32)
         .with_font("battle_backgrounds.png", 1280, 800)
+        .with_font("ui_panels.png", 32, 32)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         // Console 1 (BATTLE_BACKDROP_CONSOLE): see its own doc comment
         // above for the full reasoning. Registered right after console 0
@@ -1608,6 +1626,9 @@ fn main() -> BError {
         .with_simple_console_no_bg(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "shopkeeper_idle.png")
+        // Console 46 (UI_PANEL_CONSOLE): fancy, console 0's own grid,
+        // sourced from ui_panels.png - see its own doc comment above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "ui_panels.png")
         .with_vsync(false)
         .build()?;
 

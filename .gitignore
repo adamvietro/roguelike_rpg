@@ -13,8 +13,14 @@ project.zip
 
 # game files
 /game_files/*
+/game_files/
 
 # scratch space for in-progress sprite work (previews, contact sheets,
 # extracted reference images) - never a real project asset, so it never
 # belongs in a commit
 /docs/wip_art/
+
+# local secrets (e.g. PIXELLAB_API_KEY) - never committed, matches at any
+# directory depth
+.env
+.env.*

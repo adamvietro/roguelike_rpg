@@ -66,6 +66,17 @@ const FOOTER_Y: i32 = STATS_Y + STATS_HEIGHT + 2;
 /// shape. `selected` is this list's own local index of the cursor, if
 /// the cursor is currently anywhere in THIS list (None otherwise) - see
 /// selected_local_index in item_menu_tick.
+///
+/// `pixel_panel` is the first real in-game use of `draw_pixel_box` (item
+/// 10 in docs/ideas.md) - `Some((panel_batch, theme))` draws that box's
+/// real PixelLab border (tinted `border_color`, same as the ASCII
+/// version) onto UI_PANEL_CONSOLE instead of the plain `-`/`|`/`+`
+/// characters; `None` keeps today's `draw_ascii_box` behavior exactly.
+/// Deliberately per-call rather than a blanket switch - only the Items
+/// box has this wired up so far, one box at a time per this feature's own
+/// "create them 1 by 1" plan, pending a live screenshot to confirm the
+/// pixel-to-HUD_CONSOLE-cell conversion actually lands right before
+/// touching the other three.
 fn print_box(
     batch: &mut DrawBatch,
     x: i32,
@@ -76,8 +87,16 @@ fn print_box(
     title: &str,
     slots: &[AbilityBarSlot],
     selected: Option<usize>,
+    pixel_panel: Option<(&mut DrawBatch, UiPanelTheme)>,
 ) {
-    draw_ascii_box(batch, x, y, width, height, ColorPair::new(border_color, BLACK));
+    match pixel_panel {
+        Some((panel_batch, theme)) => {
+            draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(border_color, BLACK));
+        }
+        None => {
+            draw_ascii_box(batch, x, y, width, height, ColorPair::new(border_color, BLACK));
+        }
+    }
     batch.print_color(Point::new(x + 2, y), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
 
     if slots.is_empty() {
@@ -219,6 +238,8 @@ impl State {
         ctx.set_active_console(HUD_CONSOLE);
         let mut batch = DrawBatch::new();
         batch.target(HUD_CONSOLE);
+        let mut panel_batch = DrawBatch::new();
+        panel_batch.target(UI_PANEL_CONSOLE);
 
         print_box(
             &mut batch,
@@ -230,6 +251,7 @@ impl State {
             "Items",
             &items,
             items_selected,
+            Some((&mut panel_batch, UiPanelTheme::Dungeon)),
         );
         print_box(
             &mut batch,
@@ -241,6 +263,7 @@ impl State {
             "Battle Actions",
             &battle_actions,
             battle_selected,
+            None,
         );
         print_box(
             &mut batch,
@@ -252,6 +275,7 @@ impl State {
             "Equipped Items",
             &equipped,
             equipped_selected,
+            None,
         );
         print_box(
             &mut batch,
@@ -263,6 +287,7 @@ impl State {
             "Dungeon Actions",
             &dungeon_actions,
             dungeon_selected,
+            None,
         );
 
         // Box 3 (Stats) - static, never gets the cursor (see this
@@ -400,6 +425,7 @@ impl State {
             ColorPair::new(GRAY, BLACK),
         );
         batch.submit(0).expect("Batch error");
+        panel_batch.submit(0).expect("Batch error");
 
         // Enter only actions the two USABLE boxes (Items, Dungeon
         // Actions) - Equipped Items and Battle Actions stay browse-only,
