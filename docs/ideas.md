@@ -142,56 +142,71 @@ Roughly in the order they've come up:
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
 10. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
-    box border** (added 2026-09-13) — every box border in the game is
-    currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
-    draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
-    reused everywhere via that one shared helper:
-    - Item Menu screen (`screens/item_menu.rs`): Items/Battle Actions/
-      Equipped Items/Dungeon Actions list boxes, the Stats panel, the
-      shared description panel.
-    - Battle screen (`screens/battle.rs`): the battle log box, the
-      in-combat Battle Actions box.
-    - Pause screen (`screens/pause.rs`): the Hints box.
-    - Dungeon HUD (`systems/hud.rs`): the shop-item tooltip, and the
-      Item Bar/Ability Bar/Battle Bar frames.
+    box border** (added 2026-09-13, real progress started 2026-09-14 on
+    branch `pixellab-ui-panels`) — every box border in the game was
+    (and mostly still is) the same plain `-`/`|`/`+` rectangle
+    (`render_helpers::draw_ascii_box`), reused everywhere via that one
+    shared helper. 13 real call sites, catalogued fresh 2026-09-14
+    (verified against the actual code, not assumed):
+    - Item Menu screen (`screens/item_menu.rs`): Items (blue) - **now
+      wired to real art, see below** - Battle Actions (green), Equipped
+      Items (white), Dungeon Actions (red), Stats (white, static),
+      shared description panel (yellow) - still on `draw_ascii_box`.
+    - Battle screen (`screens/battle.rs`): the battle log box (white,
+      fixed size), the in-combat Battle Actions box (color switches live
+      between yellow/green depending on whether the player can act right
+      now - `draw_pixel_box`'s own `tint` param already supports this
+      the same way, just needs wiring).
+    - Pause screen (`screens/pause.rs`): the Hints box (yellow).
+    - Dungeon HUD (`systems/hud.rs`): the shop-item tooltip (yellow), and
+      the Item Bar (blue)/Ability Bar (red)/Battle Bar (green) frames.
     - Separately, HP/ATB gauges use a plain `[####----]` text string
-      (`battle::hp_bar_string`, `battle/mod.rs:1225`), not this box
-      helper - a real health-bar graphic would replace that string
-      entirely rather than reuse draw_ascii_box.
+      (`battle::hp_bar_string`, now in `battle/menu.rs`, not `battle/
+      mod.rs` - that module moved since this was first noted), not this
+      box helper - a real health-bar graphic would replace that string
+      entirely rather than reuse draw_ascii_box/draw_pixel_box.
     - No hand-drawn border exists yet on end.rs/options.rs/stats_view.rs/
-      title.rs/chest.rs - plain text only, no boxed frames.
+      title.rs/chest.rs (confirmed still true 2026-09-14) - plain text
+      only, no boxed frames.
 
-    PixelLab's API (confirmed via its real OpenAPI spec, not just
-    marketing copy - `https://api.pixellab.ai/v2/openapi.json`) has a
-    dedicated UI-generation path, not just characters:
-    - `POST /generate-ui-v2` - single element from a text description
-      ("wooden inventory slot with metal corners"), optional
-      `color_palette`/`concept_image`/`seed`, 16px up to ~512x512.
-      Async: returns a `background_job_id`, poll `GET /background-
-      jobs/{id}` until `completed`.
-    - `POST /create-ui-asset` - a whole panel/window rather than one
-      piece - either a default full-canvas rounded-rect, an explicit
-      `pieces` layout (rects/circles/polygons with real coordinates), or
-      a named `elements` list (`button`, `icon_button`, `toolbar`, `tab`,
-      `panel`, `window`, `health_bar`, `avatar`, `triangle`/`pentagon`/
-      `hexagon`/`octagon`) that gets auto-positioned. Returns a
-      `ui_asset_id` + `background_job_id`; poll `GET /ui-assets/{id}`
-      for `image_url` once `status` is `completed`.
-    - Also `POST /generate-font-pro` for a fully custom pixel font, if a
-      matching custom font (not just terminal8x8.png) ever becomes worth
-      it alongside the new panel art.
-    - Base `https://api.pixellab.ai/v2`, Bearer token auth (from the
-      user's own pixellab.ai account page), Python SDK available
-      (`pip install pixellab`). Cost is per-call/credit-based - the
-      schema's own example shows ~$0.02 for a `generate-ui-v2` call.
+    **Real progress, 2026-09-14 (full detail + generation recipe in the
+    new `docs/UI_Panel_Sheet_Guide.md`):**
+    - **This item's own prior API research was wrong** - there is no
+      `/generate-ui-v2` or `/create-ui-asset` endpoint; pulling the live
+      `openapi.json`'s complete endpoint list directly (not a summarized
+      fetch, which got this wrong too on a first attempt) confirmed
+      neither exists. The real, usable path is the same general
+      pixel-art image endpoint (`create-image-pixflux`) already proven
+      for this project's tile atlases and battle backgrounds - no
+      dedicated "UI-aware" endpoint needed.
+    - **Four theme-matched materials generated and composited** into
+      `resources/ui_panels.png` (3x12 grid, 32px cells, one 3-row band
+      per theme) - Dungeon (carved stone, approved for the Menu),
+      Forest (weathered wood), Sewer (rusted iron + stone - needed two
+      redo rounds, see the sheet guide), Swamp (waterlogged wood +
+      moss). Each theme's palette sampled directly from that theme's own
+      rows in `resources/map_tiles.png` and fed to PixelLab as a
+      `color_image` reference, not guessed. Every source image passed a
+      real pixel-health pass (watermark scan, near-black floor,
+      transparency) and a tiling-seam stress test before compositing.
+    - **New `render_helpers::draw_pixel_box`/`UiPanelTheme`** - same call
+      shape as `draw_ascii_box` (same HUD_CONSOLE-cell x/y/width/height,
+      same tint param), swapping a call site is close to a one-line
+      change. Still a hollow border only (no filled interior yet - needs
+      `UI_PANEL_CONSOLE` reordered before whatever draws a box's own
+      text, deferred). Box position is pixel-precise; box SIZE rounds to
+      the nearest whole 32px tile (a documented, minor simplification -
+      real per-tile fractional stretching for exact sizing is a later
+      enhancement, see the sheet guide's "Still open").
+    - **First real wiring: the Item Menu's Items box only** - not yet
+      screenshot-verified live, so deliberately not touching the other
+      12 sites yet, per this feature's own "create them 1 by 1" plan.
 
-    Unlike the character-sheet workflow so far (generate on the
-    PixelLab web UI, zip, hand the zip to Claude), this is a real
-    polling REST API - once the user provides an API token (kept as a
-    local env var, never committed), the whole generate -> poll ->
-    download -> composite-into-a-real-sheet pipeline could be scripted
-    directly instead of a manual round trip. Not started - no token
-    provided yet, nothing generated.
+    Unlike the character-sheet workflow (generate on the PixelLab web
+    UI, zip, hand the zip to Claude), this is now a real scripted REST
+    pipeline (API token kept in `ever_space_rrpg/.env`, git-ignored,
+    never committed) - generate → verify → composite, no manual zip
+    round trip.
 11. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
