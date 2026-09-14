@@ -8,24 +8,27 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-the Item Menu's 6 boxes refined across eight rounds of live screenshot
+the Item Menu's 6 boxes refined across nine rounds of live screenshot
 feedback, the 3 dungeon-HUD bars wired up too (not yet screenshot-
 verified - see "Using it" below)** - a saturated tint crushing the
 stone's own shading, the border swallowing box text at native scale, a
 real no_bg-console fill bug, the fill not quite nesting inside the
 border, a title-on-border attempt that hid every title outright, a blank
-description panel when nothing's selected, and a real detour where a
+description panel when nothing's selected, a real detour where a
 `has_title` flag briefly excluded the title row from the fill (on the
 wrong theory that titles having a black background was itself the bug)
 before getting reverted on direct correction - the black fill reaching
 up to meet the title row was the intended look the whole time, and
 excluding it just left the title illegible over a light background
-instead. `draw_filled_pixel_box` fills every box's full nominal area
-unconditionally now, no exceptions. The description panel also gained
-its own title, the one box that never had one. The remaining 4 of 13
-sites (the shop-item tooltip, the Pause Hints box, the battle log, and
-the Battle Actions box - see `docs/ideas.md` item 10 for the full list)
-are still on `draw_ascii_box`.
+instead - and, most recently, a same-console text/fill overwrite bug
+where printed text let the live dungeon view show through around each
+letter, fixed by moving all Item Menu text onto its own later-registered
+console (`PANEL_TEXT_CONSOLE`, see "Using it" below). `draw_filled_pixel_box`
+fills every box's full nominal area unconditionally now, no exceptions.
+The description panel also gained its own title, the one box that never
+had one. The remaining 4 of 13 sites (the shop-item tooltip, the Pause
+Hints box, the battle log, and the Battle Actions box - see
+`docs/ideas.md` item 10 for the full list) are still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
@@ -182,10 +185,31 @@ between adjacent tiles.
 not `draw_pixel_box` alone** - every real call site needs a deliberate
 solid interior fill or whatever's on the console(s) underneath (for the
 Item Menu, the frozen paused dungeon view) bleeds through instead of a
-clean background. `draw_filled_pixel_box` draws the fill on the SAME
-console/batch the box's own text uses, before that text, so the text
-naturally overwrites the fill at its own cells with no extra console/
-z-order needed.
+clean background.
+
+**Any text printed inside a filled box needs its OWN console, registered
+LATER in z-order than the fill's console - never the same console/batch,
+even "after" the fill in draw order** - a real, confirmed bug (2026-09-14):
+`SimpleConsole::set` (bracket-terminal's real source) REPLACES a cell's
+entire `(glyph, fg, bg)` tuple outright, it doesn't layer new content onto
+whatever was drawn there before. Printing text on the same console as the
+fill, even "after" the fill in the same tick, OVERWRITES that cell's fill
+entirely rather than painting over it - the cell's glyph becomes the
+letter's own shape, and a `no_bg` console's shader discards any pixel
+whose SOURCE TEXTURE is near-black, which is exactly what the "empty"
+space inside a glyph's own cell looks like. The result: solid black
+everywhere the fill alone covers a cell, but the live view bleeding
+through around and between individual letters, since the fill that used
+to occupy that exact cell no longer exists once text replaced it. Fixed
+by adding `PANEL_TEXT_CONSOLE` (index 47, `no_bg`, same `HUD_COLS x
+HUD_ROWS` grid as `HUD_CONSOLE`), registered after `HUD_CONSOLE` in
+`main.rs`'s builder chain, and moving every `print_color`/
+`print_color_centered` call that lands on top of a fill (the Item Menu's
+titles, list entries, stats, and description text) onto a `text_batch`
+targeting it instead of the fill's own `batch`. Text that never sits on
+a fill (the Item Menu's footer, below every box) can stay on the plain
+`HUD_CONSOLE` batch - this only matters for text drawn over a filled
+cell.
 
 **The fill itself has to go through the FOREGROUND channel, not the
 background one** - a real, confirmed bug (2026-09-14), not a rect-math
@@ -233,6 +257,11 @@ border-embedded look for now.
   real context difference from the Item Menu worth confirming looks
   right (does a solid black bar background read well over live gameplay,
   or does it want to stay closer to see-through there specifically).
+- `systems/hud.rs`'s 3 bars have the SAME same-console text/fill bug the
+  Item Menu just got fixed for - they use `label_batch` (targeting
+  `HUD_CONSOLE`) for both the fill AND the Ability Bar's own number
+  labels. Not yet fixed; should get the identical `PANEL_TEXT_CONSOLE`
+  treatment once the Item Menu fix itself is confirmed live.
 - The remaining 4 of 13 sites: the shop-item tooltip, Pause Hints, the
   battle log, and the in-combat Battle Actions box (its border color
   already switches live between yellow/green - moot now that
