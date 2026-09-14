@@ -1510,92 +1510,21 @@ mod class_survivability_diagnostic {
         map.index_to_point2d(idx)
     }
 
-    /// A correct, from-scratch breadth-first distance field from `target`
-    /// across every 4-directionally-connected `can_enter_tile` cell.
-    /// Written in-house rather than using `bracket_pathfinding::
-    /// DijkstraMap`, after that library function proved genuinely
-    /// unreliable across two separate real reproductions during this
-    /// bot's development:
-    ///
-    /// 1. `DijkstraMap::find_lowest_exit`'s own pick considers diagonal
-    ///    exits too (`get_available_exits` allows them), which this bot
-    ///    has no way to act on (`Action` only has Up/Down/Left/Right, no
-    ///    diagonals) - decomposing a diagonal suggestion into a single
-    ///    cardinal step by dx/dy sign doesn't reliably reduce distance,
-    ///    and caused a real back-and-forth stall right next to a chest's
-    ///    one-tile approach corridor. Picking directly among the 4
-    ///    cardinal neighbors by their own reported distance (see
-    ///    step_toward) was the first fix - but:
-    /// 2. Confirmed from `bracket-pathfinding`'s own source
-    ///    (`DijkstraMap::build`): the seed tile's own array slot is NEVER
-    ///    explicitly set to 0.0 - it only gets overwritten later by a
-    ///    neighbor's own relaxation pass, landing at roughly the edge
-    ///    cost back to that neighbor (~2.0 for one cardinal hop) instead
-    ///    of the true 0. Worse, since `build`'s open list is a plain
-    ///    FIFO queue rather than a priority queue, that wrong value can
-    ///    itself get used as a base by further relaxations, corrupting
-    ///    more than just the seed's own single cell - confirmed by a
-    ///    second real reproduction (a DIFFERENT stable 2-cycle a couple
-    ///    of tiles away from an already-special-cased target, after the
-    ///    first fix). Patching individual symptomatic cells wasn't going
-    ///    to hold indefinitely, hence this from-scratch replacement.
-    ///
-    /// Every step this bot ever takes costs exactly 1, so a plain BFS
-    /// isn't a workaround here, it's the textbook-correct algorithm for
-    /// this anyway - no priority queue needed, and no possibility of the
-    /// seed/relaxation-order bugs above, since the seed's distance is
-    /// set to 0 directly rather than relying on any later relaxation
-    /// pass to (maybe) get it right. Returns a full
-    /// SCREEN_WIDTH*SCREEN_HEIGHT-sized field (unreached cells stay at
-    /// i32::MAX) so callers can index it the same way the old
-    /// DijkstraMap.map Vec was indexed.
-    fn bfs_distance_field(map: &Map, target: Point) -> Vec<i32> {
-        let mut field = vec![i32::MAX; (SCREEN_WIDTH * SCREEN_HEIGHT) as usize];
-        if !map.in_bounds(target) {
-            return field;
-        }
-        let target_idx = map.point2d_to_index(target);
-        field[target_idx] = 0;
-        let mut queue: std::collections::VecDeque<Point> = std::collections::VecDeque::new();
-        queue.push_back(target);
-        while let Some(current) = queue.pop_front() {
-            let current_dist = field[map.point2d_to_index(current)];
-            for delta in [
-                Point::new(0, -1),
-                Point::new(0, 1),
-                Point::new(-1, 0),
-                Point::new(1, 0),
-            ] {
-                let neighbor = current + delta;
-                if neighbor != target && !map.can_enter_tile(neighbor) {
-                    continue;
-                }
-                if !map.in_bounds(neighbor) {
-                    continue;
-                }
-                let idx = map.point2d_to_index(neighbor);
-                if field[idx] == i32::MAX {
-                    field[idx] = current_dist + 1;
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-        field
-    }
-
     /// One step toward `target`, going through the real player_input
     /// system (via the same `key` resource main.rs's tick() sets from a
     /// live keypress) so enemy-bump battle-starts/item auto-pickup/chest
     /// interaction all happen exactly as they do for a real player -
     /// only the SOURCE of the key (computed here, not read from a
     /// window) differs. Picks directly among the 4 CARDINAL neighbors by
-    /// their own bfs_distance_field value - see that function's own doc
-    /// comment for why this doesn't just trust a library pathfinder.
+    /// their own `Map::bfs_distance_field` value - deliberately not
+    /// `bracket_pathfinding::DijkstraMap`; see that method's own doc
+    /// comment for the two real, reproduced stalls that library caused
+    /// here before this bot moved off it entirely.
     fn step_toward(state: &mut State, target: Point) {
         let (_, player_pt) = find_player(&state.ecs).unwrap();
         let action = {
             let map = state.resources.get::<Map>().unwrap();
-            let field = bfs_distance_field(&map, target);
+            let field = map.bfs_distance_field(target);
             let candidates: [(Action, Point); 4] = [
                 (Action::MoveUp, Point::new(player_pt.x, player_pt.y - 1)),
                 (Action::MoveDown, Point::new(player_pt.x, player_pt.y + 1)),

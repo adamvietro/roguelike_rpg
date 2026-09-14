@@ -83,6 +83,58 @@ impl Map {
             None
         }
     }
+
+    /// A plain BFS distance field seeded at `target`, over every tile
+    /// this map's own `can_enter_tile` considers passable (plus `target`
+    /// itself, even if it technically isn't - the seed always gets
+    /// walked from, matching every caller's own "distance FROM this
+    /// point" intent). Unreached cells stay at `i32::MAX`. Deliberately
+    /// NOT `bracket_pathfinding::DijkstraMap` - that type never writes
+    /// 0.0 into the seed tile's own array slot (it only gets set by a
+    /// neighbor's relaxation pass, which may not happen at all near an
+    /// edge), which stalls anything that greedily walks toward the
+    /// lowest surrounding value while standing right next to the actual
+    /// target. A plain BFS has no such bug (the seed's distance is set
+    /// to 0 directly, not left to a later relaxation pass) and costs
+    /// nothing extra here since every step on this map costs exactly 1
+    /// anyway - no priority queue needed. Promoted out of
+    /// `screens/battle.rs`'s `class_survivability_diagnostic` module
+    /// (2026-09-13), which had its own private copy for the exact same
+    /// reason; `map_builder`'s theme-path placement is a second, real
+    /// caller now.
+    pub(crate) fn bfs_distance_field(&self, target: Point) -> Vec<i32> {
+        let mut field = vec![i32::MAX; NUM_TILES];
+        if !self.in_bounds(target) {
+            return field;
+        }
+        let target_idx = self.point2d_to_index(target);
+        field[target_idx] = 0;
+        let mut queue: std::collections::VecDeque<Point> = std::collections::VecDeque::new();
+        queue.push_back(target);
+        while let Some(current) = queue.pop_front() {
+            let current_dist = field[self.point2d_to_index(current)];
+            for delta in [
+                Point::new(0, -1),
+                Point::new(0, 1),
+                Point::new(-1, 0),
+                Point::new(1, 0),
+            ] {
+                let neighbor = current + delta;
+                if neighbor != target && !self.can_enter_tile(neighbor) {
+                    continue;
+                }
+                if !self.in_bounds(neighbor) {
+                    continue;
+                }
+                let idx = self.point2d_to_index(neighbor);
+                if field[idx] == i32::MAX {
+                    field[idx] = current_dist + 1;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        field
+    }
 }
 
 impl Algorithm2D for Map {

@@ -126,6 +126,16 @@ impl MapTheme for ForestTheme {
     fn end_scene_theme(&self) -> EndSceneTheme {
         EndSceneTheme::Forest
     }
+
+    /// Variant 4 (Dirt path, cell 9) / 5 (Path fork, cell 10) - see
+    /// `MapTheme::path_variants`'s own doc comment. Previously left on
+    /// the default `Patch` treatment like every other floor variant,
+    /// which is exactly what produced a random circular blob instead of
+    /// a real connected line (2026-09-13 - "the path tiles should be in
+    /// a line").
+    fn path_variants(&self) -> Option<(u8, u8)> {
+        Some((4, 5))
+    }
 }
 
 impl ForestTheme {

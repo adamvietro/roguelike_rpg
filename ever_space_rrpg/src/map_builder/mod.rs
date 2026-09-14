@@ -181,8 +181,8 @@ pub trait MapTheme: Sync + Send {
     fn enemy_formation_rows(&self) -> (f32, f32) {
         (1.9, 2.3)
     }
-    /// Which placement style floor variant `variant` (1..FLOOR_VARIANT_
-    /// COUNT - variant 0 is always the plain default, never patched or
+    /// Which placement style floor variant `variant` (1..floor_variant_
+    /// count() - variant 0 is always the plain default, never patched or
     /// scattered) should use - see `VariantStyle`. Defaults to `Patch`
     /// for every variant, matching the original "blocks of leaves,
     /// blocks of moss" design. Override per-variant for anything that
@@ -191,9 +191,31 @@ pub trait MapTheme: Sync + Send {
     /// "torchlight glow" patched as a whole region looked like a wall of
     /// torches, which no real dungeon would have. See
     /// docs/Map_Tile_Theme_Guide.md for the full row-9-12 breakdown of
-    /// which cells need which style, theme by theme.
+    /// which cells need which style, theme by theme. Meaningless for any
+    /// variant this theme's own `path_variants` also names - see that
+    /// method's own doc comment for why those two are excluded from the
+    /// ordinary patch/scatter pools entirely, regardless of what this
+    /// would say for them.
     fn floor_variant_style(&self, _variant: u8) -> VariantStyle {
         VariantStyle::Patch
+    }
+    /// (main, fork) floor variants this theme wants stamped as ONE real
+    /// connected line between `player_start` and `amulet_start`, instead
+    /// of the ordinary random Patch/Scatter treatment every other floor
+    /// variant gets - `None` (the default) for a theme with no such
+    /// concept. `MapBuilder::assign_tile_variants` excludes both
+    /// variants from the normal patch/scatter candidate pools when this
+    /// is `Some`, so nothing else ever paints over (or duplicates) the
+    /// line - this is the ONLY thing that places them. `main` covers
+    /// the connected line itself; `fork` marks just ONE tile, the path's
+    /// own north-most endpoint (the smaller-`y` end of `player_start`/
+    /// `amulet_start`), a discrete "the path forks here" accent rather
+    /// than a second real branch - see docs/journal.md's 2026-09-13
+    /// entry for why (no way to rotate a single glyph on the plain,
+    /// always-visible map console, so a fork pointing multiple real
+    /// directions would need new art, not just placement logic).
+    fn path_variants(&self) -> Option<(u8, u8)> {
+        None
     }
 }
 
@@ -401,11 +423,14 @@ impl MapBuilder {
         // (confirmed in real play, 2026-09-08: Dungeon's "torchlight
         // glow" patched as a whole region looked like a wall of torches).
         let floor_variant_count = self.theme.floor_variant_count();
+        let path_variants = self.theme.path_variants();
+        let is_path_variant =
+            |v: u8| path_variants.map_or(false, |(main, fork)| v == main || v == fork);
         let patch_variants: Vec<u8> = (1..floor_variant_count)
-            .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Patch)
+            .filter(|&v| !is_path_variant(v) && self.theme.floor_variant_style(v) == VariantStyle::Patch)
             .collect();
         let scatter_variants: Vec<u8> = (1..floor_variant_count)
-            .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Scatter)
+            .filter(|&v| !is_path_variant(v) && self.theme.floor_variant_style(v) == VariantStyle::Scatter)
             .collect();
 
         // Floor patches: a handful of contiguous, randomly-placed,
@@ -468,6 +493,89 @@ impl MapBuilder {
                         scatter_variants[rng.random_slice_index(&scatter_variants).unwrap()];
                 }
             }
+        }
+
+        // Theme path, if this theme wants one - runs LAST, after every
+        // other overlay above, so nothing else ever paints over it (a
+        // patch/scatter accent landing on top of the path would break
+        // its visual continuity). See `stamp_theme_path`'s own doc
+        // comment for the actual placement algorithm.
+        if path_variants.is_some() {
+            self.stamp_theme_path(rng);
+        }
+    }
+
+    /// Stamps ONE real connected line of this theme's `path_variants`
+    /// between `player_start` and `amulet_start`, across Floor tiles
+    /// only - a no-op if the theme has none (`path_variants() ==
+    /// None`). Deliberately walks the real shortest route
+    /// (`Map::bfs_distance_field`, greedily stepping to whichever
+    /// neighbor has the smallest distance-to-target) rather than a
+    /// straight line or an undirected random walk - either of those can
+    /// cross a Wall tile the map's own layout never actually connects
+    /// through, which would leave the path with gaps wherever it did.
+    /// Ties (more than one neighbor sharing the smallest distance, which
+    /// happens constantly in an open room) are broken at random, which
+    /// is what keeps the path from reading as a mechanically straight
+    /// line everywhere except forced corridors - a corridor only has
+    /// one route anyway, so it stays straight there regardless.
+    ///
+    /// The `fork` variant marks exactly one tile: whichever of the two
+    /// endpoints is more "north" (the smaller `y`) - see
+    /// `MapTheme::path_variants`'s own doc comment for why this isn't a
+    /// real second branch.
+    fn stamp_theme_path(&mut self, rng: &mut RandomNumberGenerator) {
+        let Some((main_variant, fork_variant)) = self.theme.path_variants() else {
+            return;
+        };
+        let start = self.player_start;
+        let end = self.amulet_start;
+        let field = self.map.bfs_distance_field(start);
+
+        let mut pos = end;
+        loop {
+            let idx = map_idx(pos.x, pos.y);
+            if self.map.tiles[idx] == TileType::Floor {
+                self.map.tile_variant[idx] = main_variant;
+            }
+            if pos == start {
+                break;
+            }
+            let current_dist = field[idx];
+            let mut best_candidates: Vec<Point> = Vec::new();
+            let mut best_dist = current_dist;
+            for delta in [
+                Point::new(0, -1),
+                Point::new(0, 1),
+                Point::new(-1, 0),
+                Point::new(1, 0),
+            ] {
+                let neighbor = pos + delta;
+                if !self.map.in_bounds(neighbor) {
+                    continue;
+                }
+                let neighbor_dist = field[map_idx(neighbor.x, neighbor.y)];
+                if neighbor_dist < best_dist {
+                    best_dist = neighbor_dist;
+                    best_candidates.clear();
+                    best_candidates.push(neighbor);
+                } else if neighbor_dist == best_dist && neighbor_dist < current_dist {
+                    best_candidates.push(neighbor);
+                }
+            }
+            if best_candidates.is_empty() {
+                // Shouldn't happen - start/end are always mutually
+                // reachable Floor tiles - but never loop forever if it
+                // somehow does.
+                break;
+            }
+            pos = best_candidates[rng.random_slice_index(&best_candidates).unwrap()];
+        }
+
+        let north_end = if start.y <= end.y { start } else { end };
+        let north_idx = map_idx(north_end.x, north_end.y);
+        if self.map.tiles[north_idx] == TileType::Floor {
+            self.map.tile_variant[north_idx] = fork_variant;
         }
     }
 
