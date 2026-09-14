@@ -17,7 +17,7 @@ pub fn tooltips(ecs: &SubWorld, #[resource] mouse_pos: &Point, #[resource] camer
     // panning could point at the wrong tile (or none at all), since the
     // stale integer offset briefly disagrees with what's actually on
     // screen.
-    let map_pos = match camera_render_offset(ecs) {
+    let map_pos = match camera_render_offset(ecs, camera) {
         Some((fx, fy)) => Point::new(
             (mouse_pos.x as f32 + fx).round() as i32,
             (mouse_pos.y as f32 + fy).round() as i32,

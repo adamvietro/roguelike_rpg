@@ -37,7 +37,7 @@ pub fn entity_render(#[resource] camera: &Camera, ecs: &SubWorld) {
     let mut fov = <&FieldOfView>::query().filter(component::<Player>());
     let player_fov = fov.iter(ecs).nth(0).unwrap();
 
-    match camera_render_offset(ecs) {
+    match camera_render_offset(ecs, camera) {
         None => {
             // Camera at rest. A per-entity gliding_position check
             // decides whether THIS entity draws on the sub-pixel
