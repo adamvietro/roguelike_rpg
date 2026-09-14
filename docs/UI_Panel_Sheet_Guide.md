@@ -9,27 +9,31 @@ generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
 every border on the dungeon-exploration screen AND the Paused screen's
-Hints box now converted (12 of 13 real sites), not yet screenshot-
-verified past the last round - see "Using it" below** - across twelve-
-plus rounds of live feedback: a saturated tint crushing the stone's own
-shading, the border swallowing box text at native scale, a real no_bg-
-console fill bug, the fill not quite nesting inside the border, a
-title-on-border attempt that hid every title outright, a blank
-description panel when nothing's selected, a real detour where a
-`has_title` flag briefly excluded the title row from the fill (reverted
-on direct correction), a same-console text/fill overwrite bug fixed
-with `PANEL_TEXT_CONSOLE`, a fill/border sub-pixel alignment fix, a
-border-scale round-trip (0.375 -> 0.5 -> 0.3, see `PIXEL_BOX_TILE_
-SCALE`'s own doc comment for why one constant is in real tension
-between box sizes), the pixel-perfect fill's own regression hiding
-every bar icon (fixed with `ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_
-ICON_BADGE_CONSOLE`), and every dungeon-screen panel (Item/Ability/
-Battle Bars, the shop tooltip) plus the Pause Hints box all converging
-on the Swamp material specifically (see "Using it" below for the last
-few). `draw_filled_pixel_box` fills every box's full nominal area
-unconditionally, no exceptions; the Item Menu alone stays Dungeon/stone.
-The remaining 2 of 13 sites (the battle log and the in-combat Battle
-Actions box - see `docs/ideas.md` item 10 for the full list) are
+Hints box now converted (12 of 13 real sites); the Hints box confirmed
+"Perfect" live, the dungeon HUD bars and shop tooltip not yet
+reconfirmed since gaining their own compact border scale - see "Using
+it" below** - across thirteen-plus rounds of live feedback: a saturated
+tint crushing the stone's own shading, the border swallowing box text
+at native scale, a real no_bg-console fill bug, the fill not quite
+nesting inside the border, a title-on-border attempt that hid every
+title outright, a blank description panel when nothing's selected, a
+real detour where a `has_title` flag briefly excluded the title row
+from the fill (reverted on direct correction), a same-console text/fill
+overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a fill/border sub-pixel
+alignment fix, a border-scale round-trip (0.375 -> 0.5 -> 0.3) that
+turned out to be masking a deeper issue, the pixel-perfect fill's own
+regression hiding every bar icon (fixed with `ABILITY_BAR_ICON_CONSOLE`/
+`ABILITY_BAR_ICON_BADGE_CONSOLE`), every dungeon-screen panel (Item/
+Ability/Battle Bars, the shop tooltip) plus the Pause Hints box
+converging on the Swamp material, and - once a single shared border
+scale really did turn out not to fit every box size, confirmed with
+real numbers rather than another guess - a genuine second scale,
+`PIXEL_BOX_TILE_SCALE_COMPACT`, for boxes small in either dimension
+(see "Using it" below for the last few). `draw_filled_pixel_box` fills
+every box's full nominal area unconditionally, no exceptions; the Item
+Menu alone stays Dungeon/stone. The remaining 2 of 13 sites (the battle
+log and the in-combat Battle Actions box - see `docs/ideas.md` item 10
+for the full list) are
 battle-only and still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
@@ -178,24 +182,42 @@ textured material is lost if a tint flattens it back into a solid color.
 The box's own title text still carries its category color, so switching
 to WHITE loses no actual information about which box is which.
 
-**Every tile draws at `PIXEL_BOX_TILE_SCALE` (0.3x, ~9.6px), not the
-source art's native 32px** - at full native size the border was thick
-enough to swallow an Item Menu box's own list text entirely. Round-
-tripped twice on live feedback: 0.375x (12px) first pass -> 0.5x on
-direct feedback that the Item Menu's own large boxes read too thin/
-small -> 0.3x on the OPPOSITE complaint once the much-smaller dungeon
-HUD bars were seen live at 0.5x (the border's own frame color visibly
-outweighing the icon content inside such a small box). One shared
-constant is in genuine tension between very differently-sized boxes -
-see the constant's own doc comment for why a per-caller scale is the
-real fix if this keeps recurring, not built since it hasn't been asked
-for yet. `set_fancy` scales a glyph around its own center (confirmed
-against bracket-terminal's real vertex-shader source), so `draw_pixel_box`
-also closes up the spacing between tile centers by that same factor -
-scaling the glyph alone without doing this would open a visible gap
-between adjacent tiles. Icon/portrait rendering elsewhere doesn't share
-this constant, so retuning it only affects the border/fill, never icon
-size.
+**Every tile draws at a `scale` parameter (`PIXEL_BOX_TILE_SCALE` 0.3x
+for large boxes, `PIXEL_BOX_TILE_SCALE_COMPACT` 0.15x for small ones -
+see "Two scales, not one" below), not the source art's native 32px** -
+at full native size the border was thick enough to swallow an Item
+Menu box's own list text entirely. `set_fancy` scales a glyph around
+its own center (confirmed against bracket-terminal's real vertex-shader
+source), so `draw_pixel_box` also closes up the spacing between tile
+centers by that same factor - scaling the glyph alone without doing
+this would open a visible gap between adjacent tiles. Icon/portrait
+rendering elsewhere doesn't share either constant, so retuning them
+only affects the border/fill, never icon size.
+
+**Two scales, not one: `PIXEL_BOX_TILE_SCALE` (0.3x, large boxes) and
+`PIXEL_BOX_TILE_SCALE_COMPACT` (0.15x, boxes small in EITHER
+dimension)** - a real architecture change (2026-09-14), not another
+retune of the same number. The single-constant approach round-tripped
+twice on live feedback (0.375x first pass -> 0.5x when the Item Menu's
+own large boxes read too thin -> 0.3x on the OPPOSITE complaint once
+the dungeon HUD bars were seen at 0.5x) and STILL wasn't right - the
+dungeon HUD bars and shop tooltip still read wrong even at 0.3x.
+Diagnosed with real numbers instead of guessing a fourth value: a
+border tile's PIXEL size is fixed by whatever scale is passed, so a box
+small in some dimension has the border eating a much BIGGER FRACTION
+of that dimension than a large box does, regardless of scale. Computed
+directly from this project's own geometry (`ability_bar_box_bounds`,
+`SHOP_TOOLTIP_WIDTH`/`HEIGHT`) at 0.3x: a single-icon Ability Bar box's
+two border COLUMNS alone were ~29% of its total width, and the shop
+tooltip's two border ROWS were ~50% of its total height - both far
+worse than the Item Menu's boxes or the Paused screen's Hints box
+(confirmed "Perfect" at 0.3x) ever hit, since neither of those is small
+in any dimension. `draw_filled_pixel_box_scaled` (new, takes an
+explicit `scale`) is the real entry point now; `draw_filled_pixel_box`
+is a thin wrapper defaulting to `PIXEL_BOX_TILE_SCALE`, unchanged for
+the Item Menu and Hints. The 3 dungeon HUD bars and the shop tooltip -
+the sites that actually have this problem - now call `_scaled` with
+`PIXEL_BOX_TILE_SCALE_COMPACT` directly.
 
 **Use `render_helpers::draw_filled_pixel_box` (border + fill together),
 not `draw_pixel_box` alone** - every real call site needs a deliberate
@@ -305,18 +327,21 @@ border-embedded look for now.
 
 ## Still open
 
-- A fresh screenshot confirming ALL of the latest round together: the
-  0.3x border scale, the dungeon HUD bars' icons/badges actually staying
-  visible, and every panel (Item/Ability/Battle Bars, shop tooltip,
-  Pause Hints) now reading as Swamp - none of this has been seen live
-  yet, only reasoned through against bracket-terminal's real source and
-  the previous round's feedback.
+- A fresh screenshot confirming the dungeon HUD bars and shop tooltip at
+  their new `PIXEL_BOX_TILE_SCALE_COMPACT` (0.15x) - the Item Menu and
+  Hints box are confirmed good at the default 0.3x, but nothing has
+  confirmed 0.15x actually looks right on the bars/tooltip yet, only
+  that the real geometry math says it SHOULD read much thinner
+  proportionally than 0.3x did.
 - The remaining 2 of 13 sites: the battle log and the in-combat Battle
   Actions box (its border color already switches live between yellow/
   green - moot now that `draw_pixel_box` calls use WHITE regardless of
   category color, so this just needs wiring, not any special-casing for
   the color switch) - both battle-only, the only screen with any
-  `draw_ascii_box` left in the whole project.
+  `draw_ascii_box` left in the whole project. Given how narrow/short
+  some of THEIR boxes might be too (the Battle Actions box in
+  particular), check whether they need `PIXEL_BOX_TILE_SCALE_COMPACT`
+  from the start rather than the default, once converted.
 - A real textured filled interior (see "The center tile exists..."
   above) - no longer blocked on console reordering, just not built yet.
 - Per-tile fractional stretching for genuinely pixel-perfect SIZING to
@@ -327,9 +352,7 @@ border-embedded look for now.
   width/height still rounding to a whole tile count. Not needed yet
   since that rounding is visually negligible at this project's box
   sizes, but the plan if a smaller/tighter box ever needs it.
-- `PIXEL_BOX_TILE_SCALE` (0.3, round-tripped from 0.375 -> 0.5 -> 0.3 on
-  two rounds of direct, opposite-direction feedback) is still a guess
-  pending a real screenshot, and a real candidate for splitting into a
-  per-caller parameter (large menu boxes vs. small HUD bars) if a third
-  round of feedback goes a third way instead of confirming 0.3 works for
-  both - see its own doc comment for the full reasoning.
+- `PIXEL_BOX_TILE_SCALE_COMPACT` (0.15) is a first-pass value computed
+  from real geometry (see "Two scales, not one" above for the exact
+  numbers), not yet confirmed against a screenshot - the next number to
+  retune if the bars/tooltip still read wrong.
