@@ -8,27 +8,27 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-the Item Menu's 6 boxes refined across nine rounds of live screenshot
-feedback, the 3 dungeon-HUD bars wired up too (not yet screenshot-
-verified - see "Using it" below)** - a saturated tint crushing the
-stone's own shading, the border swallowing box text at native scale, a
-real no_bg-console fill bug, the fill not quite nesting inside the
-border, a title-on-border attempt that hid every title outright, a blank
-description panel when nothing's selected, a real detour where a
-`has_title` flag briefly excluded the title row from the fill (on the
-wrong theory that titles having a black background was itself the bug)
-before getting reverted on direct correction - the black fill reaching
-up to meet the title row was the intended look the whole time, and
-excluding it just left the title illegible over a light background
-instead - and, most recently, a same-console text/fill overwrite bug
-where printed text let the live dungeon view show through around each
-letter, fixed by moving all Item Menu text onto its own later-registered
-console (`PANEL_TEXT_CONSOLE`, see "Using it" below). `draw_filled_pixel_box`
-fills every box's full nominal area unconditionally now, no exceptions.
-The description panel also gained its own title, the one box that never
-had one. The remaining 4 of 13 sites (the shop-item tooltip, the Pause
-Hints box, the battle log, and the Battle Actions box - see
-`docs/ideas.md` item 10 for the full list) are still on `draw_ascii_box`.
+the Item Menu confirmed working live end to end, the 3 dungeon-HUD bars
+wired up and the same text/fill fix ported to them too (not yet
+screenshot-verified - see "Using it" below)** - across ten-plus rounds
+of live feedback: a saturated tint crushing the stone's own shading, the
+border swallowing box text at native scale, a real no_bg-console fill
+bug, the fill not quite nesting inside the border, a title-on-border
+attempt that hid every title outright, a blank description panel when
+nothing's selected, a real detour where a `has_title` flag briefly
+excluded the title row from the fill (reverted on direct correction -
+the black fill reaching up to meet the title row was the intended look
+the whole time), a same-console text/fill overwrite bug where printed
+text let the live dungeon view show through around each letter (fixed
+with `PANEL_TEXT_CONSOLE`, a dedicated later console for all printed
+text), and most recently a fill/border sub-pixel alignment fix, a
+border-scale bump (0.375 -> 0.5), and the dungeon HUD's Battle Bar
+switching to the Swamp material specifically (see "Using it" below for
+all three). `draw_filled_pixel_box` fills every box's full nominal area
+unconditionally, no exceptions. The remaining 4 of 13 sites (the
+shop-item tooltip, the Pause Hints box, the battle log, and the Battle
+Actions box - see `docs/ideas.md` item 10 for the full list) are still
+on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
@@ -61,13 +61,17 @@ project already uses.
 
 **The center tile exists in the sheet but `draw_pixel_box` doesn't draw it
 yet** - v1 only draws the hollow border (4 corners + tiled edges), same
-shape `draw_ascii_box` already has. Filling the interior with the real
-center texture needs `UI_PANEL_CONSOLE` registered BEFORE whatever console
-draws a box's own text/icons (so the fill paints underneath, not over) -
-a bigger mechanical change (shifts every console index after the
-insertion point) deliberately deferred until the hollow-border version is
-confirmed working live. See `UI_PANEL_CONSOLE`'s own doc comment in
-`main.rs`.
+shape `draw_ascii_box` already has; the solid interior is a flat black
+`draw_panel_fill` stand-in (see "Using it" below), not this real
+texture. The console-reordering concern this used to note (needing
+`UI_PANEL_CONSOLE` registered BEFORE whatever draws a box's own text) no
+longer applies - `PANEL_TEXT_CONSOLE` is now registered LAST in the
+whole builder chain specifically so text always paints over both the
+fill and the border regardless of where either lives, so a real
+textured center tile could draw on `UI_PANEL_CONSOLE` (alongside the
+fill and border it already shares that console with, same
+`FlexiConsole`-stacking reasoning) without any reordering at all. Still
+deferred, just no longer blocked on that.
 
 ## Generation recipe
 
@@ -172,69 +176,86 @@ textured material is lost if a tint flattens it back into a solid color.
 The box's own title text still carries its category color, so switching
 to WHITE loses no actual information about which box is which.
 
-**Every tile draws at `PIXEL_BOX_TILE_SCALE` (0.375x, ~12px), not the
-source art's native 32px** - also confirmed live: at full native size
-the border was thick enough to swallow an Item Menu box's own list text
-entirely. `set_fancy` scales a glyph around its own center (confirmed
-against bracket-terminal's real vertex-shader source), so `draw_pixel_box`
-also closes up the spacing between tile centers by that same factor -
-scaling the glyph alone without doing this would open a visible gap
-between adjacent tiles.
+**Every tile draws at `PIXEL_BOX_TILE_SCALE` (0.5x, 16px), not the
+source art's native 32px** - at full native size the border was thick
+enough to swallow an Item Menu box's own list text entirely; the
+original 0.375x (12px) first pass was then bumped to 0.5x on direct
+feedback that it read too thin/small once seen live. `set_fancy` scales
+a glyph around its own center (confirmed against bracket-terminal's real
+vertex-shader source), so `draw_pixel_box` also closes up the spacing
+between tile centers by that same factor - scaling the glyph alone
+without doing this would open a visible gap between adjacent tiles.
+Icon/portrait rendering elsewhere doesn't share this constant, so
+retuning it only affects the border/fill, never icon size.
 
 **Use `render_helpers::draw_filled_pixel_box` (border + fill together),
 not `draw_pixel_box` alone** - every real call site needs a deliberate
 solid interior fill or whatever's on the console(s) underneath (for the
-Item Menu, the frozen paused dungeon view) bleeds through instead of a
-clean background.
+Item Menu, the frozen paused dungeon view; for the dungeon HUD bars, the
+live view) bleeds through instead of a clean background. Its signature
+takes just one `panel_batch` (targeting `UI_PANEL_CONSOLE`) - fill and
+border both live there now (see next point).
 
-**Any text printed inside a filled box needs its OWN console, registered
-LATER in z-order than the fill's console - never the same console/batch,
-even "after" the fill in draw order** - a real, confirmed bug (2026-09-14):
-`SimpleConsole::set` (bracket-terminal's real source) REPLACES a cell's
-entire `(glyph, fg, bg)` tuple outright, it doesn't layer new content onto
-whatever was drawn there before. Printing text on the same console as the
-fill, even "after" the fill in the same tick, OVERWRITES that cell's fill
-entirely rather than painting over it - the cell's glyph becomes the
-letter's own shape, and a `no_bg` console's shader discards any pixel
-whose SOURCE TEXTURE is near-black, which is exactly what the "empty"
-space inside a glyph's own cell looks like. The result: solid black
-everywhere the fill alone covers a cell, but the live view bleeding
-through around and between individual letters, since the fill that used
-to occupy that exact cell no longer exists once text replaced it. Fixed
-by adding `PANEL_TEXT_CONSOLE` (index 47, `no_bg`, same `HUD_COLS x
-HUD_ROWS` grid as `HUD_CONSOLE`), registered after `HUD_CONSOLE` in
-`main.rs`'s builder chain, and moving every `print_color`/
-`print_color_centered` call that lands on top of a fill (the Item Menu's
-titles, list entries, stats, and description text) onto a `text_batch`
-targeting it instead of the fill's own `batch`. Text that never sits on
-a fill (the Item Menu's footer, below every box) can stay on the plain
-`HUD_CONSOLE` batch - this only matters for text drawn over a filled
-cell.
+**The fill lives on `UI_PANEL_CONSOLE` itself, drawn as ONE stretched
+`set_fancy` quad positioned/sized from the exact same numbers the border
+uses** - this is the real fix (2026-09-14) for a fill/border alignment
+bug: the fill used to be computed independently (`pixel_box_hud_rect`,
+now removed) by rounding the border's real pixel footprint to
+`HUD_CONSOLE`'s own coarse ~12-16px cell grid - a different console and
+resolution than the border's own sub-pixel-precise `set_fancy`
+positions, so the two could drift a few pixels apart, visibly spilling
+past or falling short of the border especially once the border itself
+is only ~16px thick. Confirmed safe to put fill and border tiles on the
+SAME console by tracing bracket-terminal's real source: `with_fancy_
+console` consoles (`UI_PANEL_CONSOLE`) are backed by `FlexiConsole`, a
+SPARSE console whose `set_fancy` PUSHES a new tile onto a `Vec` -
+unlike `HUD_CONSOLE`'s `SimpleConsole`, which stores one fixed `Tile`
+per cell and overwrites it on every `set` call, `FlexiConsole` never
+erases anything already queued, so overlapping `set_fancy` calls just
+layer in draw order instead. The GLSL vertex shader was also checked
+directly to confirm `set_fancy`'s `scale: PointF` applies independently
+per axis (`base_pos *= aScale`, a component-wise `vec2` multiply) - so
+one glyph CAN be stretched into an arbitrary rectangle, not just resized
+uniformly, which is what makes covering the whole interior in a single
+draw call possible. See `render_helpers::draw_panel_fill`'s own doc
+comment for the exact position/scale math.
 
-**The fill itself has to go through the FOREGROUND channel, not the
-background one** - a real, confirmed bug (2026-09-14), not a rect-math
-mistake: `HUD_CONSOLE` is a `with_simple_console_no_bg` console, and its
-actual fragment shader (`CONSOLE_NO_BG_FS` in bracket-terminal's real
-GLSL source) takes a background color as an input but never reads it
-anywhere - every fragment is either the glyph's own opaque texture or a
-hard `discard`, with no "solid background" case at all. A `fill_region`
-call with a space glyph and `bg=BLACK` is a silent no-op on this console
-type - `draw_filled_pixel_box` instead fills with a full-block glyph
+**Any text printed inside a filled box still needs its OWN console,
+registered LATER in z-order than the fill's console - never the same
+console/batch as the fill, even "after" it in draw order** - this is
+still real and still applies, even though the fill itself moved off
+`HUD_CONSOLE`: `HUD_CONSOLE` (and `PANEL_TEXT_CONSOLE` itself) remain
+plain `SimpleConsole`s, where `set` REPLACES a cell's entire
+`(glyph, fg, bg)` tuple outright rather than layering onto whatever was
+there before. Fixed by adding `PANEL_TEXT_CONSOLE` (index 47, `no_bg`,
+same `HUD_COLS x HUD_ROWS` grid as `HUD_CONSOLE`), registered LAST in
+`main.rs`'s builder chain (after even `UI_PANEL_CONSOLE`), and moving
+every `print_color`/`print_color_centered` call that lands on top of a
+fill (Item Menu titles/list entries/stats/description text, the Ability
+Bar's own number-key labels) onto a `text_batch` targeting it. Text
+that never sits on a fill (the Item Menu's footer, below every box) can
+stay on the plain `HUD_CONSOLE` batch.
+
+**The fill's own color goes through the FOREGROUND channel, not the
+background one** - `draw_panel_fill` fills with a full-block glyph
 (CP437 219, `'█'`) tinted BLACK via `fg`, the same multiply-tint trick
-every other tinted icon in this project already relies on, just applied
-to a solid block instead of a sprite.
+every other tinted icon in this project already relies on
+(`texture_white * BLACK = black`). Originally this was a hard
+requirement forced by a `no_bg`-console bug (`HUD_CONSOLE`'s fragment
+shader never reads `bg` at all - see `CLAUDE.md`'s own standing gotcha);
+now that the fill lives on `UI_PANEL_CONSOLE`'s fancy shader
+(`SPRITE_CONSOLE_FS` - `FragColor = original * ourColor`, no discard at
+all), the same `fg`-tint approach still works for the same underlying
+reason, just without the `no_bg` console's discard behavior to work
+around.
 
-Two real, deliberate simplifications versus a pixel-perfect box remain
-even at the smaller scale (see `draw_pixel_box`'s own doc comment for the
-full reasoning):
-
-- The box's top-left corner lands at the exact right pixel (via
-  `set_fancy`'s fractional positioning), but its overall size is rounded
-  to the nearest whole tile count at the smaller scale - within a few
-  pixels of the original ASCII box's exact footprint, not pixel-identical.
-- No real textured filled interior yet - the black fill is a flat color
-  stand-in, not the sheet's own center tile art (see "The center tile
-  exists..." above for why that needs a bigger, deferred change).
+One real, deliberate simplification versus a pixel-perfect box remains
+(see `draw_pixel_box`'s own doc comment for the full reasoning): no real
+textured filled interior yet - the black fill is a flat color stand-in,
+not the sheet's own center tile art (see "The center tile exists..."
+above). The box's own top-left corner and overall footprint both now
+land pixel-exact (fill and border share identical math), so nothing
+about SIZE is approximated anymore, only the interior's TEXTURE.
 
 **Box titles print at the box's own nominal top row (`y`), NOT overlapping
 the border** - a `y + 1` nudge was tried 2026-09-14 to land the title
@@ -252,33 +273,31 @@ border-embedded look for now.
 
 ## Still open
 
-- A screenshot of the 3 dungeon-HUD bars, now wired up - unverified since
-  they render over the LIVE dungeon view rather than a paused menu, a
-  real context difference from the Item Menu worth confirming looks
-  right (does a solid black bar background read well over live gameplay,
-  or does it want to stay closer to see-through there specifically).
-- `systems/hud.rs`'s Ability Bar had the SAME same-console text/fill bug
-  the Item Menu was fixed for (its number-key labels printed onto
-  `label_batch`/`HUD_CONSOLE`, the same console as the fill) - fixed
-  2026-09-14 by moving the labels onto a `text_batch` targeting
-  `PANEL_TEXT_CONSOLE`, the same console the Item Menu fix already uses.
-  The Item Bar and Battle Bar draw no text of their own (icons only, on
-  `ABILITY_BAR_CONSOLE`), so they never had this bug. Not yet screenshot-
-  verified - still part of the general "3 dungeon-HUD bars unverified
-  live" item above.
+- A fresh screenshot of the 3 dungeon-HUD bars - unverified since they
+  render over the LIVE dungeon view rather than a paused menu, a real
+  context difference from the Item Menu worth confirming looks right
+  (does a solid black bar background read well over live gameplay, or
+  does it want to stay closer to see-through there specifically), AND
+  needs to confirm all of 2026-09-14's latest round together: the
+  pixel-perfect fill/border alignment, the 0.375->0.5 scale bump, the
+  Ability Bar's number-label text/fill fix, and the Battle Bar's new
+  Swamp material (the Item Bar and Ability Bar stay Dungeon).
 - The remaining 4 of 13 sites: the shop-item tooltip, Pause Hints, the
   battle log, and the in-combat Battle Actions box (its border color
   already switches live between yellow/green - moot now that
   `draw_pixel_box` calls use WHITE regardless of category color, so this
   just needs wiring, not any special-casing for the color switch).
-- A real textured filled interior (see above) - needs the
-  `UI_PANEL_CONSOLE` reordering discussed above.
-- Per-tile fractional stretching for genuinely pixel-perfect sizing
-  (see `systems/hud.rs`'s "how do you scale these" design discussion in
-  `docs/journal.md`'s 2026-09-14 entry) - not needed yet since the
-  whole-tile rounding is visually negligible at this project's box sizes,
-  but the plan if a smaller/tighter box ever needs it.
-- `PIXEL_BOX_TILE_SCALE` (0.375) is a first-pass guess matched to
-  HUD_CONSOLE's own real cell width, not yet confirmed against a real
-  screenshot - the first number to retune if the border still reads too
-  thick/thin once seen live.
+- A real textured filled interior (see "The center tile exists..."
+  above) - no longer blocked on console reordering, just not built yet.
+- Per-tile fractional stretching for genuinely pixel-perfect SIZING to
+  arbitrary pixel dimensions (see `systems/hud.rs`'s "how do you scale
+  these" design discussion in `docs/journal.md`'s 2026-09-14 entry) -
+  distinct from the fill/border ALIGNMENT fix above (which is already
+  pixel-perfect relative to each other); this is about the box's overall
+  width/height still rounding to a whole tile count. Not needed yet
+  since that rounding is visually negligible at this project's box
+  sizes, but the plan if a smaller/tighter box ever needs it.
+- `PIXEL_BOX_TILE_SCALE` (0.5, bumped from 0.375 on direct feedback) is
+  still a first-pass-plus-one-correction guess, not yet confirmed
+  against a real screenshot - the first number to retune again if the
+  border still reads too thick/thin once seen live.
