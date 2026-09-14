@@ -97,7 +97,7 @@ fn print_box(
     slots: &[AbilityBarSlot],
     selected: Option<usize>,
 ) {
-    draw_filled_pixel_box(batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
+    draw_filled_pixel_box(batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon, true);
     // Back to row y, not y+1 - the y+1 nudge (tried 2026-09-14, aiming to
     // land the title "on" the border per direct feedback) turned out to be
     // a real architectural dead end, not a pixel-tuning miss: the border
@@ -311,6 +311,7 @@ impl State {
             LEFT_WIDTH,
             STATS_HEIGHT,
             UiPanelTheme::Dungeon,
+            true,
         );
         // Back to STATS_Y, not STATS_Y + 1 - see print_box's own comment
         // on why that nudge got reverted (it hid the title entirely, not
@@ -418,6 +419,14 @@ impl State {
             DESC_WIDTH,
             DESC_HEIGHT,
             UiPanelTheme::Dungeon,
+            true,
+        );
+        // Added 2026-09-14 - every other box on this screen already had
+        // its own title, this one didn't.
+        batch.print_color(
+            Point::new(DESC_X + 2, DESC_Y),
+            " Description ",
+            ColorPair::new(YELLOW, BLACK),
         );
         match selected_slot {
             Some(slot) => {
