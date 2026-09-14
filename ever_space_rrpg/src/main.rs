@@ -370,6 +370,37 @@ mod prelude {
     /// pixels now reveal the fill sitting untouched one console down,
     /// not the dungeon view several consoles further down still.
     pub const PANEL_TEXT_CONSOLE: usize = 47;
+    /// Console 48, dungeon-view: plain (no_bg), same `ABILITY_BAR_COLS x
+    /// ABILITY_BAR_ROWS`/dungeonfont grid as `ABILITY_BAR_CONSOLE` - a
+    /// SECOND, LATER-registered instance of that exact same console
+    /// config, used ONLY by the out-of-combat Item/Ability/Battle Bar's
+    /// own icon portraits (`systems/hud.rs`). Needed 2026-09-14: once
+    /// `draw_filled_pixel_box`'s solid fill moved onto `UI_PANEL_CONSOLE`
+    /// (46) for pixel-perfect alignment with its own border (see that
+    /// console's own doc comment), the fill became a single fully-opaque
+    /// `set_fancy` quad with no discard at all - and since `UI_PANEL_
+    /// CONSOLE` (46) is registered AFTER `ABILITY_BAR_CONSOLE` (24), that
+    /// opaque fill started painting directly over every icon the bars
+    /// draw there, hiding them completely (confirmed live). Rather than
+    /// renumber the whole console list to move `ABILITY_BAR_CONSOLE`
+    /// itself later (a much bigger, riskier mechanical change - every
+    /// constant between its old and new position would need to shift),
+    /// this appends a plain duplicate of its exact config at the very
+    /// end instead, registered AFTER `UI_PANEL_CONSOLE`/`PANEL_TEXT_
+    /// CONSOLE` - `systems/hud.rs`'s out-of-combat bar block draws its
+    /// icon portraits here now instead of `ABILITY_BAR_CONSOLE`, which
+    /// stays registered (and in the per-frame `cls()` sweep) purely for
+    /// the mouse-position translation math (`ctx.set_active_console`)
+    /// that's keyed to its grid dimensions - identical between the two
+    /// consoles, so that math needs no change.
+    pub const ABILITY_BAR_ICON_CONSOLE: usize = 48;
+    /// Console 49, dungeon-view: plain (no_bg), same `HUD_COLS x
+    /// HUD_ROWS`/terminal8x8 grid as `ABILITY_BAR_BADGE_CONSOLE` - the
+    /// same "second later instance" fix as `ABILITY_BAR_ICON_CONSOLE`
+    /// just above, for the out-of-combat bars' own stack-count badges
+    /// (e.g. "x2" for two Freeze Traps), which sit ON TOP of those same
+    /// icons and therefore need to move later in lockstep with them.
+    pub const ABILITY_BAR_ICON_BADGE_CONSOLE: usize = 49;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -428,6 +459,8 @@ mod prelude {
         SHOPKEEPER_IDLE_GLIDE_CONSOLE,
         UI_PANEL_CONSOLE,
         PANEL_TEXT_CONSOLE,
+        ABILITY_BAR_ICON_CONSOLE,
+        ABILITY_BAR_ICON_BADGE_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -1654,6 +1687,14 @@ fn main() -> BError {
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "ui_panels.png")
         // Console 47 (PANEL_TEXT_CONSOLE): plain (no_bg), same grid as
         // HUD_CONSOLE, terminal8x8.png - see its own doc comment above.
+        .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
+        // Console 48 (ABILITY_BAR_ICON_CONSOLE): plain (no_bg), same grid
+        // as ABILITY_BAR_CONSOLE, dungeonfont.png - see its own doc
+        // comment above.
+        .with_simple_console_no_bg(ABILITY_BAR_COLS, ABILITY_BAR_ROWS, "dungeonfont.png")
+        // Console 49 (ABILITY_BAR_ICON_BADGE_CONSOLE): plain (no_bg),
+        // same grid as ABILITY_BAR_BADGE_CONSOLE, terminal8x8.png - see
+        // its own doc comment above.
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_vsync(false)
         .build()?;

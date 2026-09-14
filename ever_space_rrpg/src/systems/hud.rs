@@ -429,24 +429,35 @@ pub fn hud(
                 let box_y = player_hud.y + SHOP_TOOLTIP_ROW_OFFSET;
                 let box_x = (player_hud.x - SHOP_TOOLTIP_WIDTH / 2).max(0);
 
-                // Added to the same draw_batch/submit(10000) as the rest
-                // of this function's HUD_CONSOLE drawing above, rather
-                // than a second batch submitted at the same z-order -
-                // two batches sharing one z-value on the same console is
-                // an ambiguous draw order waiting to happen.
-                draw_ascii_box(
-                    &mut draw_batch,
+                // The real PixelLab panel border (item 10 in docs/
+                // ideas.md), same as every other border on the dungeon
+                // screen now - own panel_batch/text_batch pair (not the
+                // shared batch/panel_batch/text_batch the out-of-combat
+                // bar block below declares, a separate scope) at z-values
+                // (10008/10009) distinct from that block's own (10006/
+                // 10007) - two batches sharing one z-value on the same
+                // console is an ambiguous draw order (the exact reason
+                // this block used to fold into draw_batch/submit(10000)
+                // rather than get its own batch at all).
+                let mut shop_panel_batch = DrawBatch::new();
+                shop_panel_batch.target(UI_PANEL_CONSOLE);
+                let mut shop_text_batch = DrawBatch::new();
+                shop_text_batch.target(PANEL_TEXT_CONSOLE);
+                draw_filled_pixel_box(
+                    &mut shop_panel_batch,
                     box_x,
                     box_y,
                     SHOP_TOOLTIP_WIDTH,
                     SHOP_TOOLTIP_HEIGHT,
-                    ColorPair::new(YELLOW, BLACK),
+                    UiPanelTheme::Dungeon,
                 );
-                draw_batch.print_color(
+                shop_text_batch.print_color(
                     Point::new(box_x + 2, box_y + 1),
                     text,
                     ColorPair::new(GREEN, BLACK),
                 );
+                shop_panel_batch.submit(10008).expect("Batch error");
+                shop_text_batch.submit(10009).expect("Batch error");
             }
         }
     }
@@ -469,10 +480,21 @@ pub fn hud(
         let bar_mouse = ability_bar_mouse_pos.0;
         let bar_row = ability_bar_row();
 
+        // ABILITY_BAR_ICON_CONSOLE/ABILITY_BAR_ICON_BADGE_CONSOLE, NOT
+        // ABILITY_BAR_CONSOLE/ABILITY_BAR_BADGE_CONSOLE directly - see
+        // ABILITY_BAR_ICON_CONSOLE's own doc comment in main.rs. Once the
+        // fill below moved onto UI_PANEL_CONSOLE (registered AFTER
+        // ABILITY_BAR_CONSOLE) for pixel-perfect alignment with the
+        // border, its fully-opaque no-discard quad started painting
+        // directly over any icon/badge drawn on the OLD earlier consoles
+        // - confirmed live 2026-09-14 (every bar rendered as a solid
+        // black box, no icons visible at all). These two later-registered
+        // duplicates of the exact same grid/font config paint AFTER the
+        // fill instead, so the icons/badges are visible again.
         let mut bar_batch = DrawBatch::new();
-        bar_batch.target(ABILITY_BAR_CONSOLE);
+        bar_batch.target(ABILITY_BAR_ICON_CONSOLE);
         let mut badge_batch = DrawBatch::new();
-        badge_batch.target(ABILITY_BAR_BADGE_CONSOLE);
+        badge_batch.target(ABILITY_BAR_ICON_BADGE_CONSOLE);
         let mut portrait_batch = DrawBatch::new();
         portrait_batch.target(CHARACTER_PORTRAIT_HUD_CONSOLE);
         // The real PixelLab panel border (item 10 in docs/ideas.md) for
