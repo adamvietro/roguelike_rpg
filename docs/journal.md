@@ -4621,3 +4621,16 @@ For "every border on the dungeon screen": audited every real `draw_ascii_box` ca
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing twice (icon fix and shop-tooltip conversion landed as separate commits). `docs/UI_Panel_Sheet_Guide.md` updated for both. Next: another fresh screenshot to confirm the icons are actually back and the shop tooltip reads right.
+
+## Border too thick again, and Swamp everywhere on the dungeon screen
+
+The next screenshot showed the icons ARE back (confirming the console-split fix worked) and the fill's alignment held up ("It doesn however look like the black background is the right size") - but a new complaint: "the color that isn't the sprite for the bar is taking up too much space." The 0.5x scale bump from two rounds ago, sized right for the Item Menu's large boxes, reads far too heavy on the dungeon HUD bars' much smaller ones - the exact tension a single shared constant can't fully resolve, now confirmed both directions in the same project (too thin at 0.375 for big boxes, too thick at 0.5 for small ones). Dropped to 0.3 rather than split into a per-caller parameter, since that's real added complexity nobody's asked for yet - flagged clearly in the constant's own doc comment as the next move if a third round goes a third direction instead of confirming 0.3 works for both sizes.
+<br />
+
+Also asked for every bar on the dungeon screen to match the Battle Bar's Swamp material - Item Bar and Ability Bar switched from Dungeon to Swamp too. A genuine "does this make sense?" pause here, per CLAUDE.md's own standing rule, since the request was ambiguous about the shop-item tooltip (part of "the bars"? a separate thing?) - asked directly with AskUserQuestion rather than guess, and the answer expanded scope further: "I want the tooltips to be the wooden and green corners. As well as the hints bar." - meaning the shop tooltip AND the Paused screen's Hints box (still on the old `draw_ascii_box`, never converted at all) both needed to become real Swamp panels.
+<br />
+
+Converted the Hints box the same way every other box has been: `panel_batch`/`text_batch` split (fill+border vs. the "Hints" title and rotating tip text), Swamp theme, same reasoning as every prior conversion for why text needs its own later console. Also answered a direct side-question about WHEN the shop tooltip got its stone border in the first place - the previous round, in response to "convert every border on the dungeon screen," using Dungeon as the only theme specified at the time.
+<br />
+
+With this round, 12 of the original 13 `draw_ascii_box` sites are converted - only the battle log and the in-combat Battle Actions box (both battle-only) remain. `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated. Next: yet another fresh screenshot - nothing in this round has been confirmed live yet, all reasoned through from the previous screenshot's feedback.
