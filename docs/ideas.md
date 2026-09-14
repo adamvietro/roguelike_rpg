@@ -1044,8 +1044,20 @@ L2/L3):
     revealed real dirt-brown pixels instead of grass. Fixed by swapping
     the base layer to the theme's plain default floor glyph (variant 0,
     Grass) instead of the tile's own glyph - a uniform fill has no wrong
-    orientation to reveal. Still needs a live screenshot to confirm this
-    round is actually clean.
+    orientation to reveal. **A live-recorded GIF then caught real
+    clipping specifically during the camera glide itself** (clean at
+    rest, per the prior screenshot). Checked whether rotation can even
+    preserve a true 32x32 footprint before assuming either way - traced
+    the actual vertex shader math (rotation matrices don't change size)
+    and confirmed the plain/fancy console pair share identical grid
+    dimensions, ruling out an aspect mismatch. Rather than keep chasing a
+    subtle sub-pixel/animation-timing theory blind, a horizontal path
+    tile now simply doesn't rotate while the camera is actively panning
+    (falls back to its own plain glyph for that ~150ms window only,
+    exactly like every other MapTiles tile during a pan) - rotation still
+    applies the instant the camera settles, which is where it's already
+    confirmed clean. Still needs a live recording to confirm the glide
+    itself is clean now too.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:

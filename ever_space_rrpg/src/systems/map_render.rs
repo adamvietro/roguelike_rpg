@@ -165,6 +165,25 @@ pub fn map_render(
                             glyph,
                         );
                     }
+                    // While the camera is actively panning, a horizontal
+                    // path tile deliberately does NOT rotate - falls back
+                    // to its own plain, unrotated glyph exactly like
+                    // every other MapTiles tile during a pan, same as
+                    // before this whole feature existed. A live-recorded
+                    // GIF caught real clipping specifically during the
+                    // glide (not at rest, where the layered fix above
+                    // already confirmed clean) - the continuously
+                    // changing fractional position every frame likely
+                    // makes a sub-pixel seam far more visible in motion
+                    // than in one static screenshot, even though the
+                    // rotation math itself checks out fine (a rotation
+                    // matrix has no effect on size, and this console
+                    // shares identical grid dimensions with its plain
+                    // counterpart - see docs/journal.md's own note on
+                    // this rather than re-deriving it here). The pan
+                    // itself only lasts ~150ms, so an unrotated path tile
+                    // for that brief window is a far smaller cost than a
+                    // visible clipping artifact for the same window.
                     TileSpriteSheet::MapTiles if is_panning => {
                         tile_scroll_batch.set_fancy(
                             PointF::new(fx, fy),
@@ -172,18 +191,8 @@ pub fn map_render(
                             Degrees::new(0.0),
                             PointF::new(1.0, 1.0),
                             color_pair,
-                            base_glyph,
+                            glyph,
                         );
-                        if let Some(rotation) = path_rotation {
-                            tile_scroll_batch.set_fancy(
-                                PointF::new(fx, fy),
-                                0,
-                                rotation,
-                                PointF::new(1.0, 1.0),
-                                color_pair,
-                                glyph,
-                            );
-                        }
                     }
                     TileSpriteSheet::MapTiles => {
                         let offset = Point::new(camera.left_x, camera.top_y);
