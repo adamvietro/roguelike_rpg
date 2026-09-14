@@ -9,20 +9,77 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
-9/13/26, `master` (the `enemy-death-victory-backgrounds` branch merged in
-earlier the same day) plus a second branch, `refactor-item-9-cleanup`
-(not yet merged): Victory/Defeat screens now use real per-theme
-painted backgrounds instead of a generic mode-based pick, a 12-zip
-animation batch closed out enemy Death animations plus the Shopkeeper's
-first-ever art, a new Theme Select screen makes testing a specific
-dungeon theme practical without re-rolling runs, a real recurring
-rendering bug (the dungeon stairs/shop counter going solid black at
-rest) got fixed after a long investigation, `CLAUDE.md` got restructured
-for scannability, and a Stage 1 refactor pass closed out three real
-code-duplication items plus a large comment-reduction pass. The game
-also has a decided new name, "Five Blades Deep," not yet actually
-applied anywhere in code or docs (see `docs/ideas.md`'s numbered
-backlog).
+9/13/26, `master` (branches `refactor-item-9-cleanup`, `refactor-item-9-
+stage2`, and `refactor-map-builder-item-8` all merged in) plus a fourth
+map theme's worth of new art. Backlog items 9 (refactoring) and 8
+(map-gen single-tile-set assumptions) are both fully closed - see
+`docs/ideas.md`'s Done section for the complete writeups; this section
+only hits the highlights.
+
+- **Backlog item 9 (refactoring) finished, Stage 2.** `battle_tick`
+  (~735 lines, by far the largest function in the codebase) split into
+  `tick_battle_timers`/`tick_atb_and_maybe_act`/`draw_battle_hud` plus
+  the unchanged state-match block - the one item deliberately saved for
+  last given its size/risk. Also: Arena's own orchestration out of
+  `main.rs` into `arena_state.rs`, pure battle-resolution logic out of
+  `screens/battle.rs` into `battle/resolve.rs`, and both `components.rs`
+  and `battle/mod.rs` split by domain. Every split verified via a
+  systematic Python parse-and-diff methodology (zero content loss) plus
+  both headless simulations. A real gameplay bug got fixed along the
+  way: a leftover attack-wiggle flashing on the idle portrait after
+  dismissal, from `dismiss_action_result` clearing the animation but not
+  the separately-timed flash state.
+- **Backlog item 8 (map-gen refactor) finished, three phases plus real
+  follow-ups.** `MapTheme` gained per-theme variant-pool shape
+  (`floor_variant_count`/`wall_variant_count`, replacing global
+  constants), `exit_tile`/`counter_tile` hooks, and `path_variants` -
+  Forest's Dirt Path cells went from a random blob to a real connected
+  line (BFS-based routing, ties broken at random so open rooms wobble
+  naturally). `TileType::Water` became real, placed data - blocking but
+  deliberately NOT opaque, used for Forest/Sewer's Fortress moats (a
+  chance, not guaranteed, after Turret/Bunker showing up unmoated next
+  to an always-watered Fortress read oddly), Sewer's Chest Room moat and
+  isolated wall patches, plus a new sparse "at most one per 5x5 area"
+  solid-obstacle placement for the remaining special-wall cells on all
+  three themes.
+  - **The path-rotation saga is worth remembering.** Getting a single
+    dirt-path texture to read correctly on both north-south and
+    east-west runs went through five real rendering attempts (black
+    bars from a naive rotated `set_fancy` draw, wrong-orientation
+    fragments bleeding through a layered fix, flicker between two
+    different renderings during camera pans, persistent hairline seams
+    even after confirming the rotation math itself was sound) before
+    landing on the actual right answer, at the user's own suggestion:
+    pre-rotate the art ONCE as a real second atlas cell (repurposing
+    Forest's unused Path Fork cell), decide horizontal-vs-vertical at
+    MAP-GENERATION time instead of every render frame, and never rotate
+    anything at runtime at all. Zero rendering-engine risk once the
+    decision moved off runtime rotation entirely.
+- **A fourth map theme, Swamp**, end to end: tile art (a hybrid of two
+  PixelLab generation batches - the second fixed what the first missed
+  but broke two different, untouched cells in the process; resolved by
+  mixing the best cells from each rather than a third full round),
+  Battle Arena/Victory/Defeat backgrounds (the Battle Arena one alone
+  needed three real rounds - wrong camera angle caught before
+  generating anything wasteful, then two composition rewrites once
+  "enclosed marsh pool" kept fighting the actual gameplay need for
+  usable standing room, fixed by flipping which element the prompt
+  described as dominant: solid ground, not water). The Defeat corpse's
+  own position needed real sub-cell precision in the end - the scene's
+  clean-ground patch was thinner than any single cell in the existing
+  coarse 5x5 grid, so a new fancy console (`CHARACTER_DEATH_GLIDE_
+  CONSOLE`) and fractional positioning were added specifically for it,
+  reusing the same `draw_portrait_fancy` helper (and its already-solved
+  y-anchor correction) the multi-enemy battle formation already relies
+  on.
+- Everything above is verified via the fast test suite and both
+  headless class-survivability simulations after every logic-touching
+  commit (consistent with prior runs throughout - Mage weakest, boss
+  walls at L2/L3), but the Swamp art itself is only screenshot-checked
+  as of this session's end, not yet a full live playthrough - worth a
+  real check next time Swamp comes up in a run.
+
+Older, still-relevant context from the session before this one:
 
 - **Victory/Defeat backgrounds keyed to the run's own `MapTheme`
   (Forest/Dungeon/Sewer), not a generic Dungeon-Crawl bucket.** Replanned
@@ -120,8 +177,8 @@ backlog).
   `systems/chasing.rs` as carrying the same unconfirmed patch as a
   latent risk. Added "never `git push`" as a real project rule - it had
   only ever lived in this assistant's private cross-session memory.
-- **Refactor Stage 1 (branch `refactor-item-9-cleanup`, not yet
-  merged): closing out backlog item 9.** An Explore-agent survey found
+- **Refactor Stage 1 (branch `refactor-item-9-cleanup`, since merged):
+  closing out backlog item 9.** An Explore-agent survey found
   ~39% of the codebase's ~19,000 lines are comments, with `main.rs`/
   `components.rs` alone carrying 57% of that volume. Trimmed `main.rs`'s
   console-constant `prelude` module from ~720 to ~320 lines (it carried
