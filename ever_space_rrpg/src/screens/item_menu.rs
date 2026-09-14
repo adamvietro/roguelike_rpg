@@ -419,17 +419,32 @@ impl State {
             DESC_HEIGHT,
             UiPanelTheme::Dungeon,
         );
-        if let Some(slot) = selected_slot {
-            let description = description_for_item_name(&slot.name)
-                .unwrap_or_else(|| "No description.".to_string());
-            for (i, line) in wrap_text(&description, (DESC_WIDTH - 4) as usize)
-                .iter()
-                .enumerate()
-            {
+        match selected_slot {
+            Some(slot) => {
+                let description = description_for_item_name(&slot.name)
+                    .unwrap_or_else(|| "No description.".to_string());
+                for (i, line) in wrap_text(&description, (DESC_WIDTH - 4) as usize)
+                    .iter()
+                    .enumerate()
+                {
+                    batch.print_color(
+                        Point::new(DESC_X + 2, DESC_Y + 2 + i as i32),
+                        line,
+                        ColorPair::new(WHITE, BLACK),
+                    );
+                }
+            }
+            // Nothing under the cursor right now (an empty list, or the
+            // cursor landed on a box with no entries) - the panel used to
+            // just sit blank in this case, which read as broken/unfinished
+            // now that it's a real filled stone panel rather than an
+            // unobtrusive hollow ASCII box. Same GRAY "Nothing here."
+            // convention the empty lists themselves already use.
+            None => {
                 batch.print_color(
-                    Point::new(DESC_X + 2, DESC_Y + 2 + i as i32),
-                    line,
-                    ColorPair::new(WHITE, BLACK),
+                    Point::new(DESC_X + 2, DESC_Y + 2),
+                    "Select an item or action to see its description.",
+                    ColorPair::new(GRAY, BLACK),
                 );
             }
         }
