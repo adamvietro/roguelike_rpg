@@ -293,14 +293,70 @@ impl UiPanelTheme {
 
 /// Draws one `ui_panels.png` nine-slice tile via `draw_portrait_fancy` at
 /// a fractional (col, row) on UI_PANEL_CONSOLE - `col`/`row` are already
-/// in that console's own 32px-cell units (see `draw_pixel_box`'s own
-/// pixel-to-cell conversion). `tint` recolors the same source art the
-/// same way `UNOWNED_ICON_TINT` already does elsewhere in this project
-/// (the console shader multiplies texture color by whatever `ColorPair`
-/// is passed in) - callers pass WHITE for the art's own true colors, or a
-/// theme color to match whatever `draw_ascii_box` call this replaced.
+/// How big one `ui_panels.png` tile renders on screen, as a fraction of
+/// its native 32px - a border drawn at full native size read as
+/// wildly oversized (confirmed live 2026-09-14: it swallowed an entire
+/// Item Menu box's own list text). 0.375 * 32 = 12px, matching
+/// HUD_CONSOLE's own real cell width (1280/107 ~= 11.96px) so the new
+/// border reads at roughly the same visual weight the old 1-cell-thick
+/// ASCII border had. First-pass guess pending a screenshot, same as
+/// every other bracket-lib pixel value in this project.
+const PIXEL_BOX_TILE_SCALE: f32 = 0.375;
+
+/// Draws one `ui_panels.png` tile via `set_fancy` at `PIXEL_BOX_TILE_SCALE`,
+/// at a fractional (col, row) already in UI_PANEL_CONSOLE's native 32px-cell
+/// units (see `draw_pixel_box`'s own pixel-to-cell conversion) - NOT
+/// `render_helpers::draw_portrait_fancy`, since that hardcodes a 1.0 scale
+/// for its other callers (the multi-enemy battle formation, which needs
+/// fractional POSITION but never a smaller SIZE) and changing its
+/// signature would ripple into call sites this feature has nothing to do
+/// with. `set_fancy` scales a glyph around its own center (confirmed
+/// against bracket-terminal's real vertex-shader source, not guessed -
+/// `base_pos = (aPos - center_pos) * scale + center_pos`), so shrinking
+/// tiles without ALSO closing up the spacing between their centers would
+/// open a gap between adjacent tiles - `draw_pixel_box` accounts for this
+/// by stepping tile positions by `PIXEL_BOX_TILE_SCALE` cell-units per
+/// tile instead of a full 1.0.
+///
+/// Reuses the same `WIGGLE_CONSOLE_Y_ANCHOR_OFFSET` north-anchor
+/// correction `draw_portrait_fancy` applies, on the assumption (not yet
+/// separately confirmed at anything other than scale 1.0) that it's a
+/// property of how `set_fancy` interprets a position at all, independent
+/// of the glyph's own rendered scale - same reasoning that constant's own
+/// doc comment already gives for why it transfers between different
+/// fancy consoles.
 fn draw_panel_tile(batch: &mut DrawBatch, col: f32, row: f32, glyph: FontCharType, tint: ColorPair) {
-    draw_portrait_fancy(batch, col, row, Render { color: tint, glyph });
+    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    batch.set_fancy(
+        PointF::new(col, row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
+        0,
+        Degrees::new(0.0),
+        PointF::new(PIXEL_BOX_TILE_SCALE, PIXEL_BOX_TILE_SCALE),
+        ColorPair::new(tint.fg, bg_transparent),
+        glyph,
+    );
+}
+
+/// Converts a box given in HUD_CONSOLE cell units into UI_PANEL_CONSOLE's
+/// own 32px-tile terms: a fractional (base_col, base_row) - the box's real
+/// top-left corner, pixel-precise - and a whole (tiles_w, tiles_h) tile
+/// count at `PIXEL_BOX_TILE_SCALE`, rounded to the nearest whole
+/// (scaled) tile (see `draw_pixel_box`'s own doc comment for why size,
+/// not position, is what's approximated). Factored out from
+/// `draw_pixel_box` so the conversion math can be checked directly
+/// against real numbers rather than only indirectly through whatever
+/// `DrawBatch` ends up queued.
+fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i32) {
+    let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
+    let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
+    let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
+    let px_y1 = ((y + height) * 800) as f32 / HUD_ROWS as f32;
+
+    let tile_px = 32.0 * PIXEL_BOX_TILE_SCALE;
+    let tiles_w = (((px_x1 - px_x0) / tile_px).round() as i32).max(2);
+    let tiles_h = (((px_y1 - px_y0) / tile_px).round() as i32).max(2);
+
+    (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
 }
 
 /// Real pixel-art replacement for `draw_ascii_box` - draws a hollow
@@ -317,39 +373,21 @@ fn draw_panel_tile(batch: &mut DrawBatch, col: f32, row: f32, glyph: FontCharTyp
 /// over unchanged, just swap the function. `batch` must already be
 /// targeting UI_PANEL_CONSOLE.
 ///
-/// Two real simplifications versus a true pixel-perfect box, both because
-/// `ui_panels.png`'s tiles only ever draw as WHOLE 32px cells (no
-/// per-tile stretching yet - see UI_PANEL_CONSOLE's own doc comment in
-/// main.rs for why that's deliberate for now):
+/// Every tile draws at `PIXEL_BOX_TILE_SCALE` (see that constant's own
+/// doc comment), not the source art's native 32px - drawn at full size
+/// the border was confirmed, live, to swallow an entire Item Menu box's
+/// own content. Two real simplifications versus a true pixel-perfect box
+/// remain even at the smaller scale, both because tiles only ever draw as
+/// whole units (no per-tile stretching yet - see UI_PANEL_CONSOLE's own
+/// doc comment in main.rs for why that's deliberate for now):
 /// - The box's own TOP-LEFT corner lands at the exact right pixel (via
 ///   `set_fancy`'s fractional positioning), but its overall WIDTH/HEIGHT
-///   is rounded to the nearest whole 32px tile count - up to ~16px larger
-///   or smaller than the original ASCII box's exact footprint. Visually
-///   negligible for this project's box sizes (all 200px+ wide) but a real,
-///   known difference, not pixel-identical.
+///   is rounded to the nearest whole tile count at the smaller scale -
+///   within a few pixels of the original ASCII box's exact footprint,
+///   not pixel-identical.
 /// - `width`/`height` below this function's own minimum (needs at least
 ///   2 tiles per axis to have distinct corners) are clamped up to that
 ///   minimum rather than drawing something degenerate.
-/// Converts a box given in HUD_CONSOLE cell units into UI_PANEL_CONSOLE's
-/// own 32px-tile terms: a fractional (base_col, base_row) - the box's real
-/// top-left corner, pixel-precise - and a whole (tiles_w, tiles_h) tile
-/// count, rounded to the nearest 32px multiple (see `draw_pixel_box`'s own
-/// doc comment for why size, not position, is what's approximated).
-/// Factored out from `draw_pixel_box` so the conversion math can be
-/// checked directly against real numbers rather than only indirectly
-/// through whatever `DrawBatch` ends up queued.
-fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i32) {
-    let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
-    let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
-    let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
-    let px_y1 = ((y + height) * 800) as f32 / HUD_ROWS as f32;
-
-    let tiles_w = (((px_x1 - px_x0) / 32.0).round() as i32).max(2);
-    let tiles_h = (((px_y1 - px_y0) / 32.0).round() as i32).max(2);
-
-    (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
-}
-
 pub fn draw_pixel_box(
     batch: &mut DrawBatch,
     x: i32,
@@ -360,28 +398,29 @@ pub fn draw_pixel_box(
     tint: ColorPair,
 ) {
     let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+    let s = PIXEL_BOX_TILE_SCALE;
     let last_col = tiles_w - 1;
     let last_row = tiles_h - 1;
 
     // Corners - drawn once each, never tiled or stretched.
     draw_panel_tile(batch, base_col, base_row, theme.glyph(0, 0), tint);
-    draw_panel_tile(batch, base_col + last_col as f32, base_row, theme.glyph(2, 0), tint);
-    draw_panel_tile(batch, base_col, base_row + last_row as f32, theme.glyph(0, 2), tint);
+    draw_panel_tile(batch, base_col + last_col as f32 * s, base_row, theme.glyph(2, 0), tint);
+    draw_panel_tile(batch, base_col, base_row + last_row as f32 * s, theme.glyph(0, 2), tint);
     draw_panel_tile(
         batch,
-        base_col + last_col as f32,
-        base_row + last_row as f32,
+        base_col + last_col as f32 * s,
+        base_row + last_row as f32 * s,
         theme.glyph(2, 2),
         tint,
     );
 
     // Top/bottom edges - tiled across whatever's between the corners.
     for c in 1..last_col {
-        draw_panel_tile(batch, base_col + c as f32, base_row, theme.glyph(1, 0), tint);
+        draw_panel_tile(batch, base_col + c as f32 * s, base_row, theme.glyph(1, 0), tint);
         draw_panel_tile(
             batch,
-            base_col + c as f32,
-            base_row + last_row as f32,
+            base_col + c as f32 * s,
+            base_row + last_row as f32 * s,
             theme.glyph(1, 2),
             tint,
         );
@@ -389,11 +428,11 @@ pub fn draw_pixel_box(
 
     // Left/right edges - tiled across whatever's between the corners.
     for r in 1..last_row {
-        draw_panel_tile(batch, base_col, base_row + r as f32, theme.glyph(0, 1), tint);
+        draw_panel_tile(batch, base_col, base_row + r as f32 * s, theme.glyph(0, 1), tint);
         draw_panel_tile(
             batch,
-            base_col + last_col as f32,
-            base_row + r as f32,
+            base_col + last_col as f32 * s,
+            base_row + r as f32 * s,
             theme.glyph(2, 1),
             tint,
         );

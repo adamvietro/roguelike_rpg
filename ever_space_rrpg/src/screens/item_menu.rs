@@ -91,7 +91,29 @@ fn print_box(
 ) {
     match pixel_panel {
         Some((panel_batch, theme)) => {
-            draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(border_color, BLACK));
+            // A deliberate solid black fill first - without this, the box's
+            // interior showed whatever the frozen dungeon view underneath
+            // happened to have (this screen reuses pause_systems to redraw
+            // it - see this module's own doc comment), which read as a
+            // distracting bleed-through once the border itself stopped
+            // being a dense enough ASCII pattern to fully hide it. Drawn on
+            // `batch` (HUD_CONSOLE), the SAME console the title/list text
+            // below draws on, specifically so text drawn after this in the
+            // same batch naturally overwrites the fill at its own cells -
+            // no separate console/z-order needed for that to just work.
+            batch.fill_region(
+                Rect::with_size(x, y, width, height),
+                ColorPair::new(BLACK, BLACK),
+                to_cp437(' '),
+            );
+            // WHITE, not border_color - a strong saturated tint crushes a
+            // shaded/textured stone material into a flat color wash (confirmed
+            // visually 2026-09-14: BLUE read as an unnatural neon frame,
+            // nothing like stone). Fine for flat icon art elsewhere in this
+            // project, wrong for this. The box's own title text below still
+            // carries the category color, so nothing is lost distinguishing
+            // one box from another.
+            draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
         }
         None => {
             draw_ascii_box(batch, x, y, width, height, ColorPair::new(border_color, BLACK));
