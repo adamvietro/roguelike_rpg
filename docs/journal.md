@@ -4420,3 +4420,19 @@ Moved the horizontal/vertical decision from render time into generation time, wh
 <br />
 
 Verified with a throwaway test (one connected line, every tile's variant matching its own actual neighbor connectivity, across 30 generations - removed after confirming) plus both headless simulations (consistent with every prior run). This should be the actual end of this saga - no more rendering theories to chase, since there's no runtime rotation left to have a theory about.
+
+## A fourth theme: Swamp, generated in two rounds and merged into one
+
+While still on the map-gen refactor branch, the user asked to add another theme - the Swamp one drafted earlier this same day (a 16-cell prompt list, saved but never generated). Handed over a plain-text, copy-friendly version in a code block after the first formatted version didn't paste cleanly.
+<br />
+
+**First batch**: 14 of 16 cells came back solid, matching the prompt closely. Two real misses: cell 7 ("Moss-covered rotted log wall") showed plain wood with no visible moss at all, and cell 13 ("Murky swamp water") was a completely flat solid color, no texture. Also confirmed the same grid-line-border artifact this project's very first Forest batch had (131x131 actual pixels for a nominal 4x4/128x128 grid) - already had the exact crop bounds documented from that session, no new investigation needed. No watermarks in any corner.
+<br />
+
+**Second batch**, using a sharpened prompt (explicit "visible bright-green moss," "subtle rippling water texture, not flat," plus a general "avoid very deep near-black shadows" note): fixed all three requested things - cell 7 now shows real moss, cell 13 has real ripple texture, and cell 16 ("Thick reed/cattail cluster") reads as tall reed stalks instead of a round bush shape it had drifted into. But the revision also broke two DIFFERENT cells that weren't touched at all: cell 3 ("Damp peat / dark soil") came back ~90% near-black, essentially a solid black square, and cell 11 ("Fallen dead tree / driftwood") lost its driftwood shape entirely, rendering as a generic cracked-ground texture nearly identical to cell 10.
+<br />
+
+Rather than a third generation round, built a hybrid: 14 of 16 cells from the second (improved) batch, with cells 3 and 11 specifically pulled from the first batch instead, where they were correct. Composited with the same near-black-flooring treatment (30/channel minimum) every prior theme's art has needed, verified via a per-cell byte diff that only the intended rows changed. New `SwampTheme` impl in `themes.rs` follows the exact same shape as Forest/Dungeon/Sewer - `tile_row(Some(13))`, `floor_variant_style` for the Patch/Scatter split on cells 9-12, added to both `dungeon_theme_pool()` and `ThemeChoice` (the Debug ThemeSelect menu, which turned out to already be built to scale with `ThemeChoice::ALL`'s own length rather than a hardcoded count - only a stale "the other three" UI string needed updating to "the other four"). Deliberately NOT wired into the moat/obstacle placement system Forest and Sewer have - that's real design work of its own (which liquid look, which prefab, sparse or deterministic), not something to bolt on unprompted while adding the theme itself.
+<br />
+
+Verified with a throwaway test (a real Swamp map generates valid in-range tile variants, `dungeon_theme_pool()` actually includes it) plus both headless simulations (consistent with every prior run - the theme pool going from 3 to 4 entries doesn't touch difficulty, only cosmetic terrain). **Worth remembering for the next theme**: a prompt revision aimed at fixing specific cells can regress OTHER cells that were never touched - always do a full 16-cell recheck after any revision, not just the cells the change targeted.

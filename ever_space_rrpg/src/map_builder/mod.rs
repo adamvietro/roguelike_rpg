@@ -47,14 +47,16 @@ pub enum ThemeChoice {
     Forest,
     Dungeon,
     Sewer,
+    Swamp,
 }
 
 impl ThemeChoice {
-    pub const ALL: [ThemeChoice; 4] = [
+    pub const ALL: [ThemeChoice; 5] = [
         ThemeChoice::Random,
         ThemeChoice::Forest,
         ThemeChoice::Dungeon,
         ThemeChoice::Sewer,
+        ThemeChoice::Swamp,
     ];
 
     pub fn label(self) -> &'static str {
@@ -63,6 +65,7 @@ impl ThemeChoice {
             ThemeChoice::Forest => "Forest",
             ThemeChoice::Dungeon => "Dungeon",
             ThemeChoice::Sewer => "Sewer",
+            ThemeChoice::Swamp => "Swamp",
         }
     }
 
@@ -74,6 +77,7 @@ impl ThemeChoice {
             ThemeChoice::Forest => Some(ForestTheme::new()),
             ThemeChoice::Dungeon => Some(DungeonTheme::new()),
             ThemeChoice::Sewer => Some(SewerTheme::new()),
+            ThemeChoice::Swamp => Some(SwampTheme::new()),
         }
     }
 }
@@ -317,7 +321,12 @@ pub enum VariantStyle {
 /// Sewer became the third theme and hand-updating a hardcoded range for
 /// every new one stopped being worth it).
 fn dungeon_theme_pool() -> Vec<Box<dyn MapTheme>> {
-    vec![DungeonTheme::new(), ForestTheme::new(), SewerTheme::new()]
+    vec![
+        DungeonTheme::new(),
+        ForestTheme::new(),
+        SewerTheme::new(),
+        SwampTheme::new(),
+    ]
 }
 
 /// Columns on `resources/map_tiles.png` - every theme's 4-row block uses

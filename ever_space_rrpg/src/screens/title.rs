@@ -540,7 +540,7 @@ impl State {
             72,
             WHITE,
             BLACK,
-            "Random keeps today's normal per-floor behavior; the other three",
+            "Random keeps today's normal per-floor behavior; the other four",
         );
         ctx.print_color_centered(
             75,

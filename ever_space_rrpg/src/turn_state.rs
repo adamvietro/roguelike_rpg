@@ -7,7 +7,7 @@ pub enum TurnState {
     AdventureSelect,
     ClassSelect,
     /// Debug-class-only, Dungeon-Crawl-only (added 2026-09-13): lets the
-    /// user force which `MapTheme` (Forest/Dungeon/Sewer, or Random for
+    /// user force which `MapTheme` (Forest/Dungeon/Sewer/Swamp, or Random for
     /// the normal per-floor roll) every floor of the upcoming run uses,
     /// instead of re-rolling randomly each floor - a testing convenience
     /// so a specific theme's Victory/Defeat art (see components::

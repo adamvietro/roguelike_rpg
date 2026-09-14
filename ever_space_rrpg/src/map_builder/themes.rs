@@ -293,3 +293,64 @@ impl SewerTheme {
         Box::new(Self {})
     }
 }
+
+pub struct SwampTheme {}
+
+impl MapTheme for SwampTheme {
+    fn tile_to_render(&self, tile_type: TileType) -> FontCharType {
+        match tile_type {
+            TileType::Floor => to_cp437('~'),
+            TileType::Wall => to_cp437('&'),
+            TileType::Exit => to_cp437('>'),
+            TileType::Counter => to_cp437('▄'),
+            // Not placed by any map generator yet - see TileType::Water's
+            // own doc comment. Only reached if that ever changes before
+            // this theme has a real tile_row, or for a theme that never
+            // gets one.
+            TileType::Water => to_cp437('~'),
+        }
+    }
+
+    fn floor_color(&self) -> RGB {
+        // Murky olive-brown mud.
+        RGB::from_f32(0.18, 0.17, 0.12)
+    }
+
+    fn wall_color(&self) -> RGB {
+        // Dark tangled root brown.
+        RGB::from_f32(0.22, 0.18, 0.12)
+    }
+
+    fn battle_scenery(&self) -> BattleScenery {
+        BattleScenery::ScatteredTrees
+    }
+
+    /// Swamp is the fourth theme migrated to real tile art (2026-09-13) -
+    /// owns rows 13-16 of resources/map_tiles.png, the next free 4-row
+    /// block after Sewer's 9-12 (no forbidden-row gotcha to dodge here -
+    /// that was specifically row 8). See docs/Map_Tile_Theme_Guide.md
+    /// for the full row-by-row breakdown, including the two-batch
+    /// generation history (a hybrid of both - two cells pulled from the
+    /// first batch where the second batch regressed).
+    fn tile_row(&self) -> Option<u16> {
+        Some(13)
+    }
+
+    /// Cells 9-10 (Lily-pad covered patch, Cracked dry-mud patch) read as
+    /// spreadable ground cover - left on the default Patch. Cells 11-12
+    /// (Fallen dead tree/driftwood, Glowing marsh-gas/firefly patch) are
+    /// discrete point fixtures - Scatter, same reasoning as every other
+    /// theme's own themed-floor split.
+    fn floor_variant_style(&self, variant: u8) -> VariantStyle {
+        match variant {
+            6 | 7 => VariantStyle::Scatter,
+            _ => VariantStyle::Patch,
+        }
+    }
+}
+
+impl SwampTheme {
+    pub fn new() -> Box<dyn MapTheme> {
+        Box::new(Self {})
+    }
+}

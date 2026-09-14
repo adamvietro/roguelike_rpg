@@ -937,14 +937,15 @@ that a full new animation batch is being assembled.
   was ever a priority beyond the original collision fix, but all four
   ended up finalized anyway.
 
-## Map tile themes — real per-tile textures, Forest/Dungeon/Sewer, and an easy-to-extend theme pool
+## Map tile themes — real per-tile textures, Forest/Dungeon/Sewer/Swamp, and an easy-to-extend theme pool
 
 The old single-colored-glyph-per-`TileType` map rendering (`.`/`#` for
-Dungeon, `;`/`"` for Forest) is gone for three themes so far - real
-32x32 pixel-art tiles, randomly picked per generated level via
-`map_builder::dungeon_theme_pool()` (adding a fourth theme is one line
-there, not a hand-counted range). Full template/row-mapping reference,
-every generator gotcha, and the generation algorithm's own reasoning
+Dungeon, `;`/`"` for Forest) is gone for four themes now - real 32x32
+pixel-art tiles, randomly picked per generated level via `map_builder::
+dungeon_theme_pool()` (adding a theme is one line there, not a
+hand-counted range - confirmed again adding Swamp, 2026-09-13). Full
+template/row-mapping reference, every generator gotcha, and the
+generation algorithm's own reasoning
 live in `docs/Map_Tile_Theme_Guide.md` - the map-rendering counterpart
 to `Dungeon_Font_Glyph_to_Cell_Map.md`.
 
@@ -972,6 +973,17 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
 - **`TileType::Water`** is now real, placed data (2026-09-13, see "Map-
   gen refactor" below) - blocking like `Counter`, but deliberately NOT
   opaque, so a moat still lets the player see what's on the other side.
+- **Swamp, the fourth theme** (2026-09-13) - owns rows 13-16, the next
+  free block after Sewer's 9-12. Two real regressions during its own
+  two-batch generation (a moss-less wall texture and a flat water tile
+  in batch one; a near-solid-black soil cell and a lost driftwood shape
+  in batch two, after a prompt revision meant to fix the first two) got
+  resolved as a hybrid of both batches rather than a third generation
+  round - full blow-by-blow in `docs/Map_Tile_Theme_Guide.md`'s own
+  Swamp entry. Not yet wired into the moat/obstacle placement system
+  Forest and Sewer have (`water_variants`/`prefab_moat_variant`/etc. -
+  see "Map-gen refactor" below) - its own Water cell (13) sits unused
+  for now, the same state Dungeon's has always been in.
 
 ## Map-gen refactor — `map_builder`'s single-tile-set assumptions, three phases
 

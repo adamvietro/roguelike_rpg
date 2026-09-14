@@ -7,14 +7,18 @@ implementation) - the map-rendering counterpart to
 icons instead. Read this FIRST before generating a new theme's tileset
 or touching `map_builder/themes.rs`.
 
-**Status as of 2026-09-08: implemented and shipped for three themes -
-Forest, Dungeon, Sewer**, randomly picked per generated dungeon level via
-`map_builder::dungeon_theme_pool()` (Battle Arena's own shop/wave maps
-still always use Forest specifically, unchanged). Real per-tile textures
-are live in the dungeon-crawl view - verified with real screenshots, both
-camera-at-rest and mid-glide/panning, and again after adding Dungeon/
-Sewer. `TileType::Water` exists in the data model but isn't placed by
-any generator yet (see "Deferred to a later design pass" below).
+**Status as of 2026-09-13: implemented and shipped for four themes -
+Forest, Dungeon, Sewer, Swamp**, randomly picked per generated dungeon
+level via `map_builder::dungeon_theme_pool()` (Battle Arena's own shop/
+wave maps still always use Forest specifically, unchanged). Real
+per-tile textures are live in the dungeon-crawl view - verified with
+real screenshots, both camera-at-rest and mid-glide/panning, and again
+after adding Dungeon/Sewer/Swamp. `TileType::Water` is real, placed data
+now (Forest's Fortress moat, Sewer's Fortress/Chest Room moats and
+isolated patches - see the map-gen refactor writeup in docs/ideas.md's
+Done section); Swamp's own Water cell (13) isn't wired into any
+placement yet, same "exists in the atlas, not yet used" state Dungeon's
+own Water cell has always been in.
 
 ---
 
@@ -445,14 +449,11 @@ this round (the session's input-automation driver got unreliable, not
 a sign of an actual code issue) - worth a quick visual sanity check next
 session if it hasn't come up in normal play by then.
 
-**Swamp** (proposed 2026-09-13, NOT yet generated - the user asked for a
-prompt list to run through the generator themselves; drafted here rather
-than only in chat so it isn't lost). Mood: murky, waterlogged marshland -
-decaying vegetation, thick humid air. Palette: muddy brown, dark olive
-green, murky teal-green - avoid pure black/near-black (the standard
-floor-near-black gotcha) and overly saturated/clean blues (should read
-swampy, not tropical). Would own rows 13-16 (the next free 4-row block
-after Sewer's 9-12) once generated:
+**Swamp** (finalized 2026-09-13, owns rows 13-16 of `map_tiles.png` - the
+next free 4-row block after Sewer's 9-12, no forbidden-row gotcha to
+dodge since that was specifically row 8). Mood: murky, waterlogged
+marshland - decaying vegetation, thick humid air. Palette: muddy brown,
+dark olive green, murky teal-green:
 1. Wet mud
 2. Marsh grass tufts
 3. Damp peat / dark soil
@@ -465,8 +466,36 @@ after Sewer's 9-12) once generated:
 10. Cracked dry-mud patch - Patch
 11. Fallen dead tree / driftwood - Scatter
 12. Glowing marsh-gas / firefly patch - Scatter
-13. Murky swamp water (the liquid/moat cell - would map to `water_
-    variants`/`fortress_moat_variant` the same way Forest's Water does)
+13. Murky swamp water (not yet wired into any placement - see `TileType::
+    Water`'s own status note above)
 14. Sunken, rotted stump
 15. Half-submerged log
 16. Thick reed/cattail cluster
+
+**Real two-batch generation history, worth keeping for the next theme**:
+the first batch came back solid on 14 of 16 cells but two real misses -
+cell 7 ("Moss-covered rotted log wall") showed plain wood with no visible
+moss, and cell 13 ("Murky swamp water") was a completely flat solid
+color with no texture at all. A sharpened prompt (explicit "visible
+bright-green moss patches," "subtle rippling water texture, not a flat
+solid color," plus a general "avoid very deep near-black shadows" note)
+fixed both - but introduced two NEW regressions in the second batch: cell
+3 ("Damp peat / dark soil") came back ~90% near-black (essentially
+unusable), and cell 11 ("Fallen dead tree / driftwood") lost its
+driftwood shape entirely, rendering as a generic cracked-ground texture
+almost identical to cell 10. Resolved without a third generation round -
+built a hybrid sheet, taking 14 of 16 cells from the second (improved)
+batch but pulling cells 3 and 11 specifically from the first batch, where
+they were correct. **Lesson for next time**: a prompt tweak aimed at
+specific cells can regress OTHER cells that weren't touched at all -
+worth a full 16-cell recheck after any revision, not just the cells the
+prompt change targeted.
+
+Both batches also had the same baked-in grid-line border artifact this
+project hit before (131x131 actual pixels for a nominal 128x128/4x4
+grid, ~1-3px black dividers between cells) - cropped to the same content
+bounds `[(1,31),(34,64),(67,97),(100,130)]` already documented above, no
+new investigation needed. Near-black pixels (several wall/themed-floor
+cells ran 25-45% near-black even after the "avoid deep shadows" prompt
+note) were floored to a 30/channel minimum before compositing, same
+standard fix every prior theme's art needed.
