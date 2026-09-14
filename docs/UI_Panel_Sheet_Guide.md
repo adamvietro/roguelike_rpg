@@ -8,19 +8,16 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-all 6 Item Menu boxes wired up, four real rounds of live screenshot
+all 6 Item Menu boxes wired up, five real rounds of live screenshot
 feedback fixed so far** - a saturated tint crushing the stone's own
-shading (fixed: tint WHITE, not a category color), the border rendering
-at native 32px and swallowing box text (fixed: `PIXEL_BOX_TILE_SCALE`), a
-real no_bg-console fill bug that left the frozen dungeon view bleeding
-through box interiors (fixed: fill via the foreground channel, not
-background), title placement and box spacing (title nudged onto the
-border's own row, `BOX_GAP`/`SUB_GAP` widened), and the fill not quite
-nesting inside the border once it rendered solid (fixed: the fill's rect
-now derives from the border's own already-rounded footprint instead of
-being computed independently - see "Using it" below for all of these).
-Still pending a FIFTH screenshot to confirm the fill/border alignment fix
-actually landed right. The remaining 7 of 13 sites (the three
+shading, the border swallowing box text at native scale, a real
+no_bg-console fill bug that left the frozen dungeon view bleeding through
+box interiors, the fill not quite nesting inside the border once it
+rendered solid, and (most recently) a title-on-border attempt that turned
+out to completely HIDE every title instead of relocating it - see "Using
+it" below for the full reasoning on each. Still pending a SIXTH
+screenshot to confirm the fill/border alignment fix and the title revert
+both actually landed right. The remaining 7 of 13 sites (the three
 dungeon-HUD bars, the Pause Hints box, the battle log, and the Battle
 Actions box - see `docs/ideas.md` item 10 for the full list) are still on
 `draw_ascii_box` - swap them one at a time once the Item Menu is
@@ -211,21 +208,25 @@ full reasoning):
   stand-in, not the sheet's own center tile art (see "The center tile
   exists..." above for why that needs a bigger, deferred change).
 
-**Box titles print one row below the box's own nominal top row**
-(`y + 1`, not `y`) - the pixel-art border tiles get an extra north-anchor
-correction (`WIGGLE_CONSOLE_Y_ANCHOR_OFFSET`, see `draw_panel_tile`) that
-plain `print_color`'d text never goes through, so a title printed at the
-box's exact nominal row visibly sat above where the border's own top edge
-actually rendered instead of "on" it. A one-row nudge, not a scaled
-offset - simpler and more directly informed by what the screenshot
-actually showed, but still a first-pass guess like everything else here.
+**Box titles print at the box's own nominal top row (`y`), NOT overlapping
+the border** - a `y + 1` nudge was tried 2026-09-14 to land the title
+literally "on" the border's own top edge, and turned out to be a real
+architectural dead end rather than a pixel-tuning miss: the border draws
+on `UI_PANEL_CONSOLE`, registered (and therefore z-ordered) AFTER
+`HUD_CONSOLE`, so wherever a title's row coincides with the border's own
+footprint, the border's fully opaque tile paints directly over the title
+and erases it completely - confirmed live (every title on the screen
+vanished, not just shifted). Reverted to row `y`, confirmed visible in
+every earlier screenshot. Getting a title to read as genuinely embedded
+in the border art would need a real new console layered even later than
+`UI_PANEL_CONSOLE` - not attempted here; readability won out over the
+border-embedded look for now.
 
 ## Still open
 
-- A fourth screenshot, confirming the fill-bug fix, the title-row nudge,
-  and the widened box spacing (see `screens/item_menu.rs`'s `BOX_GAP`/
-  `SUB_GAP`) all actually look right together - needed before wiring up
-  the other 12 sites.
+- A sixth screenshot, confirming the fill/border alignment fix and the
+  title revert both actually look right together - needed before wiring
+  up the other 12 sites.
 - The remaining 7 of 13 sites: the 3 HUD bars, Pause Hints, the battle
   log, and the Battle Actions box (its border color already switches
   live between yellow/green - moot now that `draw_pixel_box` calls use
