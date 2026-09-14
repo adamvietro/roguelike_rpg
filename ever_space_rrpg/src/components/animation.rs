@@ -1121,18 +1121,17 @@ impl DefeatBackground {
     ///
     /// Swamp is the one confirmed exception (real screenshot, 2026-09-13
     /// - the corpse rendering visibly in the pool below the dead tree).
-    /// This scene's own grass band is genuinely thinner than one grid
-    /// cell (160px), sitting right at the seam between row 2 (the tree/
-    /// misty background) and row 3 (grass fading into the pool) -
-    /// sampled every cell in the 5x5 grid directly against the actual
-    /// composited image rather than eyeballing the screenshot: (2,3)
-    /// (centered, directly under the tree) is majority water; (1,3) and
-    /// (3,3) are majority grass with only their own lower edge dipping
-    /// into the pool - picked (1,3), left of center, as the better of
-    /// those two (avoids sitting on top of the tree's own reflection).
-    /// Still a first guess by the same standard as every other value
-    /// here - expect a follow-up correction round from a real
-    /// screenshot rather than treating this as final.
+    /// First attempted fix was (1,3) (left of center, majority grass but
+    /// still dipping into the pool along its lower edge) - the user then
+    /// marked up the SAME screenshot directly with a box showing exactly
+    /// where they wanted it instead: the ground patch to the right of
+    /// the pool. (4,3) is that patch - sampled directly against the
+    /// composited image and confirmed clean solid grass, no water
+    /// anywhere in the cell (unlike (4,4) just below it, which is
+    /// mostly swallowed by the scene's own dark corner vignette). Still
+    /// a first guess by the same standard as every other value here -
+    /// expect a follow-up correction round from a real screenshot rather
+    /// than treating this as final.
     pub fn portrait_grid_position(self) -> (i32, i32) {
         let centered = (2, 3);
         match self {
@@ -1140,7 +1139,7 @@ impl DefeatBackground {
             DefeatBackground::Dungeon => centered,
             DefeatBackground::Sewer => centered,
             DefeatBackground::Forest => centered,
-            DefeatBackground::Swamp => (1, 3),
+            DefeatBackground::Swamp => (4, 3),
         }
     }
 }
