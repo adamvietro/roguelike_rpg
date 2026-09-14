@@ -447,7 +447,7 @@ impl MapBuilder {
     /// BEFORE `apply_prefab`/`apply_chest` below (2026-09-13 - moved
     /// earlier than its original spot, right before
     /// `assign_tile_variants`, so those two can read the real theme's
-    /// own `fortress_moat_variant`/`chest_moat_variant` instead of the
+    /// own `prefab_moat_variant`/`chest_moat_variant` instead of the
     /// still-unset placeholder) and, transitively, well before
     /// `assign_tile_variants` too - that call reads `mb.theme`'s own
     /// `floor_variant_style`, whose variant-index meaning differs per
