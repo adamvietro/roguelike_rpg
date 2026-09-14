@@ -477,6 +477,11 @@ pub fn hud(
         badge_batch.target(ABILITY_BAR_BADGE_CONSOLE);
         let mut portrait_batch = DrawBatch::new();
         portrait_batch.target(CHARACTER_PORTRAIT_HUD_CONSOLE);
+        // The real PixelLab panel border (item 10 in docs/ideas.md) for
+        // the Item/Ability/Battle Bar frames - same UI_PANEL_CONSOLE/
+        // draw_filled_pixel_box recipe already proven on the Item Menu.
+        let mut panel_batch = DrawBatch::new();
+        panel_batch.target(UI_PANEL_CONSOLE);
         // (name, description-lookup key, box_y for the tooltip anchor) -
         // whichever bar's icon the mouse is currently over, checked
         // across BOTH bars so hovering either one shows its description.
@@ -587,14 +592,7 @@ pub fn hud(
         }
         if item_n > 0 {
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
-            draw_ascii_box(
-                &mut label_batch,
-                box_x,
-                box_y,
-                box_w,
-                box_h,
-                ColorPair::new(BLUE, BLACK),
-            );
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -628,14 +626,7 @@ pub fn hud(
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(ability_start_col, ability_n, true);
-            draw_ascii_box(
-                &mut label_batch,
-                box_x,
-                box_y,
-                box_w,
-                box_h,
-                ColorPair::new(RED, BLACK),
-            );
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -673,20 +664,14 @@ pub fn hud(
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(battle_start_col, battle_n, false);
-            draw_ascii_box(
-                &mut label_batch,
-                box_x,
-                box_y,
-                box_w,
-                box_h,
-                ColorPair::new(GREEN, BLACK),
-            );
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         bar_batch.submit(10001).expect("Batch error");
         label_batch.submit(10002).expect("Batch error");
         badge_batch.submit(10004).expect("Batch error");
         portrait_batch.submit(10005).expect("Batch error");
+        panel_batch.submit(10006).expect("Batch error");
 
         // The hovered slot's tooltip (from either bar) - drawn on
         // HUD_CONSOLE (fine text) rather than either bar's own coarse
