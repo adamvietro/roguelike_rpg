@@ -8,27 +8,28 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-the Item Menu confirmed working live end to end, the 3 dungeon-HUD bars
-wired up and the same text/fill fix ported to them too (not yet
-screenshot-verified - see "Using it" below)** - across ten-plus rounds
-of live feedback: a saturated tint crushing the stone's own shading, the
-border swallowing box text at native scale, a real no_bg-console fill
-bug, the fill not quite nesting inside the border, a title-on-border
-attempt that hid every title outright, a blank description panel when
-nothing's selected, a real detour where a `has_title` flag briefly
-excluded the title row from the fill (reverted on direct correction -
-the black fill reaching up to meet the title row was the intended look
-the whole time), a same-console text/fill overwrite bug where printed
-text let the live dungeon view show through around each letter (fixed
-with `PANEL_TEXT_CONSOLE`, a dedicated later console for all printed
-text), and most recently a fill/border sub-pixel alignment fix, a
-border-scale bump (0.375 -> 0.5), and the dungeon HUD's Battle Bar
-switching to the Swamp material specifically (see "Using it" below for
-all three). `draw_filled_pixel_box` fills every box's full nominal area
-unconditionally, no exceptions. The remaining 4 of 13 sites (the
-shop-item tooltip, the Pause Hints box, the battle log, and the Battle
-Actions box - see `docs/ideas.md` item 10 for the full list) are still
-on `draw_ascii_box`.
+every border actually visible on the dungeon-exploration screen now
+converted (the Item Menu, the 3 dungeon-HUD bars, and the shop-item
+tooltip), not yet screenshot-verified past the last round - see "Using
+it" below** - across eleven-plus rounds of live feedback: a saturated
+tint crushing the stone's own shading, the border swallowing box text
+at native scale, a real no_bg-console fill bug, the fill not quite
+nesting inside the border, a title-on-border attempt that hid every
+title outright, a blank description panel when nothing's selected, a
+real detour where a `has_title` flag briefly excluded the title row
+from the fill (reverted on direct correction), a same-console text/fill
+overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a fill/border sub-pixel
+alignment fix, a border-scale bump (0.375 -> 0.5), the dungeon HUD's
+Battle Bar switching to the Swamp material, and - the fill/border
+alignment fix's own real regression - the pixel-perfect fill's opaque
+`set_fancy` quad hiding every bar icon outright until
+`ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_BADGE_CONSOLE` fixed it
+(see "Using it" below for the last few). `draw_filled_pixel_box` fills
+every box's full nominal area unconditionally, no exceptions. The
+remaining 3 of 13 sites (the Pause Hints box, the battle log, and the
+in-combat Battle Actions box - see `docs/ideas.md` item 10 for the full
+list) are pause- and battle-only, not part of "the dungeon screen," and
+still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
@@ -249,6 +250,29 @@ all), the same `fg`-tint approach still works for the same underlying
 reason, just without the `no_bg` console's discard behavior to work
 around.
 
+**A box that has ICONS inside it (not just text) needs those icons on a
+console registered AFTER `UI_PANEL_CONSOLE` too, same requirement as
+text** - a real regression (2026-09-14), the direct cost of the fill's
+own no-discard fancy shader: once the fill became a fully opaque
+`set_fancy` quad with no discard case at all, it started painting
+directly over anything drawn on a console registered BEFORE
+`UI_PANEL_CONSOLE` (46) - specifically the dungeon HUD bars' own icon
+portraits (`ABILITY_BAR_CONSOLE`, 24) and stack-count badges
+(`ABILITY_BAR_BADGE_CONSOLE`, 26), both registered well before it.
+Confirmed live: every bar rendered as a solid black box, no icons
+visible at all. Fixed with `ABILITY_BAR_ICON_CONSOLE` (48) and
+`ABILITY_BAR_ICON_BADGE_CONSOLE` (49) - plain duplicates of those two
+consoles' exact grid/font config, registered at the very end (after
+`PANEL_TEXT_CONSOLE`) instead of inserted at their original position -
+inserting there would have meant renumbering every constant between
+the old and new position, a much bigger and riskier mechanical change
+than appending two new ones. The OLD `ABILITY_BAR_CONSOLE`/
+`ABILITY_BAR_BADGE_CONSOLE` stay registered (and in the `cls()` sweep)
+purely because a mouse-position translation (`ctx.set_active_console`,
+`AbilityBarMousePos`) is keyed to their grid dimensions - identical
+between old and new, so that math needed no change, only the actual
+drawing moved.
+
 One real, deliberate simplification versus a pixel-perfect box remains
 (see `draw_pixel_box`'s own doc comment for the full reasoning): no real
 textured filled interior yet - the black fill is a flat color stand-in,
@@ -273,20 +297,21 @@ border-embedded look for now.
 
 ## Still open
 
-- A fresh screenshot of the 3 dungeon-HUD bars - unverified since they
-  render over the LIVE dungeon view rather than a paused menu, a real
-  context difference from the Item Menu worth confirming looks right
-  (does a solid black bar background read well over live gameplay, or
-  does it want to stay closer to see-through there specifically), AND
-  needs to confirm all of 2026-09-14's latest round together: the
-  pixel-perfect fill/border alignment, the 0.375->0.5 scale bump, the
-  Ability Bar's number-label text/fill fix, and the Battle Bar's new
-  Swamp material (the Item Bar and Ability Bar stay Dungeon).
-- The remaining 4 of 13 sites: the shop-item tooltip, Pause Hints, the
-  battle log, and the in-combat Battle Actions box (its border color
-  already switches live between yellow/green - moot now that
-  `draw_pixel_box` calls use WHITE regardless of category color, so this
-  just needs wiring, not any special-casing for the color switch).
+- A fresh screenshot of the dungeon HUD bars AND the shop-item tooltip -
+  unverified since they render over the LIVE dungeon view rather than a
+  paused menu, a real context difference from the Item Menu worth
+  confirming looks right (does a solid black background read well over
+  live gameplay, or does it want to stay closer to see-through there
+  specifically), AND needs to confirm the icon-visibility fix
+  (`ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_BADGE_CONSOLE`) actually
+  brought the bar icons/badges back without introducing some OTHER
+  z-order surprise.
+- The remaining 3 of 13 sites: Pause Hints, the battle log, and the
+  in-combat Battle Actions box (its border color already switches live
+  between yellow/green - moot now that `draw_pixel_box` calls use WHITE
+  regardless of category color, so this just needs wiring, not any
+  special-casing for the color switch) - all pause- or battle-only, not
+  part of "the dungeon screen," which is now fully converted.
 - A real textured filled interior (see "The center tile exists..."
   above) - no longer blocked on console reordering, just not built yet.
 - Per-tile fractional stretching for genuinely pixel-perfect SIZING to
