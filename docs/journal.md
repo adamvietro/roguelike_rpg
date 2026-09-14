@@ -4455,3 +4455,13 @@ Composited into `resources/battle_backgrounds.png` at cells 14 (Battle), 15 (`Sw
 <br />
 
 Not yet screenshot-verified live in a real fight, unlike the original three themes' own backgrounds - worth a real check next time Swamp comes up in a run, same as every other bracket-lib layout guess made without being able to render and check directly.
+
+## Real screenshots confirm it - the Defeat corpse was floating on water
+
+The user tested it live and sent real screenshots. The Battle Arena background works well - the enemies land on the intended ground patch. Defeat had a real bug: the fallen character rendered visibly in the pool below the dead tree, not on solid ground.
+<br />
+
+Rather than guess a new position, sampled the actual composited image directly - cropped every cell of the 5x5 `BATTLE_PORTRAIT` grid this scene uses and looked at each one. The centered position (2,3), which every other Defeat scene shares, lands mostly in the pool for this specific piece of art - the grass band here is genuinely thinner than one grid cell (160px), sitting right at the seam between the tree/background row and the water row. (1,3) and (3,3) both came back majority-grass with only their lower edge touching water; picked (1,3), left of center, to also avoid the tree's own reflection. Documented as Swamp's first real exception to the "every Defeat scene shares one centered position" convention, with the same "first guess, not yet re-verified" caveat every other bracket-lib layout value in this project carries.
+<br />
+
+Separately, the user flagged the Battle Arena background as "will work but we might be able to do better" - not a bug, an open invitation - asked directly what specifically they'd want improved before guessing at more art changes.
