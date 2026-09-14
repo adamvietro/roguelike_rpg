@@ -217,6 +217,69 @@ pub trait MapTheme: Sync + Send {
     fn path_variants(&self) -> Option<(u8, u8)> {
         None
     }
+    /// This theme's `TileType::Water` cells, as column offsets within
+    /// row `tile_row() + 3` (the "special wall" row every migrated
+    /// theme reserves - see docs/Map_Tile_Theme_Guide.md) - a theme can
+    /// register more than one distinct look (Sewer has both a Standing
+    /// Sewage Water and a separate Toxic Sludge Pool), each addressed by
+    /// its position in this list (`Map::tile_variant` indexes into it,
+    /// the same way it already indexes into the Floor/Wall pools).
+    /// Defaults to empty - no theme places `TileType::Water` anywhere
+    /// unless it opts in here AND in at least one of `fortress_moat_
+    /// variant`/`chest_moat_variant`/`wall_water_patch_variant` below,
+    /// which is what actually decides where it goes. See `TileType::
+    /// Water`'s own doc comment for the blocking-but-see-through
+    /// mechanic this exists for.
+    fn water_variants(&self) -> Vec<u16> {
+        Vec::new()
+    }
+    /// Index into `water_variants()` to use as the FORTRESS prefab's
+    /// wall ring, instead of the usual plain `TileType::Wall` - `None`
+    /// (the default) keeps the ring as plain Wall. A moat still fully
+    /// blocks the same way a wall did (see `TileType::Water`), it just
+    /// lets the player see the fortress's interior/guards through it
+    /// instead of a solid brick face - not every theme has a liquid that
+    /// fits this (Dungeon deliberately doesn't, 2026-09-13 - a stone
+    /// dungeon fortress reads oddly with a moat).
+    fn fortress_moat_variant(&self) -> Option<u8> {
+        None
+    }
+    /// Same as `fortress_moat_variant`, for the CHEST_ROOM prefab's own
+    /// wall ring instead. Independent of `fortress_moat_variant` - a
+    /// theme can use a different `water_variants()` index for each (or
+    /// only implement one of the two).
+    fn chest_moat_variant(&self) -> Option<u8> {
+        None
+    }
+    /// Index into `water_variants()` to use for a handful of small,
+    /// isolated patches converted from ordinary `TileType::Wall` tiles
+    /// elsewhere on the map (NOT tied to any prefab) - purely cosmetic,
+    /// since Water is exactly as blocking as the Wall it replaces, just
+    /// see-through. `None` (the default) places none.
+    fn wall_water_patch_variant(&self) -> Option<u8> {
+        None
+    }
+    /// Extra `TileType::Wall` variants beyond the normal `wall_variant_
+    /// count()` pool, for a theme's solid "special wall" feature tiles
+    /// (a stump, a rubble pile, a broken pillar - anything in row
+    /// `tile_row() + 3` that ISN'T one of `water_variants()` above).
+    /// These behave exactly like any other Wall tile (fully blocking AND
+    /// opaque, unlike Water) - the only thing that sets them apart is
+    /// how rarely `MapBuilder::assign_tile_variants` places them
+    /// (deliberately much sparser than the normal per-tile wall accent,
+    /// with a hard cap of at most one per 5x5 area so they read as a
+    /// genuine rare feature rather than a repeated pattern - 2026-09-13,
+    /// "they can be used sparingly... shouldn't have more than 1 in an
+    /// area for 5x5"). Variant numbers continue right where the normal
+    /// wall pool leaves off (`wall_variant_count()..wall_variant_count()
+    /// + MAP_TILE_COLS`, mirroring how `floor_variant_count` already
+    /// spans two rows) - see `components::map_tile_glyph`. Defaults to
+    /// empty; a theme lists exactly the column offsets (within row
+    /// `tile_row() + 3`) it wants in this pool, skipping whichever
+    /// columns `water_variants()` already claims.
+    fn wall_obstacle_variants(&self) -> Vec<u16> {
+        Vec::new()
+    }
 }
 
 /// How a non-default floor variant gets placed on the map - see
@@ -273,6 +336,29 @@ const FLOOR_PATCH_RADIUS_MAX: i32 = 4;
 /// area, not a dense accent the way wall rubble/rock can be along a
 /// boundary.
 const FLOOR_SCATTER_CHANCE_PCT: i32 = 6;
+/// Percent chance (0-99) an individual Wall tile becomes a candidate for
+/// one of its theme's `wall_obstacle_variants` (a stump, a rubble pile -
+/// see that method's own doc comment) - deliberately far rarer than
+/// WALL_ACCENT_CHANCE_PCT (2026-09-13, "I don't want a lot of them...
+/// used sparingly"). A candidate still only actually places if
+/// WALL_OBSTACLE_MIN_SPACING's own check passes too.
+const WALL_OBSTACLE_CHANCE_PCT: i32 = 4;
+/// How many tiles away (each direction) an existing obstacle variant
+/// blocks a new one from placing - 2 means "at most one per 5x5 area"
+/// (2026-09-13's own phrasing), since a 5-wide block centered on a
+/// candidate spans -2..=2.
+const WALL_OBSTACLE_MIN_SPACING: i32 = 2;
+/// How many small isolated Wall-to-Water patches get stamped per
+/// generated map, for a theme with a `wall_water_patch_variant` - see
+/// MapBuilder::assign_tile_variants. Deliberately just 0-2, much fewer
+/// than FLOOR_PATCH_COUNT_MIN/MAX - this is a rare cosmetic accent
+/// ("a small patch," 2026-09-13), not a recurring floor-level feature.
+const WALL_WATER_PATCH_COUNT_MIN: i32 = 0;
+const WALL_WATER_PATCH_COUNT_MAX: i32 = 2;
+/// Radius (tiles) of one Wall-to-Water patch - smaller than a floor
+/// patch's own radius, matching "a small patch" rather than a floor-
+/// sized region.
+const WALL_WATER_PATCH_RADIUS: i32 = 1;
 
 const NUM_ROOMS: usize = 20;
 pub struct MapBuilder {
@@ -341,10 +427,14 @@ impl MapBuilder {
     /// choice, see `TurnState::ThemeSelect`); every other caller (a
     /// non-Debug class, the title screen's own decorative background)
     /// passes `None` for the unchanged random-roll behavior. Applied
-    /// BEFORE `assign_tile_variants` below, not after - that call reads
-    /// `mb.theme`'s own `floor_variant_style`, whose variant-index
-    /// meaning differs per theme, so overriding the theme afterward
-    /// would leave variants assigned under the wrong theme's semantics.
+    /// BEFORE `apply_prefab`/`apply_chest` below (2026-09-13 - moved
+    /// earlier than its original spot, right before
+    /// `assign_tile_variants`, so those two can read the real theme's
+    /// own `fortress_moat_variant`/`chest_moat_variant` instead of the
+    /// still-unset placeholder) and, transitively, well before
+    /// `assign_tile_variants` too - that call reads `mb.theme`'s own
+    /// `floor_variant_style`, whose variant-index meaning differs per
+    /// theme, so the theme has to be real before ANY of these three run.
     pub fn new(rng: &mut RandomNumberGenerator, forced_theme: Option<Box<dyn MapTheme>>) -> Self {
         let mut architect: Box<dyn MapArchitect> = match rng.range(0, 3) {
             0 => Box::new(DrunkardsWalkArchitect {}),
@@ -352,8 +442,6 @@ impl MapBuilder {
             _ => Box::new(CellularAutomataArchitect {}),
         };
         let mut mb = architect.new(rng);
-        apply_prefab(&mut mb, rng);
-        apply_chest(&mut mb, rng);
 
         mb.theme = match forced_theme {
             Some(theme) => theme,
@@ -363,6 +451,9 @@ impl MapBuilder {
                 pool.swap_remove(pick)
             }
         };
+
+        apply_prefab(&mut mb, rng);
+        apply_chest(&mut mb, rng);
         mb.assign_tile_variants(rng);
 
         mb
@@ -495,6 +586,14 @@ impl MapBuilder {
             }
         }
 
+        // Sparse solid-obstacle accent and isolated Wall-to-Water
+        // patches both run after the ordinary wall accent above, so an
+        // obstacle/patch can win out over (rather than get silently
+        // overwritten by) a generic accent roll on the same tile - see
+        // each method's own doc comment.
+        self.stamp_wall_obstacles(rng);
+        self.stamp_wall_water_patches(rng);
+
         // Theme path, if this theme wants one - runs LAST, after every
         // other overlay above, so nothing else ever paints over it (a
         // patch/scatter accent landing on top of the path would break
@@ -502,6 +601,114 @@ impl MapBuilder {
         // comment for the actual placement algorithm.
         if path_variants.is_some() {
             self.stamp_theme_path(rng);
+        }
+    }
+
+    /// Sparsely places this theme's `wall_obstacle_variants` (a stump, a
+    /// rubble pile, a broken pillar - see that method's own doc comment)
+    /// across existing Wall tiles - a no-op if the theme lists none.
+    /// Each Wall tile independently rolls `WALL_OBSTACLE_CHANCE_PCT`
+    /// (much rarer than the ordinary per-tile wall accent above), then -
+    /// only if that roll succeeds - checks every tile within
+    /// `WALL_OBSTACLE_MIN_SPACING` for an obstacle already placed there;
+    /// if one exists, this candidate is skipped entirely rather than
+    /// placing anyway, which is what actually enforces "at most one per
+    /// 5x5 area" (2026-09-13) - a plain independent per-tile chance,
+    /// however low, would still eventually cluster two by pure chance
+    /// somewhere on a large enough map.
+    fn stamp_wall_obstacles(&mut self, rng: &mut RandomNumberGenerator) {
+        let obstacle_cols = self.theme.wall_obstacle_variants();
+        if obstacle_cols.is_empty() {
+            return;
+        }
+        let wall_variant_count = self.theme.wall_variant_count();
+        let obstacle_variants: Vec<u8> = obstacle_cols
+            .iter()
+            .map(|&col| wall_variant_count + col as u8)
+            .collect();
+        let wall_tiles: Vec<usize> = self
+            .map
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| **t == TileType::Wall)
+            .map(|(i, _)| i)
+            .collect();
+        for idx in wall_tiles {
+            if rng.range(0, 100) >= WALL_OBSTACLE_CHANCE_PCT {
+                continue;
+            }
+            let pt = self.map.index_to_point2d(idx);
+            let mut too_close = false;
+            for dy in -WALL_OBSTACLE_MIN_SPACING..=WALL_OBSTACLE_MIN_SPACING {
+                for dx in -WALL_OBSTACLE_MIN_SPACING..=WALL_OBSTACLE_MIN_SPACING {
+                    let check = Point::new(pt.x + dx, pt.y + dy);
+                    if !self.map.in_bounds(check) {
+                        continue;
+                    }
+                    let check_idx = map_idx(check.x, check.y);
+                    if self.map.tiles[check_idx] == TileType::Wall
+                        && obstacle_variants.contains(&self.map.tile_variant[check_idx])
+                    {
+                        too_close = true;
+                    }
+                }
+            }
+            if !too_close {
+                self.map.tile_variant[idx] =
+                    obstacle_variants[rng.random_slice_index(&obstacle_variants).unwrap()];
+            }
+        }
+    }
+
+    /// Stamps a small number of small, isolated Wall-to-Water patches -
+    /// see `MapTheme::wall_water_patch_variant`'s own doc comment - a
+    /// no-op if the theme has none. Deliberately the SAME contiguous-
+    /// blob shape `assign_tile_variants`'s floor patches already use,
+    /// just against Wall tiles, with a smaller radius and far fewer of
+    /// them (`WALL_WATER_PATCH_RADIUS`/`_COUNT_MIN`/`_MAX`) - "a small
+    /// patch," not a floor-sized region. Purely cosmetic: Water is
+    /// exactly as blocking as the Wall it replaces (see `TileType::
+    /// Water`), just not opaque, so this can never open an unintended
+    /// shortcut.
+    fn stamp_wall_water_patches(&mut self, rng: &mut RandomNumberGenerator) {
+        let Some(variant) = self.theme.wall_water_patch_variant() else {
+            return;
+        };
+        let wall_tiles: Vec<usize> = self
+            .map
+            .tiles
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| **t == TileType::Wall)
+            .map(|(i, _)| i)
+            .collect();
+        if wall_tiles.is_empty() {
+            return;
+        }
+        let patch_count = rng.range(WALL_WATER_PATCH_COUNT_MIN, WALL_WATER_PATCH_COUNT_MAX + 1);
+        for _ in 0..patch_count {
+            let seed_idx = wall_tiles[rng.random_slice_index(&wall_tiles).unwrap()];
+            let seed = self.map.index_to_point2d(seed_idx);
+            let radius = WALL_WATER_PATCH_RADIUS;
+            for y in (seed.y - radius)..=(seed.y + radius) {
+                for x in (seed.x - radius)..=(seed.x + radius) {
+                    let pt = Point::new(x, y);
+                    if !self.map.in_bounds(pt) {
+                        continue;
+                    }
+                    let dx = (x - seed.x) as f32;
+                    let dy = (y - seed.y) as f32;
+                    if (dx * dx + dy * dy).sqrt() > radius as f32 {
+                        continue;
+                    }
+                    let idx = map_idx(x, y);
+                    if self.map.tiles[idx] == TileType::Wall {
+                        self.map.tiles[idx] = TileType::Water;
+                        self.map.tile_variant[idx] = variant;
+                    }
+                }
+            }
         }
     }
 

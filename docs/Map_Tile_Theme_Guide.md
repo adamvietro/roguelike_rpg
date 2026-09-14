@@ -439,3 +439,29 @@ proven for Forest and Sewer, so it wasn't separately screenshot-verified
 this round (the session's input-automation driver got unreliable, not
 a sign of an actual code issue) - worth a quick visual sanity check next
 session if it hasn't come up in normal play by then.
+
+**Swamp** (proposed 2026-09-13, NOT yet generated - the user asked for a
+prompt list to run through the generator themselves; drafted here rather
+than only in chat so it isn't lost). Mood: murky, waterlogged marshland -
+decaying vegetation, thick humid air. Palette: muddy brown, dark olive
+green, murky teal-green - avoid pure black/near-black (the standard
+floor-near-black gotcha) and overly saturated/clean blues (should read
+swampy, not tropical). Would own rows 13-16 (the next free 4-row block
+after Sewer's 9-12) once generated:
+1. Wet mud
+2. Marsh grass tufts
+3. Damp peat / dark soil
+4. Shallow puddled ground
+5. Tangled mangrove roots
+6. Thick reed/cattail wall
+7. Moss-covered rotted log wall
+8. Twisted vine tangle wall
+9. Lily-pad covered patch - Patch
+10. Cracked dry-mud patch - Patch
+11. Fallen dead tree / driftwood - Scatter
+12. Glowing marsh-gas / firefly patch - Scatter
+13. Murky swamp water (the liquid/moat cell - would map to `water_
+    variants`/`fortress_moat_variant` the same way Forest's Water does)
+14. Sunken, rotted stump
+15. Half-submerged log
+16. Thick reed/cattail cluster

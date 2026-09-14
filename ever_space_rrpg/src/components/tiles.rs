@@ -20,17 +20,26 @@ pub enum TileSpriteSheet {
 const WALL_TEXTURE_SHADE: f32 = 0.72;
 
 /// The exact `resources/map_tiles.png` glyph for a Floor/Wall/Exit/
-/// Counter tile - `None` for any tile with no real art yet (`Water`
-/// always; `Exit`/`Counter` for a theme whose `exit_tile`/`counter_tile`
-/// is still `None`), so the caller falls through to the old dungeonfont
-/// rendering for those. See docs/Map_Tile_Theme_Guide.md for the row
-/// layout Floor/Wall encode: row `base_row + 0` is basic floor, `+1`
-/// wall, `+2` themed floor (floor's variant pool spans both `+0` and
-/// `+2`, `variant` 0..`theme.floor_variant_count()` picks between them),
-/// `+3` special wall (not wired up yet). Exit/Counter aren't part of
-/// that per-theme 4-row block at all - `exit_tile`/`counter_tile` give
-/// raw (row, col) coordinates anywhere in the shared atlas instead,
-/// since each is a single rare tile with no variant pool of its own.
+/// Counter/Water tile - `None` for any tile with no real art configured
+/// (`Exit`/`Counter` for a theme whose `exit_tile`/`counter_tile` is
+/// still `None`; `Water` for a variant index past the end of that
+/// theme's own `water_variants()`), so the caller falls through to the
+/// old dungeonfont rendering for those. See docs/Map_Tile_Theme_Guide.md
+/// for the row layout Floor/Wall/Water encode: row `base_row + 0` is
+/// basic floor, `+1` wall, `+2` themed floor (floor's variant pool spans
+/// both `+0` and `+2`, `variant` 0..`theme.floor_variant_count()` picks
+/// between them), `+3` special wall - Wall's own variant pool spans
+/// `+1` (0..`wall_variant_count()`) and `+3` (the rest, up to
+/// `wall_variant_count() + MAP_TILE_COLS`, same two-row-split shape
+/// Floor already has - see `MapTheme::wall_obstacle_variants`), while
+/// Water's `variant` indexes directly into `water_variants()` as a
+/// column offset within that same `+3` row, entirely independent of
+/// Wall's own numbering (no collision - `Map::tile_variant` is only
+/// ever interpreted relative to that cell's own current `TileType`).
+/// Exit/Counter aren't part of that per-theme 4-row block at all -
+/// `exit_tile`/`counter_tile` give raw (row, col) coordinates anywhere
+/// in the shared atlas instead, since each is a single rare tile with no
+/// variant pool of its own.
 fn map_tile_glyph(
     theme: &dyn MapTheme,
     base_row: Option<u16>,
@@ -40,10 +49,14 @@ fn map_tile_glyph(
     let (row, col) = match tile {
         TileType::Floor if variant < MAP_TILE_COLS as u8 => (base_row?, variant as u16),
         TileType::Floor => (base_row? + 2, (variant - MAP_TILE_COLS as u8) as u16),
-        TileType::Wall => (base_row? + 1, variant as u16),
+        TileType::Wall if variant < theme.wall_variant_count() => (base_row? + 1, variant as u16),
+        TileType::Wall => (
+            base_row? + 3,
+            (variant - theme.wall_variant_count()) as u16,
+        ),
         TileType::Exit => theme.exit_tile()?,
         TileType::Counter => theme.counter_tile()?,
-        TileType::Water => return None,
+        TileType::Water => (base_row? + 3, *theme.water_variants().get(variant as usize)?),
     };
     Some(row * MAP_TILE_COLS + col)
 }

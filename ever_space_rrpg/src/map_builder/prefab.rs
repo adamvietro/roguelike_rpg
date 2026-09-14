@@ -120,11 +120,22 @@ fn find_prefab_placement(
 }
 
 pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
-    let template = match rng.range(0, 3) {
+    let pick = rng.range(0, 3);
+    let template = match pick {
         0 => FORTRESS,
         1 => TURRET,
         2 => BUNKER,
         _ => unreachable!(),
+    };
+    // Only the FORTRESS template's own wall ring becomes a moat - see
+    // MapTheme::fortress_moat_variant's own doc comment. `None` for
+    // Turret/Bunker, or for a theme with no fortress moat configured
+    // (Dungeon, deliberately - 2026-09-13), keeps every '#' a plain Wall
+    // exactly as before.
+    let moat_variant = if pick == 0 {
+        mb.theme.fortress_moat_variant()
+    } else {
+        None
     };
 
     let placement = find_prefab_placement(mb, rng, template.1, template.2);
@@ -163,7 +174,13 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                         mb.prefab_weapon_spawn = Some(Point::new(tx, ty));
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor, // (16)
-                    '#' => mb.map.tiles[idx] = TileType::Wall,
+                    '#' => match moat_variant {
+                        Some(variant) => {
+                            mb.map.tiles[idx] = TileType::Water;
+                            mb.map.tile_variant[idx] = variant;
+                        }
+                        None => mb.map.tiles[idx] = TileType::Wall,
+                    },
                     _ => panic!("FORTRESS/TURRET/BUNKER template has an unrecognized marker [{}]", c),
                 }
                 i += 1;
@@ -183,6 +200,10 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
 /// guarantee apply_prefab's own weapon/guard markers already have.
 pub fn apply_chest(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
     let template = CHEST_ROOM;
+    // See MapTheme::chest_moat_variant's own doc comment - `None` for a
+    // theme with no chest moat configured keeps every '#' a plain Wall
+    // exactly as before.
+    let moat_variant = mb.theme.chest_moat_variant();
 
     let placement = find_prefab_placement(mb, rng, template.1, template.2);
 
@@ -208,7 +229,13 @@ pub fn apply_chest(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                         mb.prefab_chest_spawn = Some(Point::new(tx, ty));
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor,
-                    '#' => mb.map.tiles[idx] = TileType::Wall,
+                    '#' => match moat_variant {
+                        Some(variant) => {
+                            mb.map.tiles[idx] = TileType::Water;
+                            mb.map.tile_variant[idx] = variant;
+                        }
+                        None => mb.map.tiles[idx] = TileType::Wall,
+                    },
                     _ => panic!("CHEST_ROOM template has an unrecognized marker [{}]", c),
                 }
                 i += 1;

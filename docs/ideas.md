@@ -119,13 +119,7 @@ Roughly in the order they've come up:
       out-of-combat use (Effect); the first true passive needs its own
       system, not just a new template entry. Pick a non-passive one first
       if the goal is a quick, contained win.
-8. **A refactor for how maps get made and tiles are set** (added
-   2026-09-08) — supporting more than one tile set (see "Map tile
-   themes" in Done below, merged 2026-09-08) already required some
-   rethinking of map generation/tile assignment, but `map_builder`'s
-   architects still bake in some single-tile-set assumptions worth
-   revisiting once that's been lived with for a while.
-9. **Content / world**
+8. **Content / world**
     - **More winnable item variety** — right now a chest/shop can only
       ever contain Gold, a Dungeon Map, or a Healing Potion. Not scoped -
       could be equipment, trinkets, or anything else worth finding.
@@ -134,14 +128,14 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-10. **Ability Bar/other HUD panels should go transparent when the player
+9. **Ability Bar/other HUD panels should go transparent when the player
     is underneath them** (added 2026-09-11) — a side effect of the camera
     changes: the player can now end up positioned under the Ability
     Bar/similar fixed UI panels, which currently just draw solid on top
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
-11. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
+10. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
     box border** (added 2026-09-13) — every box border in the game is
     currently the same plain `-`/`|`/`+` rectangle (`render_helpers::
     draw_ascii_box`, `ever_space_rrpg/src/render_helpers.rs:232-255`),
@@ -192,7 +186,7 @@ Roughly in the order they've come up:
     download -> composite-into-a-real-sheet pipeline could be scripted
     directly instead of a manual round trip. Not started - no token
     provided yet, nothing generated.
-12. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+11. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
     existing games/trademarks before deciding (see docs/journal.md's
@@ -218,6 +212,19 @@ Roughly in the order they've come up:
       worth deciding whether this tag gets renamed too or stays as-is
       (blog tags are shared across the user's other projects too, not
       exclusively this game's naming decision to make alone).
+12. **A winding river of Sewer's Standing Sewage Water, with a bridge
+    (the Rusted Metal Grating Floor tile) crossing it** (added
+    2026-09-13, deliberately deferred out of that day's water-feature
+    pass) - a real linear placement algorithm threading a connected
+    water path across the map (similar in spirit to Forest's own dirt-
+    path line, `MapTheme::path_variants` - see "Map tile themes" in Done
+    below - but for an IMPASSABLE feature that needs at least one
+    guaranteed walkable crossing point rather than a tile the player
+    just walks along). Not started - the moat/isolated-patch/sparse-
+    obstacle placement system that shipped the same day intentionally
+    stopped short of this one, since a river's own crossing-point
+    guarantee (never leaving the map disconnected) is a meaningfully
+    harder problem than either of those.
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -962,10 +969,82 @@ to `Dungeon_Font_Glyph_to_Cell_Map.md`.
   as too visually flat - fixed with a flat darkening multiply on
   real-texture wall tiles, benefiting every theme at once rather than
   needing new art.
-- **`TileType::Water`** exists in the data model, impassable and opaque
-  with zero extra logic (same free ride `Counter` already got), but
-  isn't placed by any generator yet - deliberate, targeted placement (a
-  river, a lone obstacle) is its own deferred design pass.
+- **`TileType::Water`** is now real, placed data (2026-09-13, see "Map-
+  gen refactor" below) - blocking like `Counter`, but deliberately NOT
+  opaque, so a moat still lets the player see what's on the other side.
+
+## Map-gen refactor — `map_builder`'s single-tile-set assumptions, three phases
+
+Backlog item 8 - `map_builder` still baked in some single-tile-set
+assumptions even after the multi-theme system above shipped. Branch
+`refactor-map-builder-item-8`, three phases, each verified with the fast
+test suite plus both headless class-survivability simulations (all
+consistent with prior documented patterns - Mage weakest, boss walls at
+L2/L3):
+
+- **Phase 1 (structural, no visual change)**: `MapTheme` gains `floor_
+  variant_count()`/`wall_variant_count()`, defaulting to every existing
+  theme's current shape, so a future theme can declare a different
+  count instead of being forced into shared global constants (removed:
+  `FLOOR_VARIANT_COUNT`/`WALL_VARIANT_COUNT`). Also gains `exit_tile()`/
+  `counter_tile()` hooks (raw atlas cell, defaulting to `None`) so a
+  theme CAN give Exit/Counter real art later - unused by all three
+  themes so far. Every `MapArchitect` had repeated an identical
+  `MapBuilder` struct literal just for a throwaway placeholder theme -
+  extracted into `MapBuilder::blank()`. `prefab.rs`'s template parsing
+  now panics on an unrecognized marker instead of silently `println!`-
+  ing and no-op-ing.
+- **Phase 2**: Forest's Dirt Path/Path Fork cells rendered as a random
+  circular blob (the default `Patch` treatment every other floor variant
+  gets) rather than anything resembling a path - the user's own
+  complaint ("we just have a circle of path tiles"). New `MapTheme::
+  path_variants()` hook; when set (Forest only), `assign_tile_variants`
+  excludes both variants from the normal patch/scatter pools and instead
+  walks the real shortest route between `player_start` and `amulet_
+  start` (greedily descending a BFS distance field, ties broken at
+  random so open rooms still wobble naturally while corridors stay
+  straight), stamping a genuinely connected line. `Path Fork` marks just
+  the path's own north-most endpoint - real branching, or rotating a
+  single glyph to point a fork multiple directions, isn't possible on
+  the plain (non-`set_fancy`) console map tiles render on at rest, so
+  this became a discrete accent rather than a second real branch.
+  Promoted `bfs_distance_field` out of `screens/battle.rs`'s class-
+  survivability bot (which had its own private copy of the exact same
+  BFS-not-DijkstraMap logic) into `Map::bfs_distance_field`, now shared
+  by both.
+- **Phase 3**: the "special wall" row (13-16, never placed by any
+  generator before this) put to real use, differently for its two kinds
+  of cell:
+  - **Liquid cells** (Forest's Water, Sewer's Standing Sewage Water AND
+    Toxic Sludge Pool - `MapTheme::water_variants()`, a theme can
+    register more than one distinct look) are blocking but deliberately
+    NOT opaque (`Map::is_opaque` gained a `TileType::Water` special
+    case) - a moat should still let the player see through it, the
+    whole reason to use water instead of a solid wall. Used for: the
+    FORTRESS prefab's wall ring (`fortress_moat_variant` - Forest uses
+    Water, Sewer uses Sludge, Dungeon deliberately stays plain wall -
+    "the dungeon doesn't really have a special tile like [that]"), the
+    CHEST_ROOM prefab's own ring (`chest_moat_variant`, Sewer's Dirty
+    Water only), and a handful of small isolated Wall-to-Water patches
+    elsewhere on the map (`wall_water_patch_variant`, Sewer only) -
+    purely cosmetic, since Water is exactly as blocking as the Wall it
+    replaces.
+  - **Solid-obstacle cells** (Forest's Stump/Log/Briar, Dungeon's
+    Rubble/Pillar/Portcullis Chunk, Sewer's Pipe-Valve/Collapsed Grate)
+    join the Wall variant pool via the same two-row split Floor already
+    has (`MapTheme::wall_obstacle_variants`), placed through a new,
+    much rarer pass than the existing per-tile wall accent, with a hard
+    "at most one per 5x5 area" spacing check ("I don't want a lot of
+    them... used sparingly") - a plain low-probability independent roll
+    alone doesn't guarantee that, hence the explicit neighborhood check
+    before placing each one.
+  - `MapBuilder::new` had to move theme selection earlier (before
+    `apply_prefab`/`apply_chest` instead of after) so those two could
+    read the real theme's own moat variants instead of the still-unset
+    placeholder.
+  - The river-with-a-bridge idea (a winding Sewer water path crossed by
+    its Rusted Metal Grating Floor tile) was deliberately deferred - see
+    item 12 in Working above.
 
 ## Documentation
 
@@ -1196,7 +1275,7 @@ theme/mode, no randomization. Full technical detail in `docs/journal.md`.
   transparent-background trick already relies on) - technically
   correct, but the user disliked how it looked (a flat rectangle with
   hard edges, out of place against painted art) and asked for it
-  gone until real UI art exists to do this properly - see item 11
+  gone until real UI art exists to do this properly - see item 10
   below. Reverted; the underlying legibility problem is untouched
   (still there on a bright-enough background) but accepted as a known
   gap for now rather than shipping a placeholder that reads as a bug.

@@ -77,6 +77,19 @@ impl MapTheme for DungeonTheme {
             _ => VariantStyle::Patch,
         }
     }
+
+    /// Cells 15-16 (Broken Toppled Pillar, Cracked Iron Grate/Portcullis
+    /// Chunk) plus cell 14 (Rubble Pile) - row `tile_row() + 3` cols
+    /// 1-3. Cell 13 (Water/sewage puddle, col 0) deliberately left
+    /// unclaimed here - Dungeon has no `fortress_moat_variant`/`water_
+    /// variants` override (2026-09-13, "the dungeon doesn't really have
+    /// a special tile like [Forest's water moat]"), and reusing that
+    /// same puddle art as a solid, opaque obstacle would read as
+    /// visually contradictory - it stays unused rather than forced into
+    /// a role its own art doesn't support.
+    fn wall_obstacle_variants(&self) -> Vec<u16> {
+        vec![1, 2, 3]
+    }
 }
 
 pub struct ForestTheme {}
@@ -135,6 +148,26 @@ impl MapTheme for ForestTheme {
     /// a line").
     fn path_variants(&self) -> Option<(u8, u8)> {
         Some((4, 5))
+    }
+
+    /// Cell 13 (Water), row `tile_row() + 3` col 0 - Forest's only
+    /// liquid cell.
+    fn water_variants(&self) -> Vec<u16> {
+        vec![0]
+    }
+
+    /// Forest's Fortress ring becomes a real moat (2026-09-13 - "have
+    /// the water as the walls for the fort").
+    fn fortress_moat_variant(&self) -> Option<u8> {
+        Some(0)
+    }
+
+    /// Cells 14-16 (Tree Stump, Fallen Log, Briar Patch) - row `tile_
+    /// row() + 3` cols 1-3, the columns `water_variants` above doesn't
+    /// already claim. See `MapTheme::wall_obstacle_variants`'s own doc
+    /// comment for the sparse, capped-density placement these get.
+    fn wall_obstacle_variants(&self) -> Vec<u16> {
+        vec![1, 2, 3]
     }
 }
 
@@ -212,6 +245,43 @@ impl MapTheme for SewerTheme {
             4 | 5 => VariantStyle::Scatter,
             _ => VariantStyle::Patch,
         }
+    }
+
+    /// Sewer's two distinct liquid cells, unlike Forest/Dungeon's one -
+    /// cell 13 (Standing Sewage Water, col 0) at index 0, cell 16 (Toxic
+    /// Sludge Pool, col 3) at index 1. Each used for a different purpose
+    /// below (2026-09-13): Sludge for the Fortress moat (matching
+    /// Forest's own water-as-fortress-wall idea), Dirty [Sewage] Water
+    /// for the Chest Room moat and the isolated wall patch.
+    fn water_variants(&self) -> Vec<u16> {
+        vec![0, 3]
+    }
+
+    /// Sludge (index 1) - "same logic [as Forest's Fortress moat]...
+    /// for the sludge... so that we can use them as wall for the
+    /// fortress."
+    fn fortress_moat_variant(&self) -> Option<u8> {
+        Some(1)
+    }
+
+    /// Standing Sewage Water (index 0) - "[dirty water] could surround
+    /// the chest walls."
+    fn chest_moat_variant(&self) -> Option<u8> {
+        Some(0)
+    }
+
+    /// Standing Sewage Water (index 0) again - "[dirty water] could be
+    /// used in the middle of a block of walls to make a small patch."
+    fn wall_water_patch_variant(&self) -> Option<u8> {
+        Some(0)
+    }
+
+    /// Cells 14-15 (Large Rusted Pipe/Valve Obstacle, Collapsed Grate/
+    /// Debris Pile) - row `tile_row() + 3` cols 1-2, the only two
+    /// columns `water_variants` above doesn't already claim (cols 0 and
+    /// 3 are Sewer's two liquid cells).
+    fn wall_obstacle_variants(&self) -> Vec<u16> {
+        vec![1, 2]
     }
 }
 

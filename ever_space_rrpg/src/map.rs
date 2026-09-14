@@ -13,14 +13,16 @@ pub enum TileType {
     /// rendered as a distinct warm bar (see tile_render_at) instead of
     /// theme brick, so shop items don't read as text stuck in a wall.
     Counter,
-    /// A real map-theme "special wall" feature (see
-    /// docs/Map_Tile_Theme_Guide.md) - impassable exactly like Wall, same
-    /// zero-extra-logic reasoning as Counter above (can_enter_tile/
-    /// is_opaque only special-case Floor/Exit as passable/see-through).
-    /// Not placed by any map generator yet - deliberate, targeted
-    /// placement (a river, a lone obstacle) is deferred to a later
-    /// design pass; this variant exists now so the render/data-model
-    /// side is ready whenever that placement logic arrives.
+    /// A real map-theme liquid feature (a moat, standing sewage, sludge -
+    /// see `MapTheme::water_variants`) - impassable like Wall (`can_
+    /// enter_tile` below still only special-cases Floor/Exit as
+    /// passable), but deliberately NOT opaque (`is_opaque` below DOES
+    /// special-case this one, unlike Counter above) - a moat should
+    /// still let the player see what's on the other side of it, the
+    /// whole point of using water instead of a solid wall for a
+    /// fortress/chest-room border (2026-09-13). Placed deliberately by
+    /// `map_builder` (fortress/chest-room moats, small isolated patches)
+    /// - never part of the ordinary random Floor/Wall variant rolls.
     Water,
 }
 
@@ -149,7 +151,9 @@ impl Algorithm2D for Map {
 
 impl BaseMap for Map {
     fn is_opaque(&self, idx: usize) -> bool {
-        self.tiles[idx as usize] != TileType::Floor
+        // Water is the one non-Floor tile that deliberately doesn't
+        // block sight - see TileType::Water's own doc comment.
+        !matches!(self.tiles[idx as usize], TileType::Floor | TileType::Water)
     }
 
     fn get_available_exits(&self, idx: usize) -> SmallVec<[(usize, f32); 10]> {
