@@ -218,20 +218,6 @@ Roughly in the order they've come up:
       worth deciding whether this tag gets renamed too or stays as-is
       (blog tags are shared across the user's other projects too, not
       exclusively this game's naming decision to make alone).
-12. **A winding river of Sewer's Standing Sewage Water, with a bridge
-    (the Rusted Metal Grating Floor tile) crossing it** (added
-    2026-09-13, deliberately deferred out of that day's water-feature
-    pass) - a real linear placement algorithm threading a connected
-    water path across the map (similar in spirit to Forest's own dirt-
-    path line, `MapTheme::path_variants` - see "Map tile themes" in Done
-    below - but for an IMPASSABLE feature that needs at least one
-    guaranteed walkable crossing point rather than a tile the player
-    just walks along). Not started - the moat/isolated-patch/sparse-
-    obstacle placement system that shipped the same day intentionally
-    stopped short of this one, since a river's own crossing-point
-    guarantee (never leaving the map disconnected) is a meaningfully
-    harder problem than either of those.
-
 ## Future Class Ability Ideas (brainstorm only)
 
 Nothing below is scoped, designed in detail, or scheduled — pull
