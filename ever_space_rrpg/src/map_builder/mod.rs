@@ -532,8 +532,9 @@ impl MapBuilder {
         // glow" patched as a whole region looked like a wall of torches).
         let floor_variant_count = self.theme.floor_variant_count();
         let path_variants = self.theme.path_variants();
-        let is_path_variant =
-            |v: u8| path_variants.map_or(false, |(main, fork)| v == main || v == fork);
+        let is_path_variant = |v: u8| {
+            path_variants.map_or(false, |(vertical, horizontal)| v == vertical || v == horizontal)
+        };
         let patch_variants: Vec<u8> = (1..floor_variant_count)
             .filter(|&v| !is_path_variant(v) && self.theme.floor_variant_style(v) == VariantStyle::Patch)
             .collect();
