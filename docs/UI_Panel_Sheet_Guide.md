@@ -8,19 +8,20 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-all 6 Item Menu boxes confirmed correct after six rounds of live
-screenshot feedback, the 3 dungeon-HUD bars (Item/Ability/Battle) now
-wired up too** - a saturated tint crushing the stone's own shading, the
-border swallowing box text at native scale, a real no_bg-console fill
-bug, the fill not quite nesting inside the border, a title-on-border
-attempt that hid every title outright, and a blank description panel
-when nothing's selected - see "Using it" below for the full reasoning on
-each fix. The HUD bars reuse the exact same `draw_filled_pixel_box`
-recipe, not yet screenshot-verified (they render over the live dungeon
-view, a real difference from the Item Menu's paused-menu background
-worth confirming). The remaining 4 of 13 sites (the shop-item tooltip,
-the Pause Hints box, the battle log, and the Battle Actions box - see
-`docs/ideas.md` item 10 for the full list) are still on `draw_ascii_box`.
+the Item Menu's 6 boxes refined across seven rounds of live screenshot
+feedback, the 3 dungeon-HUD bars wired up too (not yet screenshot-
+verified - see "Using it" below)** - a saturated tint crushing the
+stone's own shading, the border swallowing box text at native scale, a
+real no_bg-console fill bug, the fill not quite nesting inside the
+border, a title-on-border attempt that hid every title outright, a blank
+description panel when nothing's selected, and (most recently) box
+titles inheriting a black background purely because the fill already
+covered their own row - fixed with a `has_title` flag on
+`draw_filled_pixel_box` that excludes just that row from the fill. The
+description panel also gained its own title, the one box that never had
+one. The remaining 4 of 13 sites (the shop-item tooltip, the Pause Hints
+box, the battle log, and the Battle Actions box - see `docs/ideas.md`
+item 10 for the full list) are still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
