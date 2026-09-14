@@ -489,14 +489,18 @@ pub fn draw_pixel_box(
 /// instead - texture_white * BLACK = black, same multiply-tint mechanism
 /// every other tinted icon in this project already relies on.
 ///
-/// `has_title` excludes the box's own top row from the fill (the border
-/// itself is untouched, still the box's full nominal height) - confirmed
-/// live 2026-09-14 that a caller printing a title at that same top row
-/// (see e.g. `screens/item_menu.rs::print_box`) inherited a black
-/// background behind the title text purely because the fill already
-/// covered that row, not because anything drew a background on purpose.
-/// Callers with no title of their own (the dungeon HUD's Item/Ability/
-/// Battle Bar frames) pass `false` and get the full box filled as before.
+/// Fills the box's FULL nominal area, title row included - a `has_title`
+/// flag briefly existed here (2026-09-14) to carve the title's own row
+/// out of the fill, on the theory that a title inheriting a black
+/// background must have been unintentional. Reverted the same day on
+/// direct correction: the black fill reaching all the way up to meet the
+/// title row was specifically the look wanted ("I like the background
+/// sticking up out of the top to where the label is"), and - more
+/// importantly - a title row left OUTSIDE the fill has nothing solid
+/// behind it at all, so wherever the live background behind the menu is
+/// light, the title becomes hard to read exactly like any other
+/// unfilled text would. One full-box fill for every caller, no
+/// exceptions.
 pub fn draw_filled_pixel_box(
     text_batch: &mut DrawBatch,
     panel_batch: &mut DrawBatch,
@@ -505,7 +509,6 @@ pub fn draw_filled_pixel_box(
     width: i32,
     height: i32,
     theme: UiPanelTheme,
-    has_title: bool,
 ) {
     // The fill's rect comes from the border's own REAL rounded footprint
     // (pixel_box_hud_rect), not the box's original nominal x/y/width/
@@ -514,14 +517,6 @@ pub fn draw_filled_pixel_box(
     // apart by a few pixels, spilling past the border on some edges and
     // falling short on others. See pixel_box_hud_rect's own doc comment.
     let (fill_x, fill_y, fill_w, fill_h) = pixel_box_hud_rect(x, y, width, height);
-    // Skip the top row when there's a title - the BOTTOM edge stays put
-    // (fill_h shrinks by 1 along with fill_y moving down by 1), so only
-    // the title's own row is excluded, not the box's real interior.
-    let (fill_y, fill_h) = if has_title {
-        (fill_y + 1, (fill_h - 1).max(0))
-    } else {
-        (fill_y, fill_h)
-    };
     text_batch.fill_region(
         Rect::with_size(fill_x, fill_y, fill_w, fill_h),
         ColorPair::new(BLACK, BLACK),

@@ -592,7 +592,7 @@ pub fn hud(
         }
         if item_n > 0 {
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon, false);
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -626,7 +626,7 @@ pub fn hud(
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(ability_start_col, ability_n, true);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon, false);
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -664,7 +664,7 @@ pub fn hud(
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(battle_start_col, battle_n, false);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon, false);
+            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         bar_batch.submit(10001).expect("Batch error");
