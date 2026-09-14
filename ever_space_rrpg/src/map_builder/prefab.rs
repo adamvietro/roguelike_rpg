@@ -164,7 +164,7 @@ pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor, // (16)
                     '#' => mb.map.tiles[idx] = TileType::Wall,
-                    _ => println!("No idea what to do with [{}]", c), // (17)
+                    _ => panic!("FORTRESS/TURRET/BUNKER template has an unrecognized marker [{}]", c),
                 }
                 i += 1;
             }
@@ -209,7 +209,7 @@ pub fn apply_chest(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
                     }
                     '-' => mb.map.tiles[idx] = TileType::Floor,
                     '#' => mb.map.tiles[idx] = TileType::Wall,
-                    _ => println!("No idea what to do with [{}]", c),
+                    _ => panic!("CHEST_ROOM template has an unrecognized marker [{}]", c),
                 }
                 i += 1;
             }

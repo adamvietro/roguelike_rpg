@@ -19,23 +19,33 @@ pub enum TileSpriteSheet {
 /// theme still reads too flat even with it applied.
 const WALL_TEXTURE_SHADE: f32 = 0.72;
 
-/// The exact `resources/map_tiles.png` glyph for a Floor/Wall tile,
-/// given its theme's starting row (`MapTheme::tile_row`) and its own
-/// rolled variant (`Map::tile_variant`) - `None` for any TileType
-/// without a variant pool yet (Exit/Counter/Water), so the caller falls
-/// through to the old dungeonfont rendering for those. See
-/// docs/Map_Tile_Theme_Guide.md for the row layout this encodes: row
-/// `base_row + 0` is basic floor, `+1` wall, `+2` themed floor (floor's
-/// variant pool spans both `+0` and `+2`, `variant` 0..FLOOR_VARIANT_COUNT
-/// picks between them), `+3` special wall (not wired up yet).
-fn map_tile_glyph(base_row: u16, tile: TileType, variant: u8) -> Option<FontCharType> {
-    let (row_offset, col) = match tile {
-        TileType::Floor if variant < MAP_TILE_COLS as u8 => (0, variant as u16),
-        TileType::Floor => (2, (variant - MAP_TILE_COLS as u8) as u16),
-        TileType::Wall => (1, variant as u16),
-        TileType::Exit | TileType::Counter | TileType::Water => return None,
+/// The exact `resources/map_tiles.png` glyph for a Floor/Wall/Exit/
+/// Counter tile - `None` for any tile with no real art yet (`Water`
+/// always; `Exit`/`Counter` for a theme whose `exit_tile`/`counter_tile`
+/// is still `None`), so the caller falls through to the old dungeonfont
+/// rendering for those. See docs/Map_Tile_Theme_Guide.md for the row
+/// layout Floor/Wall encode: row `base_row + 0` is basic floor, `+1`
+/// wall, `+2` themed floor (floor's variant pool spans both `+0` and
+/// `+2`, `variant` 0..`theme.floor_variant_count()` picks between them),
+/// `+3` special wall (not wired up yet). Exit/Counter aren't part of
+/// that per-theme 4-row block at all - `exit_tile`/`counter_tile` give
+/// raw (row, col) coordinates anywhere in the shared atlas instead,
+/// since each is a single rare tile with no variant pool of its own.
+fn map_tile_glyph(
+    theme: &dyn MapTheme,
+    base_row: Option<u16>,
+    tile: TileType,
+    variant: u8,
+) -> Option<FontCharType> {
+    let (row, col) = match tile {
+        TileType::Floor if variant < MAP_TILE_COLS as u8 => (base_row?, variant as u16),
+        TileType::Floor => (base_row? + 2, (variant - MAP_TILE_COLS as u8) as u16),
+        TileType::Wall => (base_row? + 1, variant as u16),
+        TileType::Exit => theme.exit_tile()?,
+        TileType::Counter => theme.counter_tile()?,
+        TileType::Water => return None,
     };
-    Some((base_row + row_offset) * MAP_TILE_COLS + col)
+    Some(row * MAP_TILE_COLS + col)
 }
 
 /// Computes the same ColorPair/glyph/sheet a tile would be drawn with in
@@ -78,21 +88,19 @@ pub fn tile_render_at(
     // the `_no_bg` near-black cutoff (MAP_TILE_CONSOLE's own gotcha,
     // above) because that check runs on the source texture's own raw
     // color, before this multiply ever applies.
-    if let Some(base_row) = theme.tile_row() {
-        if let Some(glyph) = map_tile_glyph(base_row, tile, map.tile_variant[idx]) {
-            let (wr, wg, wb) = if visible { WHITE } else { DARK_GRAY };
-            let base_tint = RGB::from_u8(wr, wg, wb);
-            let tint = if tile == TileType::Wall {
-                RGB::from_f32(
-                    base_tint.r * WALL_TEXTURE_SHADE,
-                    base_tint.g * WALL_TEXTURE_SHADE,
-                    base_tint.b * WALL_TEXTURE_SHADE,
-                )
-            } else {
-                base_tint
-            };
-            return Some((ColorPair::new(tint, BLACK), glyph, TileSpriteSheet::MapTiles));
-        }
+    if let Some(glyph) = map_tile_glyph(theme, theme.tile_row(), tile, map.tile_variant[idx]) {
+        let (wr, wg, wb) = if visible { WHITE } else { DARK_GRAY };
+        let base_tint = RGB::from_u8(wr, wg, wb);
+        let tint = if tile == TileType::Wall {
+            RGB::from_f32(
+                base_tint.r * WALL_TEXTURE_SHADE,
+                base_tint.g * WALL_TEXTURE_SHADE,
+                base_tint.b * WALL_TEXTURE_SHADE,
+            )
+        } else {
+            base_tint
+        };
+        return Some((ColorPair::new(tint, BLACK), glyph, TileSpriteSheet::MapTiles));
     }
 
     let glyph = theme.tile_to_render(tile);

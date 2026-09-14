@@ -5,18 +5,7 @@ pub struct CellularAutomataArchitect {}
 
 impl MapArchitect for CellularAutomataArchitect {
     fn new(&mut self, rng: &mut RandomNumberGenerator) -> MapBuilder {
-        let mut mb = MapBuilder {
-            map: Map::new(),
-            rooms: Vec::new(),
-            monster_spawns: Vec::new(),
-            player_start: Point::zero(),
-            amulet_start: Point::zero(),
-            theme: super::themes::DungeonTheme::new(),
-            prefab_enemy_spawns: Vec::new(),
-            prefab_weapon_spawn: None,
-            prefab_chest_spawn: None,
-            prefab_chest_guard_spawns: Vec::new(),
-        };
+        let mut mb = MapBuilder::blank();
         self.random_noise_map(rng, &mut mb.map);
         for _ in 0..10 {
             self.iteration(&mut mb.map);

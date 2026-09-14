@@ -101,6 +101,45 @@ pub trait MapTheme: Sync + Send {
     fn tile_row(&self) -> Option<u16> {
         None
     }
+    /// How many distinct floor textures this theme's FLOOR pool has -
+    /// defaults to every existing theme's shape (`MAP_TILE_COLS * 2`:
+    /// row `+0` basic floor plus row `+2` themed floor, `MAP_TILE_COLS`
+    /// each - the atlas's actual column width, a fixed property of the
+    /// shared image, not something a theme can vary). Variants
+    /// `0..MAP_TILE_COLS` render off row `+0`, the rest off row `+2` -
+    /// see `components::map_tile_glyph`. A theme with fewer real floor
+    /// variants than a full two rows can just return a smaller count;
+    /// the unused cells at the end of row `+2` simply never get rolled.
+    fn floor_variant_count(&self) -> u8 {
+        MAP_TILE_COLS as u8 * 2
+    }
+    /// How many distinct wall textures this theme's WALL pool has -
+    /// defaults to every existing theme's shape (row `+1` only,
+    /// `MAP_TILE_COLS` variants). See `floor_variant_count`'s own doc
+    /// comment for the same "fewer than a full row is fine" note - a
+    /// theme can also return 1 (no accent variants at all;
+    /// `MapBuilder::assign_tile_variants` skips wall-accent rolling
+    /// entirely in that case rather than panicking on an empty range).
+    fn wall_variant_count(&self) -> u8 {
+        MAP_TILE_COLS as u8
+    }
+    /// This theme's dedicated cell for `TileType::Exit`, as raw
+    /// (row, col) coordinates into `resources/map_tiles.png` - NOT
+    /// relative to `tile_row()`'s floor/wall block, since Exit is a
+    /// single rare tile with no variant pool of its own, not part of
+    /// that per-theme 4-row shape. Defaults to `None`, which falls back
+    /// to the old flat dungeonfont glyph (`tile_to_render`) - exactly
+    /// the same "no real art yet" fallback `tile_row() == None` already
+    /// gives Floor/Wall, just applied per-tile-type instead of for the
+    /// whole theme at once.
+    fn exit_tile(&self) -> Option<(u16, u16)> {
+        None
+    }
+    /// This theme's dedicated cell for `TileType::Counter` - see
+    /// `exit_tile`'s own doc comment, same shape and same reasoning.
+    fn counter_tile(&self) -> Option<(u16, u16)> {
+        None
+    }
     /// This theme's row on the shared `resources/battle_backgrounds.png`
     /// sheet (one full 1280x800 painted arena scene per row, no columns -
     /// see `BATTLE_BACKDROP_CONSOLE`'s own doc comment in main.rs)  -
@@ -187,17 +226,11 @@ fn dungeon_theme_pool() -> Vec<Box<dyn MapTheme>> {
 
 /// Columns on `resources/map_tiles.png` - every theme's 4-row block uses
 /// this many columns per row, matching the 16-cell (4x4) template in
-/// docs/Map_Tile_Theme_Guide.md.
+/// docs/Map_Tile_Theme_Guide.md. A fixed property of the shared atlas
+/// image itself, not per-theme - see `MapTheme::floor_variant_count`/
+/// `wall_variant_count` for what IS per-theme now (how many of those
+/// columns' worth of variants a theme actually uses).
 pub const MAP_TILE_COLS: u16 = 4;
-/// How many distinct floor textures a migrated theme's FLOOR pool has -
-/// row 0 (basic floor) and row 2 (themed floor) combined, MAP_TILE_COLS
-/// each, picked randomly from either (see docs/Map_Tile_Theme_Guide.md's
-/// confirmed row semantics).
-pub const FLOOR_VARIANT_COUNT: u8 = MAP_TILE_COLS as u8 * 2;
-/// How many distinct wall textures a migrated theme's WALL pool has -
-/// row 1 (basic wall) only for now; row 3 (special wall) joins this pool
-/// once its placement logic exists (deferred - see the guide doc).
-pub const WALL_VARIANT_COUNT: u8 = MAP_TILE_COLS as u8;
 /// Percent chance (0-99) an individual Wall tile swaps from the theme's
 /// default wall texture (variant 0) to a random accent variant - see
 /// MapBuilder::assign_tile_variants. Deliberately a MINORITY so the
@@ -258,6 +291,29 @@ pub struct MapBuilder {
 }
 
 impl MapBuilder {
+    /// An empty, all-default `MapBuilder` for an architect to build on -
+    /// every architect's own `new` used to repeat this exact struct
+    /// literal (including the same throwaway `DungeonTheme` placeholder
+    /// for `theme`, immediately overwritten by `MapBuilder::new` once the
+    /// architect returns), one copy per architect to keep in sync by
+    /// hand. `theme` here is never actually read as `DungeonTheme` by
+    /// anything - it only exists so the field has a value before the
+    /// real theme gets assigned.
+    fn blank() -> Self {
+        Self {
+            map: Map::new(),
+            rooms: Vec::new(),
+            monster_spawns: Vec::new(),
+            player_start: Point::zero(),
+            amulet_start: Point::zero(),
+            theme: themes::DungeonTheme::new(),
+            prefab_enemy_spawns: Vec::new(),
+            prefab_weapon_spawn: None,
+            prefab_chest_spawn: None,
+            prefab_chest_guard_spawns: Vec::new(),
+        }
+    }
+
     /// `forced_theme` - see `ThemeChoice::theme` - overrides the normal
     /// random per-floor pick when `Some` (a Debug-run's `ThemeSelect`
     /// choice, see `TurnState::ThemeSelect`); every other caller (a
@@ -325,11 +381,17 @@ impl MapBuilder {
         // no width for a "block" to read differently from a scatter
         // anyway. Trees (or whatever variant 0 is) stay the dominant
         // wall texture; rock/rubble/thicket read as occasional accents.
-        for idx in 0..self.map.tiles.len() {
-            if self.map.tiles[idx] == TileType::Wall
-                && rng.range(0, 100) < WALL_ACCENT_CHANCE_PCT
-            {
-                self.map.tile_variant[idx] = rng.range(1, WALL_VARIANT_COUNT);
+        // Skipped entirely for a theme with only one wall variant -
+        // `rng.range(1, 1)` would be an empty range and panic, and
+        // there'd be nothing non-default to accent to anyway.
+        let wall_variant_count = self.theme.wall_variant_count();
+        if wall_variant_count > 1 {
+            for idx in 0..self.map.tiles.len() {
+                if self.map.tiles[idx] == TileType::Wall
+                    && rng.range(0, 100) < WALL_ACCENT_CHANCE_PCT
+                {
+                    self.map.tile_variant[idx] = rng.range(1, wall_variant_count);
+                }
             }
         }
 
@@ -338,10 +400,11 @@ impl MapBuilder {
         // comment for why one style doesn't fit every kind of variant
         // (confirmed in real play, 2026-09-08: Dungeon's "torchlight
         // glow" patched as a whole region looked like a wall of torches).
-        let patch_variants: Vec<u8> = (1..FLOOR_VARIANT_COUNT)
+        let floor_variant_count = self.theme.floor_variant_count();
+        let patch_variants: Vec<u8> = (1..floor_variant_count)
             .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Patch)
             .collect();
-        let scatter_variants: Vec<u8> = (1..FLOOR_VARIANT_COUNT)
+        let scatter_variants: Vec<u8> = (1..floor_variant_count)
             .filter(|&v| self.theme.floor_variant_style(v) == VariantStyle::Scatter)
             .collect();
 

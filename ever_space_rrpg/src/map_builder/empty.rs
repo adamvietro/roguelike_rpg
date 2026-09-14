@@ -5,18 +5,7 @@ pub struct EmptyArchitect {}
 
 impl MapArchitect for EmptyArchitect {
     fn new(&mut self, rng: &mut RandomNumberGenerator) -> MapBuilder {
-        let mut mb = MapBuilder {
-            map: Map::new(),
-            rooms: Vec::new(),
-            monster_spawns: Vec::new(),
-            player_start: Point::zero(),
-            amulet_start: Point::zero(),
-            theme: super::themes::DungeonTheme::new(),
-            prefab_enemy_spawns: Vec::new(),
-            prefab_weapon_spawn: None,
-            prefab_chest_spawn: None,
-            prefab_chest_guard_spawns: Vec::new(),
-        };
+        let mut mb = MapBuilder::blank();
         mb.fill(TileType::Floor);
         mb.player_start = Point::new(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
         mb.amulet_start = mb.find_most_distant();
