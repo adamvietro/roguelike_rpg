@@ -218,6 +218,17 @@ Roughly in the order they've come up:
       worth deciding whether this tag gets renamed too or stays as-is
       (blog tags are shared across the user's other projects too, not
       exclusively this game's naming decision to make alone).
+12. **An infinite/endless mode**, with real player upgrades and stat
+    upgrades offered after levels (added 2026-09-14) - not scoped, not
+    designed, explicitly not something to start on yet - logged as a
+    placeholder only. Whichever mode it attaches to (a new third
+    Adventure Select option, or an "endless" variant of Dungeon
+    Crawl/Battle Arena) and the actual upgrade mechanics (a pick-one-of-
+    three choice between levels, a persistent skill tree, straight stat
+    boosts, something else) both need a real design conversation before
+    any code gets written, per CLAUDE.md's own convention for
+    architectural-sized changes.
+
 ## Future Class Ability Ideas (brainstorm only)
 
 Nothing below is scoped, designed in detail, or scheduled — pull
