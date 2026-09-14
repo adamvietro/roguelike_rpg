@@ -98,25 +98,39 @@ impl State {
         }
         let hint = PAUSE_HINTS[self.pause_hint_index];
 
-        // One batch for the whole box - print_color_centered on a
-        // DrawBatch centers on the TARGET CONSOLE's full width (same as
-        // ctx.print_color_centered), not the box's own column range, so
-        // this only lines up with the box visually because the box itself
-        // is ALSO centered on HUD_CONSOLE (see HINT_BOX_X) - both share
-        // the same center point.
-        let mut hint_batch = DrawBatch::new();
-        hint_batch.target(HUD_CONSOLE);
-        draw_ascii_box(
-            &mut hint_batch,
+        // The real PixelLab panel border (item 10 in docs/ideas.md),
+        // Swamp - direct request 2026-09-14 ("I want the tooltips to be
+        // the wooden and green corners. As well as the hints bar.").
+        // panel_batch (UI_PANEL_CONSOLE) draws fill+border, text_batch
+        // (PANEL_TEXT_CONSOLE) draws both printed lines - two different
+        // consoles, not two batches on HUD_CONSOLE, for the same reason
+        // every other converted box on this project needs it: printing
+        // text on the SAME console as the fill would OVERWRITE the
+        // fill's own cells outright (SimpleConsole::set replaces a
+        // cell's whole tile, it doesn't layer) rather than sit on top of
+        // it - see PANEL_TEXT_CONSOLE's own doc comment in main.rs.
+        // print_color_centered on a DrawBatch centers on the TARGET
+        // CONSOLE's full width, not the box's own column range, so this
+        // only lines up with the box visually because the box itself is
+        // ALSO centered on the same HUD_COLS-wide grid (see HINT_BOX_X)
+        // - both share the same center point, and PANEL_TEXT_CONSOLE
+        // shares HUD_CONSOLE's exact grid, so that still holds.
+        let mut panel_batch = DrawBatch::new();
+        panel_batch.target(UI_PANEL_CONSOLE);
+        let mut text_batch = DrawBatch::new();
+        text_batch.target(PANEL_TEXT_CONSOLE);
+        draw_filled_pixel_box(
+            &mut panel_batch,
             HINT_BOX_X,
             HINT_BOX_Y,
             HINT_BOX_WIDTH,
             HINT_BOX_HEIGHT,
-            ColorPair::new(YELLOW, BLACK),
+            UiPanelTheme::Swamp,
         );
-        hint_batch.print_color_centered(HINT_BOX_Y + 2, "Hints", ColorPair::new(YELLOW, BLACK));
-        hint_batch.print_color_centered(HINT_BOX_Y + 4, hint, ColorPair::new(WHITE, BLACK));
-        hint_batch.submit(0).expect("Batch error");
+        text_batch.print_color_centered(HINT_BOX_Y + 2, "Hints", ColorPair::new(YELLOW, BLACK));
+        text_batch.print_color_centered(HINT_BOX_Y + 4, hint, ColorPair::new(WHITE, BLACK));
+        panel_batch.submit(0).expect("Batch error");
+        text_batch.submit(1).expect("Batch error");
 
         if ctx.key == Some(VirtualKeyCode::Escape) {
             self.resources.insert(TurnState::AwaitingInput);

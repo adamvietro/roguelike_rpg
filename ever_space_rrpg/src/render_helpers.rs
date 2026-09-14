@@ -300,12 +300,21 @@ impl UiPanelTheme {
 /// HUD_CONSOLE's own real cell width (1280/107 ~= 11.96px) so the new
 /// border reads at roughly the same visual weight the old 1-cell-thick
 /// ASCII border had. Bumped 0.375 -> 0.5 (12px -> 16px) 2026-09-14 on
-/// direct feedback that the borders read too thin/small once live -
-/// still a first-pass guess pending a fresh screenshot, same as every
-/// other bracket-lib pixel value in this project. Deliberately doesn't
-/// touch icon/portrait rendering - those go through their own separate
-/// scale (draw_portrait/draw_portrait_fancy), not this constant.
-const PIXEL_BOX_TILE_SCALE: f32 = 0.5;
+/// direct feedback that the Item Menu's own (large) boxes read too
+/// thin/small once live - then dropped to 0.3 (~9.6px) the SAME day on
+/// the opposite complaint once the dungeon HUD bars (much smaller boxes
+/// than the Item Menu) were seen live: at 0.5 the border's own frame
+/// color was visibly eating into a small bar's total footprint more
+/// than the icon content itself. One shared constant can't perfectly
+/// satisfy both box sizes at once (border weight relative to box size
+/// isn't fixed) - if this tension recurs, the real fix is a per-caller
+/// scale parameter, not another single-number retune; not built yet
+/// since it hasn't been asked for. Still a first-pass guess pending a
+/// fresh screenshot, same as every other bracket-lib pixel value in
+/// this project. Deliberately doesn't touch icon/portrait rendering -
+/// those go through their own separate scale (draw_portrait/
+/// draw_portrait_fancy), not this constant.
+const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
 
 /// Draws one `ui_panels.png` tile via `set_fancy` at `PIXEL_BOX_TILE_SCALE`,
 /// at a fractional (col, row) already in UI_PANEL_CONSOLE's native 32px-cell

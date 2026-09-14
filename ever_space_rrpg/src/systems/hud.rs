@@ -443,13 +443,15 @@ pub fn hud(
                 shop_panel_batch.target(UI_PANEL_CONSOLE);
                 let mut shop_text_batch = DrawBatch::new();
                 shop_text_batch.target(PANEL_TEXT_CONSOLE);
+                // Swamp, not Dungeon - direct request 2026-09-14 ("I want
+                // the tooltips to be the wooden and green corners").
                 draw_filled_pixel_box(
                     &mut shop_panel_batch,
                     box_x,
                     box_y,
                     SHOP_TOOLTIP_WIDTH,
                     SHOP_TOOLTIP_HEIGHT,
-                    UiPanelTheme::Dungeon,
+                    UiPanelTheme::Swamp,
                 );
                 shop_text_batch.print_color(
                     Point::new(box_x + 2, box_y + 1),
@@ -625,7 +627,9 @@ pub fn hud(
         }
         if item_n > 0 {
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
-            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
+            // Swamp, not Dungeon - direct request 2026-09-14, so all 3
+            // dungeon HUD bars match (the other two already were/are).
+            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -659,7 +663,8 @@ pub fn hud(
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(ability_start_col, ability_n, true);
-            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
+            // Swamp, not Dungeon - see the Item Bar's own comment above.
+            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -697,8 +702,9 @@ pub fn hud(
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(battle_start_col, battle_n, false);
-            // Swamp, not Dungeon - direct request 2026-09-14, this bar
-            // specifically (the other two dungeon-HUD bars stay Dungeon).
+            // Swamp - the first of the 3 dungeon HUD bars to switch
+            // (2026-09-14); the Item and Ability Bars above joined it
+            // the same day once asked for all 3 to match.
             draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
         }
 
