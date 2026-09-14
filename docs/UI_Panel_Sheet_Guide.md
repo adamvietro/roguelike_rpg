@@ -8,20 +8,19 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-all 6 Item Menu boxes wired up, five real rounds of live screenshot
-feedback fixed so far** - a saturated tint crushing the stone's own
-shading, the border swallowing box text at native scale, a real
-no_bg-console fill bug that left the frozen dungeon view bleeding through
-box interiors, the fill not quite nesting inside the border once it
-rendered solid, and (most recently) a title-on-border attempt that turned
-out to completely HIDE every title instead of relocating it - see "Using
-it" below for the full reasoning on each. Still pending a SIXTH
-screenshot to confirm the fill/border alignment fix and the title revert
-both actually landed right. The remaining 7 of 13 sites (the three
-dungeon-HUD bars, the Pause Hints box, the battle log, and the Battle
-Actions box - see `docs/ideas.md` item 10 for the full list) are still on
-`draw_ascii_box` - swap them one at a time once the Item Menu is
-confirmed correct.
+all 6 Item Menu boxes confirmed correct after six rounds of live
+screenshot feedback, the 3 dungeon-HUD bars (Item/Ability/Battle) now
+wired up too** - a saturated tint crushing the stone's own shading, the
+border swallowing box text at native scale, a real no_bg-console fill
+bug, the fill not quite nesting inside the border, a title-on-border
+attempt that hid every title outright, and a blank description panel
+when nothing's selected - see "Using it" below for the full reasoning on
+each fix. The HUD bars reuse the exact same `draw_filled_pixel_box`
+recipe, not yet screenshot-verified (they render over the live dungeon
+view, a real difference from the Item Menu's paused-menu background
+worth confirming). The remaining 4 of 13 sites (the shop-item tooltip,
+the Pause Hints box, the battle log, and the Battle Actions box - see
+`docs/ideas.md` item 10 for the full list) are still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 
@@ -224,14 +223,16 @@ border-embedded look for now.
 
 ## Still open
 
-- A sixth screenshot, confirming the fill/border alignment fix and the
-  title revert both actually look right together - needed before wiring
-  up the other 12 sites.
-- The remaining 7 of 13 sites: the 3 HUD bars, Pause Hints, the battle
-  log, and the Battle Actions box (its border color already switches
-  live between yellow/green - moot now that `draw_pixel_box` calls use
-  WHITE regardless of category color, so this just needs wiring, not any
-  special-casing for the color switch).
+- A screenshot of the 3 dungeon-HUD bars, now wired up - unverified since
+  they render over the LIVE dungeon view rather than a paused menu, a
+  real context difference from the Item Menu worth confirming looks
+  right (does a solid black bar background read well over live gameplay,
+  or does it want to stay closer to see-through there specifically).
+- The remaining 4 of 13 sites: the shop-item tooltip, Pause Hints, the
+  battle log, and the in-combat Battle Actions box (its border color
+  already switches live between yellow/green - moot now that
+  `draw_pixel_box` calls use WHITE regardless of category color, so this
+  just needs wiring, not any special-casing for the color switch).
 - A real textured filled interior (see above) - needs the
   `UI_PANEL_CONSOLE` reordering discussed above.
 - Per-tile fractional stretching for genuinely pixel-perfect sizing

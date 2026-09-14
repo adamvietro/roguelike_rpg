@@ -4546,3 +4546,13 @@ All of round 3's fixes are still unverified - a fourth screenshot is the next st
 <br />
 
 `docs/UI_Panel_Sheet_Guide.md` and this journal updated after each round again. Full `cargo check`/`build`/`test` suite passes clean after both rounds. Sixth screenshot still needed before touching any of the other 7 sites.
+
+## Round 6 closes the Item Menu, then straight on to the HUD bars
+
+Sixth screenshot: everything landed - titles visible, black fill nested cleanly inside every border, no more spilling. One real gap the user caught: the shared description panel sat completely blank whenever nothing was selected (an empty list, or the cursor between boxes) - read as broken now that it's a real filled stone panel rather than an easy-to-ignore hollow ASCII box. Added a plain "Select an item or action to see its description." placeholder, same GRAY convention the empty list boxes already use.
+<br />
+
+With the Item Menu confirmed working end to end, moved straight on to the dungeon HUD's three bar frames (Item/Ability/Battle Bar) per direct instruction ("move onto the ability bars") - a much faster pass than the Item Menu's own six rounds, since every hard problem (tint color, tile scale, the no_bg fill bug, fill/border alignment) was already solved there and the bars use the exact same `ability_bar_box_bounds` HUD_CONSOLE-cell coordinates `draw_filled_pixel_box` already expects. New `panel_batch` (UI_PANEL_CONSOLE) alongside the bars' existing bar_batch/label_batch/badge_batch/portrait_batch, submitted last (z=10006) so it paints over the icon/label consoles the same way `ABILITY_BAR_CONSOLE` already paints over `HUD_CONSOLE` today - no new z-order reasoning needed, just the established pattern.
+<br />
+
+Flagged one real unknown before calling this done: these three bars sit over the LIVE dungeon view during actual exploration, not a paused full-screen menu like the Item Menu - a solid black background behind each bar is a bigger visual statement there (permanently blocking part of the live game view under each bar) than it was inside an already-fullscreen menu. Not fixed preemptively - worth a real screenshot and the user's own reaction before assuming the same treatment is right in this different context. `docs/UI_Panel_Sheet_Guide.md` updated with the new site count (9 of 13 done). Full `cargo check`/`build`/`test` suite passes clean, including the permanent `hud_system_execution_tests` regression test.
