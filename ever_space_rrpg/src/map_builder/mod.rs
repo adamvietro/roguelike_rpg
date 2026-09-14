@@ -35,6 +35,7 @@ pub enum EndSceneTheme {
     Forest,
     Dungeon,
     Sewer,
+    Swamp,
 }
 
 /// A Debug-run's forced-theme choice (see `TurnState::ThemeSelect`) -

@@ -559,7 +559,7 @@ tracking, its own shop map/UI.
   an exhaustive test (every possible position on the map, not just
   samples) that the window can never extend past bounds.
 
-## Battle arena backgrounds — real painted scenes for Forest/Dungeon/Sewer
+## Battle arena backgrounds — real painted scenes for Forest/Dungeon/Sewer/Swamp
 
 Replaced the original theme-tinted-floor-and-border implementation (a
 flat tinted CP437 glyph fill plus a vignette and one of two generic
@@ -571,7 +571,17 @@ style tiling, since tiling would need ever-more themed tile variety to
 avoid looking stale. Driven by a new `MapTheme::battle_background_row`
 (mirrors `tile_row`'s exact `Option<u16>` shape/fallback); a theme
 without real art yet still falls back to the old procedural fill
-unchanged. Confirmed live in a real fight, all three themes.
+unchanged. Confirmed live in a real fight, all three original themes.
+
+- **Swamp's own background** (2026-09-13, cell 14 of the atlas) is a
+  TOP-DOWN enclosed marsh pool, unlike the other three's own compositions
+  - the first generation attempt came back with no clearly distinct
+    standing area (the whole scene read as open water), so the prompt
+    was sharpened to explicitly call for a solid, dry ground patch in
+    the top-right, separate from the water - the second attempt fixed
+    it cleanly. Not yet screenshot-verified live in a real fight (unlike
+    the original three) - worth a real check next time Swamp comes up in
+    a run.
 
 - **Getting the art right took real iteration.** Sourced externally
   (PixelLab is built for character sprites, not full painted scenes) -
@@ -1256,10 +1266,20 @@ externally, one full painted scene" approach already proven for Battle
 Arena's backgrounds (see "Battle arena backgrounds" in Done below).
 `components::VictoryBackground`/`DefeatBackground` pick a background (+ for
 Victory, a matching pose) keyed to the run's own `MapTheme::end_scene_theme()`
-(Forest/Dungeon/Sewer) or Arena, sharing `resources/battle_backgrounds.png`'s
+(Forest/Dungeon/Sewer/Swamp) or Arena, sharing `resources/battle_backgrounds.png`'s
 existing padded 6x6 glyph grid rather than any new console. Each dungeon
 theme randomly picks between 2 Victory scenes; Defeat is one fixed scene per
 theme/mode, no randomization. Full technical detail in `docs/journal.md`.
+
+- **Swamp's own two Victory scenes and one Defeat scene** (2026-09-13,
+  cells 15/16/17) - `SwampStance` (`FaceCamera`, a firefly-lit clearing),
+  `SwampWalk` (`WalkAway`, a receding boardwalk into mist - reuses the
+  existing walk-cycle frames, same as `DungeonCorridor`/`SewerWalk`), and
+  a single symmetric dead-tree-in-a-pool `Defeat` scene. No `ClimbAway`
+  pose for Swamp (that needs real character-climb animation art too,
+  which wasn't in scope for just adding backdrops) - picked `FaceCamera`
+  + `WalkAway` instead, the lower-effort pairing every non-Forest theme
+  already uses.
 
 - **`VictoryPose::ClimbAway` now has a real animation** (delivered in
   the 2026-09-13 full animation batch alongside the Attack/Defend/

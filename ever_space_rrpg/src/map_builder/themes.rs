@@ -336,6 +336,15 @@ impl MapTheme for SwampTheme {
         Some(13)
     }
 
+    /// Cell 14 (of 36) on `resources/battle_backgrounds.png` - see
+    /// `MapTheme::battle_background_row`'s own doc comment. A revised
+    /// prompt (explicit top-right dry-ground patch, separate from the
+    /// water) after a first pass came back with no clearly distinct
+    /// standing area at all.
+    fn battle_background_row(&self) -> Option<u16> {
+        Some(14)
+    }
+
     /// Cells 9-10 (Lily-pad covered patch, Cracked dry-mud patch) read as
     /// spreadable ground cover - left on the default Patch. Cells 11-12
     /// (Fallen dead tree/driftwood, Glowing marsh-gas/firefly patch) are
@@ -346,6 +355,14 @@ impl MapTheme for SwampTheme {
             6 | 7 => VariantStyle::Scatter,
             _ => VariantStyle::Patch,
         }
+    }
+
+    /// Explicit even though it matches `MapTheme::end_scene_theme`'s own
+    /// default would NOT be correct here - Swamp needs its own real
+    /// Victory/Defeat art (`components::VictoryBackground::SwampStance`/
+    /// `SwampWalk`, `DefeatBackground::Swamp`), not Dungeon's.
+    fn end_scene_theme(&self) -> EndSceneTheme {
+        EndSceneTheme::Swamp
     }
 }
 

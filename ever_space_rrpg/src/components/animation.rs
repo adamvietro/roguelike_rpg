@@ -883,6 +883,8 @@ pub enum VictoryBackground {
     DungeonCorridor,
     SewerWalk,
     SewerStance,
+    SwampStance,
+    SwampWalk,
 }
 
 impl VictoryBackground {
@@ -919,6 +921,11 @@ impl VictoryBackground {
                     [VictoryBackground::SewerWalk, VictoryBackground::SewerStance];
                 *rng.random_slice_entry(&POOL).unwrap_or(&POOL[0])
             }
+            EndSceneTheme::Swamp => {
+                const POOL: [VictoryBackground; 2] =
+                    [VictoryBackground::SwampStance, VictoryBackground::SwampWalk];
+                *rng.random_slice_entry(&POOL).unwrap_or(&POOL[0])
+            }
         }
     }
 
@@ -936,6 +943,8 @@ impl VictoryBackground {
             VictoryBackground::DungeonCorridor => Some(13),
             VictoryBackground::SewerWalk => Some(8),
             VictoryBackground::SewerStance => Some(12),
+            VictoryBackground::SwampStance => Some(15),
+            VictoryBackground::SwampWalk => Some(16),
         }
     }
 
@@ -946,10 +955,11 @@ impl VictoryBackground {
             VictoryBackground::Arena
             | VictoryBackground::ForestStance
             | VictoryBackground::DungeonStance
-            | VictoryBackground::SewerStance => VictoryPose::FaceCamera,
-            VictoryBackground::DungeonCorridor | VictoryBackground::SewerWalk => {
-                VictoryPose::WalkAway
-            }
+            | VictoryBackground::SewerStance
+            | VictoryBackground::SwampStance => VictoryPose::FaceCamera,
+            VictoryBackground::DungeonCorridor
+            | VictoryBackground::SewerWalk
+            | VictoryBackground::SwampWalk => VictoryPose::WalkAway,
             VictoryBackground::ForestStairs => VictoryPose::ClimbAway,
         }
     }
@@ -979,9 +989,12 @@ impl VictoryBackground {
             VictoryBackground::ForestStairs => (2, 3),
             VictoryBackground::DungeonStance => (2, 3),
             VictoryBackground::SewerStance => (2, 3),
+            VictoryBackground::SwampStance => (2, 3),
             // WalkAway poses never read this - see walk_away_position
             // instead. Included only for match exhaustiveness.
-            VictoryBackground::DungeonCorridor | VictoryBackground::SewerWalk => (2, 2),
+            VictoryBackground::DungeonCorridor
+            | VictoryBackground::SewerWalk
+            | VictoryBackground::SwampWalk => (2, 2),
         }
     }
 
@@ -1005,6 +1018,7 @@ impl VictoryBackground {
         match self {
             VictoryBackground::DungeonCorridor => midground,
             VictoryBackground::SewerWalk => midground,
+            VictoryBackground::SwampWalk => midground,
             _ => midground,
         }
     }
@@ -1060,6 +1074,7 @@ pub enum DefeatBackground {
     Forest,
     Dungeon,
     Sewer,
+    Swamp,
 }
 
 impl DefeatBackground {
@@ -1072,6 +1087,7 @@ impl DefeatBackground {
             EndSceneTheme::Forest => DefeatBackground::Forest,
             EndSceneTheme::Dungeon => DefeatBackground::Dungeon,
             EndSceneTheme::Sewer => DefeatBackground::Sewer,
+            EndSceneTheme::Swamp => DefeatBackground::Swamp,
         }
     }
 
@@ -1083,6 +1099,7 @@ impl DefeatBackground {
             DefeatBackground::Dungeon => Some(9),
             DefeatBackground::Sewer => Some(10),
             DefeatBackground::Forest => Some(11),
+            DefeatBackground::Swamp => Some(17),
         }
     }
 
@@ -1108,6 +1125,7 @@ impl DefeatBackground {
             DefeatBackground::Dungeon => centered,
             DefeatBackground::Sewer => centered,
             DefeatBackground::Forest => centered,
+            DefeatBackground::Swamp => centered,
         }
     }
 }
