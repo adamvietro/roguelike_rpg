@@ -8,19 +8,22 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-all 6 Item Menu boxes wired up, three real rounds of live screenshot
+all 6 Item Menu boxes wired up, four real rounds of live screenshot
 feedback fixed so far** - a saturated tint crushing the stone's own
 shading (fixed: tint WHITE, not a category color), the border rendering
-at native 32px and swallowing box text (fixed: `PIXEL_BOX_TILE_SCALE`),
-a real no_bg-console fill bug that left the frozen dungeon view bleeding
+at native 32px and swallowing box text (fixed: `PIXEL_BOX_TILE_SCALE`), a
+real no_bg-console fill bug that left the frozen dungeon view bleeding
 through box interiors (fixed: fill via the foreground channel, not
-background - see "Using it" below for all three), plus direct feedback on
-title placement and box spacing (title nudged onto the border's own row,
-`BOX_GAP`/`SUB_GAP` widened). Still pending a FOURTH screenshot to
-confirm all of that actually landed right. The remaining 7 of 13 sites
-(the three dungeon-HUD bars, the Pause Hints box, the battle log, and the
-Battle Actions box - see `docs/ideas.md` item 10 for the full list) are
-still on `draw_ascii_box` - swap them one at a time once the Item Menu is
+background), title placement and box spacing (title nudged onto the
+border's own row, `BOX_GAP`/`SUB_GAP` widened), and the fill not quite
+nesting inside the border once it rendered solid (fixed: the fill's rect
+now derives from the border's own already-rounded footprint instead of
+being computed independently - see "Using it" below for all of these).
+Still pending a FIFTH screenshot to confirm the fill/border alignment fix
+actually landed right. The remaining 7 of 13 sites (the three
+dungeon-HUD bars, the Pause Hints box, the battle log, and the Battle
+Actions box - see `docs/ideas.md` item 10 for the full list) are still on
+`draw_ascii_box` - swap them one at a time once the Item Menu is
 confirmed correct.
 
 ## The 4-theme, 3x3 layout
