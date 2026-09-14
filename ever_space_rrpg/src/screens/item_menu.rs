@@ -23,9 +23,8 @@ use crate::State;
 ///   spans the full height of the right column's lower half (matching
 ///   box 2 + box 3's combined height) - see BOTTOM_HEIGHT.
 /// - TOP_Y is picked so the whole block (TOP_Y through the footer hint,
-///   43 rows total) sits vertically centered in HUD_CONSOLE's 67-row
-///   height, ~12 rows of breathing room top and bottom - see TOP_Y's own
-///   doc comment for the arithmetic.
+///   49 rows total) sits vertically centered in HUD_CONSOLE's 67-row
+///   height - see TOP_Y's own doc comment for the arithmetic.
 ///
 /// All first-pass pixel guesses (see CLAUDE.md's bracket-lib layout
 /// gotcha) pending a screenshot round.
@@ -34,28 +33,43 @@ const LEFT_WIDTH: i32 = 50;
 const RIGHT_X: i32 = 56;
 const RIGHT_WIDTH: i32 = 48;
 
-/// (67 - 43) / 2 = 12 - centers the whole 43-row block (see this
-/// module's doc comment) in HUD_CONSOLE's 67 rows. 43 is TOP_HEIGHT(11)
-/// + gap(1) + DESC_HEIGHT(8) + gap(1) + EQUIPPED_HEIGHT(6) +
-/// STATS_HEIGHT(13) + gap(2) + the footer hint's own row(1), matching
-/// the actual constants below - recompute this by hand if any of those
-/// change, since it's not (yet) derived from them automatically.
-const TOP_Y: i32 = 12;
+/// Gap between the top row of boxes and the description strip, and
+/// between the description strip and the bottom row - was 1 row (a hair
+/// wide enough for the old plain ASCII border, but too tight once real
+/// pixel-art panel borders shipped 2026-09-14 - two stone frames only a
+/// single row apart read as touching/overlapping). Widened to 3 per
+/// direct feedback ("add more space between the boxes").
+const BOX_GAP: i32 = 3;
+/// Gap between Equipped Items and Stats specifically - these two stack
+/// directly in the left column's own lower half (see this module's doc
+/// comment), and had NO gap at all before 2026-09-14's pixel-art
+/// borders shipped (their two frames shared a seam outright). Narrower
+/// than BOX_GAP since this is a sub-stack within one column, not a full
+/// section break.
+const SUB_GAP: i32 = 2;
+
+/// (67 - 49) / 2 = 9 - centers the whole 49-row block (see this module's
+/// doc comment) in HUD_CONSOLE's 67 rows. 49 is TOP_HEIGHT(11) +
+/// BOX_GAP(3) + DESC_HEIGHT(8) + BOX_GAP(3) + EQUIPPED_HEIGHT(6) +
+/// SUB_GAP(2) + STATS_HEIGHT(13) + gap(2) + the footer hint's own row(1),
+/// matching the actual constants below - recompute this by hand if any
+/// of those change, since it's not (yet) derived from them automatically.
+const TOP_Y: i32 = 9;
 const TOP_HEIGHT: i32 = 11;
 
-const DESC_Y: i32 = TOP_Y + TOP_HEIGHT + 1;
+const DESC_Y: i32 = TOP_Y + TOP_HEIGHT + BOX_GAP;
 const DESC_HEIGHT: i32 = 8;
 const DESC_X: i32 = LEFT_X;
 const DESC_WIDTH: i32 = RIGHT_X + RIGHT_WIDTH - LEFT_X;
 
-const BOTTOM_Y: i32 = DESC_Y + DESC_HEIGHT + 1;
+const BOTTOM_Y: i32 = DESC_Y + DESC_HEIGHT + BOX_GAP;
 const EQUIPPED_HEIGHT: i32 = 6;
-const STATS_Y: i32 = BOTTOM_Y + EQUIPPED_HEIGHT;
+const STATS_Y: i32 = BOTTOM_Y + EQUIPPED_HEIGHT + SUB_GAP;
 const STATS_HEIGHT: i32 = 13;
 /// Box 5 (Dungeon Actions) spans this full height on its own - matches
-/// box 2 + box 3's combined height exactly, so the two columns' bottom
-/// edges line up.
-const BOTTOM_HEIGHT: i32 = EQUIPPED_HEIGHT + STATS_HEIGHT;
+/// box 2 + SUB_GAP + box 3's combined height exactly, so the two
+/// columns' bottom edges line up.
+const BOTTOM_HEIGHT: i32 = EQUIPPED_HEIGHT + SUB_GAP + STATS_HEIGHT;
 
 const FOOTER_Y: i32 = STATS_Y + STATS_HEIGHT + 2;
 
@@ -84,7 +98,17 @@ fn print_box(
     selected: Option<usize>,
 ) {
     draw_filled_pixel_box(batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
-    batch.print_color(Point::new(x + 2, y), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
+    // Row y+1, not y - confirmed live 2026-09-14 that the title printed at
+    // the box's own nominal top row (y) sits visibly ABOVE where the
+    // pixel-art border's top edge actually renders, instead of "on" it as
+    // asked for. The border tiles get an extra north-anchor correction
+    // (WIGGLE_CONSOLE_Y_ANCHOR_OFFSET - see draw_panel_tile) that the
+    // title text, printed through plain print_color, never goes through -
+    // a one-row nudge is the simplest way to land the title back on the
+    // border's own real position rather than chasing the offset itself.
+    // First-pass guess pending another screenshot, same as every other
+    // pixel value in this file.
+    batch.print_color(Point::new(x + 2, y + 1), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
 
     if slots.is_empty() {
         batch.print_color(
@@ -285,8 +309,10 @@ impl State {
             STATS_HEIGHT,
             UiPanelTheme::Dungeon,
         );
+        // STATS_Y + 1, not STATS_Y - see print_box's own comment on the
+        // same title-row nudge.
         batch.print_color(
-            Point::new(LEFT_X + 2, STATS_Y),
+            Point::new(LEFT_X + 2, STATS_Y + 1),
             " Stats ",
             ColorPair::new(YELLOW, BLACK),
         );

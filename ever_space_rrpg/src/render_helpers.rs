@@ -447,6 +447,19 @@ pub fn draw_pixel_box(
 /// naturally get overwritten at the right cells), `panel_batch` must
 /// target UI_PANEL_CONSOLE. Always WHITE tint - see `draw_pixel_box`'s own
 /// doc comment for why a category color crushes this shaded material.
+///
+/// Fills with a full-block glyph (`█`, CP437 219) tinted BLACK via `fg`,
+/// NOT a space glyph with a black `bg` - confirmed live 2026-09-14 that a
+/// `bg`-only fill is a silent no-op on `HUD_CONSOLE` specifically, traced
+/// to `HUD_CONSOLE` being a `with_simple_console_no_bg` console: its own
+/// fragment shader (`CONSOLE_NO_BG_FS` in bracket-terminal's real GLSL
+/// source) receives a background color as an input but never actually
+/// reads it anywhere - every fragment is either the glyph's own texture
+/// (if bright enough) or a hard `discard`, with no third "solid
+/// background" case at all. A "no_bg" console can still be painted a
+/// solid color, just through the FOREGROUND channel on an opaque glyph
+/// instead - texture_white * BLACK = black, same multiply-tint mechanism
+/// every other tinted icon in this project already relies on.
 pub fn draw_filled_pixel_box(
     text_batch: &mut DrawBatch,
     panel_batch: &mut DrawBatch,
@@ -459,7 +472,7 @@ pub fn draw_filled_pixel_box(
     text_batch.fill_region(
         Rect::with_size(x, y, width, height),
         ColorPair::new(BLACK, BLACK),
-        to_cp437(' '),
+        to_cp437('█'),
     );
     draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
 }
