@@ -118,11 +118,27 @@ pub fn map_render(
             {
                 let fx = pt.x as f32 - ox;
                 let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
-                // A horizontal-running path tile always routes through
-                // the fancy scroll console (even at rest, unlike every
-                // other MapTiles tile) purely to reach set_fancy's
-                // rotation parameter - see path_tile_is_horizontal's own
-                // doc comment for why this specific texture needs it.
+                // A horizontal-running path tile gets a second, rotated
+                // draw LAYERED on top of its own ordinary unrotated one
+                // (never used exclusively) - see path_tile_is_horizontal's
+                // own doc comment for why this texture needs a 90-degree
+                // turn at all. Layering rather than replacing is a
+                // deliberate safety net: an earlier version routed these
+                // tiles through set_fancy exclusively and produced visible
+                // black bars in real play (2026-09-13, screenshot-caught)
+                // that weren't fully explained even after tracing
+                // bracket-terminal's actual fragment shader (FANCY_CONSOLE_
+                // FS falls back to the vertex's own background color -
+                // opaque BLACK here - for any near-black/near-transparent
+                // source pixel, but that exact same shader path is already
+                // proven fine for every OTHER MapTiles tile while panning,
+                // so a rotated quad not fully covering its cell is the
+                // more likely culprit than the art itself, though this
+                // wasn't pinned down with full certainty without being
+                // able to render and check directly). Whatever the exact
+                // cause, drawing the correct (if not perfectly oriented)
+                // texture underneath first means any gap in the rotated
+                // overlay reveals that instead of solid black.
                 let path_rotation = match (sheet, path_main_variant) {
                     (TileSpriteSheet::MapTiles, Some(main))
                         if path_tile_is_horizontal(map, pt, main) =>
@@ -142,19 +158,39 @@ pub fn map_render(
                             glyph,
                         );
                     }
-                    TileSpriteSheet::MapTiles if is_panning || path_rotation.is_some() => {
+                    TileSpriteSheet::MapTiles if is_panning => {
                         tile_scroll_batch.set_fancy(
                             PointF::new(fx, fy),
                             0,
-                            path_rotation.unwrap_or(Degrees::new(0.0)),
+                            Degrees::new(0.0),
                             PointF::new(1.0, 1.0),
                             color_pair,
                             glyph,
                         );
+                        if let Some(rotation) = path_rotation {
+                            tile_scroll_batch.set_fancy(
+                                PointF::new(fx, fy),
+                                0,
+                                rotation,
+                                PointF::new(1.0, 1.0),
+                                color_pair,
+                                glyph,
+                            );
+                        }
                     }
                     TileSpriteSheet::MapTiles => {
                         let offset = Point::new(camera.left_x, camera.top_y);
                         tile_draw_batch.set(pt - offset, color_pair, glyph);
+                        if let Some(rotation) = path_rotation {
+                            tile_scroll_batch.set_fancy(
+                                PointF::new(fx, fy),
+                                0,
+                                rotation,
+                                PointF::new(1.0, 1.0),
+                                color_pair,
+                                glyph,
+                            );
+                        }
                     }
                 }
             }

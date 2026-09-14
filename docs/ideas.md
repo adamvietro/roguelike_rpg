@@ -1017,14 +1017,27 @@ L2/L3):
     visibly wrong - the user's own screenshot caught this. `map_render`
     now checks each path tile's immediate neighbors and, for one running
     horizontally (left/right neighbor is also path, up/down isn't),
-    routes it through the existing fancy scroll console (`MAP_TILE_
-    SCROLL_CONSOLE`, otherwise only used while the camera pans) with a
-    real 90-degree `set_fancy` rotation instead of the plain console
-    every other at-rest tile still uses - no new art or console needed,
-    since that console already draws this exact sheet during a pan, just
-    with rotation hardcoded to 0 until now. A corner tile (connects both
-    ways) has no single right answer and stays unrotated, same as
-    before - would need real corner art to actually fix.
+    layers a second, rotated draw on top of its own ordinary one through
+    the existing fancy scroll console (`MAP_TILE_SCROLL_CONSOLE`,
+    otherwise only used while the camera pans) - no new art or console
+    needed, since that console already draws this exact sheet during a
+    pan, just with rotation hardcoded to 0 until now. A corner tile
+    (connects both ways) has no single right answer and stays unrotated,
+    same as before - would need real corner art to actually fix.
+    **Second real screenshot caught visible black bars from the rotated
+    draw** - traced bracket-terminal 0.8.7's actual fragment shader
+    (vendored locally): it falls back to the vertex's own background
+    color (opaque `BLACK` here) for any near-black/near-transparent
+    source pixel, but that same mechanism is already proven fine for
+    every other MapTiles tile during a pan, pointing more toward the
+    rotated quad's own geometry not fully covering its cell than the art
+    itself - not pinned down with full certainty without being able to
+    render and check directly. Mitigated rather than further diagnosed:
+    the tile's ordinary unrotated draw always happens first now (instead
+    of the rotated draw replacing it), so any gap in the rotated overlay
+    reveals the correct texture underneath instead of solid black,
+    regardless of the exact cause. Still needs a real screenshot to
+    confirm.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:
