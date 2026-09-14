@@ -199,21 +199,24 @@ pub trait MapTheme: Sync + Send {
     fn floor_variant_style(&self, _variant: u8) -> VariantStyle {
         VariantStyle::Patch
     }
-    /// (main, fork) floor variants this theme wants stamped as ONE real
-    /// connected line between `player_start` and `amulet_start`, instead
-    /// of the ordinary random Patch/Scatter treatment every other floor
-    /// variant gets - `None` (the default) for a theme with no such
-    /// concept. `MapBuilder::assign_tile_variants` excludes both
-    /// variants from the normal patch/scatter candidate pools when this
-    /// is `Some`, so nothing else ever paints over (or duplicates) the
-    /// line - this is the ONLY thing that places them. `main` covers
-    /// the connected line itself; `fork` marks just ONE tile, the path's
-    /// own north-most endpoint (the smaller-`y` end of `player_start`/
-    /// `amulet_start`), a discrete "the path forks here" accent rather
-    /// than a second real branch - see docs/journal.md's 2026-09-13
-    /// entry for why (no way to rotate a single glyph on the plain,
-    /// always-visible map console, so a fork pointing multiple real
-    /// directions would need new art, not just placement logic).
+    /// (vertical, horizontal) floor variants this theme wants stamped as
+    /// ONE real connected line between `player_start` and `amulet_
+    /// start`, instead of the ordinary random Patch/Scatter treatment
+    /// every other floor variant gets - `None` (the default) for a
+    /// theme with no such concept. `MapBuilder::assign_tile_variants`
+    /// excludes both variants from the normal patch/scatter candidate
+    /// pools when this is `Some`, so nothing else ever paints over (or
+    /// duplicates) the line - this is the ONLY thing that places them.
+    /// Both are real, distinct atlas cells (not the same texture
+    /// reused) - `vertical` is the plain north-south trail, `horizontal`
+    /// is that exact same trail pre-rotated 90 degrees and stored as its
+    /// own cell (2026-09-13 - Forest repurposed its unused Path Fork
+    /// cell for this, after several rounds of a LIVE `set_fancy`
+    /// rotation producing real, unfixable rendering seams on this
+    /// project's specific bracket-terminal setup; see docs/journal.md's
+    /// full account). `MapBuilder::stamp_theme_path` decides which of
+    /// the two each tile actually gets, purely from how that tile
+    /// connects to its own path neighbors - not this method's concern.
     fn path_variants(&self) -> Option<(u8, u8)> {
         None
     }
@@ -741,23 +744,38 @@ impl MapBuilder {
     /// line everywhere except forced corridors - a corridor only has
     /// one route anyway, so it stays straight there regardless.
     ///
-    /// The `fork` variant marks exactly one tile: whichever of the two
-    /// endpoints is more "north" (the smaller `y`) - see
-    /// `MapTheme::path_variants`'s own doc comment for why this isn't a
-    /// real second branch.
+    /// Each tile gets whichever of the two variants actually matches how
+    /// it connects to its own neighbors (`horizontal` if it has a path
+    /// neighbor to its left/right but not above/below, `vertical`
+    /// otherwise, including a corner that connects both ways - no single
+    /// orientation is more correct there, so it just keeps the texture's
+    /// own default look) - decided HERE, once, at generation time, and
+    /// baked directly into `tile_variant` as two genuinely different
+    /// pre-rotated textures. Not a runtime rotation (2026-09-13,
+    /// replacing several rounds of exactly that): bracket-terminal's
+    /// NEAREST-filtered, zero-padding atlas sampling made a live
+    /// `set_fancy` rotation produce real, unfixable seams specifically
+    /// on this project's rendering setup - see docs/journal.md's own
+    /// blow-by-blow. A second real atlas cell, pre-rotated once as a
+    /// normal image edit and stored in `resources/map_tiles.png`
+    /// directly (Forest's Path Fork cell, repurposed - nothing used it
+    /// for real branching anyway), sidesteps that whole class of bug: a
+    /// horizontal path tile is just an ordinary static glyph like any
+    /// other tile, not a special render-time case at all.
     fn stamp_theme_path(&mut self, rng: &mut RandomNumberGenerator) {
-        let Some((main_variant, fork_variant)) = self.theme.path_variants() else {
+        let Some((vertical_variant, horizontal_variant)) = self.theme.path_variants() else {
             return;
         };
         let start = self.player_start;
         let end = self.amulet_start;
         let field = self.map.bfs_distance_field(start);
 
+        let mut path_tiles: Vec<usize> = Vec::new();
         let mut pos = end;
         loop {
             let idx = map_idx(pos.x, pos.y);
             if self.map.tiles[idx] == TileType::Floor {
-                self.map.tile_variant[idx] = main_variant;
+                path_tiles.push(idx);
             }
             if pos == start {
                 break;
@@ -793,10 +811,25 @@ impl MapBuilder {
             pos = best_candidates[rng.random_slice_index(&best_candidates).unwrap()];
         }
 
-        let north_end = if start.y <= end.y { start } else { end };
-        let north_idx = map_idx(north_end.x, north_end.y);
-        if self.map.tiles[north_idx] == TileType::Floor {
-            self.map.tile_variant[north_idx] = fork_variant;
+        // Every tile is provisionally vertical (the walked-line default,
+        // and the texture's own base orientation) until this second pass
+        // reclassifies the ones that actually read as horizontal - has
+        // to run as its own pass, after every path tile is already
+        // known, since a tile's own classification depends on whether
+        // ITS neighbors are ALSO path tiles.
+        for &idx in &path_tiles {
+            self.map.tile_variant[idx] = vertical_variant;
+        }
+        for &idx in &path_tiles {
+            let pt = self.map.index_to_point2d(idx);
+            let is_path = |p: Point| {
+                self.map.in_bounds(p) && path_tiles.contains(&map_idx(p.x, p.y))
+            };
+            let horizontal = is_path(pt + Point::new(-1, 0)) || is_path(pt + Point::new(1, 0));
+            let vertical = is_path(pt + Point::new(0, -1)) || is_path(pt + Point::new(0, 1));
+            if horizontal && !vertical {
+                self.map.tile_variant[idx] = horizontal_variant;
+            }
         }
     }
 

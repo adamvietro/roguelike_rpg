@@ -382,7 +382,12 @@ woodland_floor_d.png`, owns rows 0-3 of `map_tiles.png`):
 7. Rubble / small rocks
 8. Thicket
 9. Dirt path
-10. Path fork
+10. ~~Path fork~~ **Dirt path, rotated 90 degrees (horizontal)** -
+    repurposed 2026-09-13, a real distinct pixel-edited cell rather than
+    a runtime rotation (see docs/journal.md's full account of why a live
+    `set_fancy` rotation kept producing real rendering seams on this
+    project's specific bracket-terminal setup). Nothing used the
+    original Path Fork art for real branching, so nothing was lost.
 11. Root-covered ground
 12. Flower-dotted grass
 13. Water

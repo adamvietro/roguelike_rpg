@@ -1014,74 +1014,34 @@ L2/L3):
   DijkstraMap logic) into `Map::bfs_distance_field`, now shared by both.
   - **Follow-up**: the connected line's single dirt-path texture was
     drawn as a north-south trail, so an east-west run of it looked
-    visibly wrong - the user's own screenshot caught this. `map_render`
-    now checks each path tile's immediate neighbors and, for one running
-    horizontally (left/right neighbor is also path, up/down isn't),
-    layers a second, rotated draw on top of its own ordinary one through
-    the existing fancy scroll console (`MAP_TILE_SCROLL_CONSOLE`,
-    otherwise only used while the camera pans) - no new art or console
-    needed, since that console already draws this exact sheet during a
-    pan, just with rotation hardcoded to 0 until now. A corner tile
-    (connects both ways) has no single right answer and stays unrotated,
-    same as before - would need real corner art to actually fix.
-    **Second real screenshot caught visible black bars from the rotated
-    draw** - traced bracket-terminal 0.8.7's actual fragment shader
-    (vendored locally): it falls back to the vertex's own background
-    color (opaque `BLACK` here) for any near-black/near-transparent
-    source pixel, but that same mechanism is already proven fine for
-    every other MapTiles tile during a pan, pointing more toward the
-    rotated quad's own geometry not fully covering its cell than the art
-    itself - not pinned down with full certainty without being able to
-    render and check directly. Mitigated rather than further diagnosed:
-    the tile's ordinary unrotated draw always happens first now (instead
-    of the rotated draw replacing it), so any gap in the rotated overlay
-    reveals the correct texture underneath instead of solid black,
-    regardless of the exact cause. **A third screenshot confirmed the
-    black bars were gone but caught a smaller new artifact** - brown
-    flecks bleeding out above/below the horizontal run, since the base
-    layer being the tile's own UNROTATED glyph (a directional north-
-    south trail, not a uniform fill) meant any gap in the rotated overlay
-    revealed real dirt-brown pixels instead of grass. Fixed by swapping
-    the base layer to the theme's plain default floor glyph (variant 0,
-    Grass) instead of the tile's own glyph - a uniform fill has no wrong
-    orientation to reveal. **A live-recorded GIF then caught real
-    clipping specifically during the camera glide itself** (clean at
-    rest, per the prior screenshot). Checked whether rotation can even
-    preserve a true 32x32 footprint before assuming either way - traced
-    the actual vertex shader math (rotation matrices don't change size)
-    and confirmed the plain/fancy console pair share identical grid
-    dimensions, ruling out an aspect mismatch. Rather than keep chasing a
-    subtle sub-pixel/animation-timing theory blind, a horizontal path
-    tile now simply doesn't rotate while the camera is actively panning
-    (falls back to its own plain glyph for that ~150ms window only,
-    exactly like every other MapTiles tile during a pan) - rotation still
-    applies the instant the camera settles, which is where it's already
-    confirmed clean. **A second recording still showed real clipping -
-    the actual problem turned out to be the fix just above, not
-    rotation's own geometry**: real movement is a rapid sequence of short
-    per-tile glides with only a brief instant at rest between steps, not
-    one continuous glide, so making panning render differently from rest
-    meant a path tile's look flipped between two different renderings
-    many times a second during ordinary walking - the real source of the
-    reported "tile swapping." Fixed by removing that divergence: both
-    branches now run the identical base-layer-plus-rotated-overlay logic,
-    so there's no flicker between two different looks regardless of
-    which state a given frame lands in. **A third recording still showed
-    clipping, so this time did real research instead of another local
-    guess** (checked bracket-lib's own GitHub/usage guide/official
-    `flexible.rs` spinning-glyph example - this project's `set_fancy`
-    call shape already matches it exactly) and went deeper into the
-    vendored source: confirmed bracket-terminal's font textures use
-    `NEAREST` filtering with zero UV padding between atlas cells - a
-    well-documented class of bug for rotated pixel art generally, where
-    an edge fragment landing exactly on a texel boundary can round to
-    the wrong adjacent atlas cell, invisible when axis-aligned but a real
-    seam once rotated. Reverted to a genuine single draw per path tile
-    (no base layer, no second overlay call) with a small overscale
-    (`SCALE_FUDGE = 1.03`) - the standard fix for exactly this class of
-    bug, swallowing any hairline rounding gap in deliberate overlap
-    rather than leaving a seam. Still needs a live recording to confirm
-    this is actually clean, including during the glide.
+    visibly wrong - the user's own screenshot caught this. Several
+    rounds of a LIVE `set_fancy` rotation were tried and each produced
+    its own real rendering defect in practice (black bars, wrong-
+    orientation fragments bleeding through, flicker between panning/at-
+    rest states, then persistent hairline seams even after tracing
+    bracket-terminal's actual shader/vertex source and confirming the
+    rotation math itself was sound) - traced as far as confirming
+    bracket-terminal's font textures use NEAREST filtering with zero UV
+    padding between atlas cells, a well-documented class of bug for
+    rotated pixel art generally (an edge fragment landing on a texel
+    boundary can round into the adjacent atlas cell), but even the
+    standard mitigation for that (a small overscale) still weren't
+    enough in real play. **Fixed properly on the user's own suggestion**:
+    instead of rotating anything at render time, `resources/map_tiles.
+    png` now has a real second atlas cell - the previously-unused Path
+    Fork cell (cell 10, nothing used it for real branching anyway),
+    replaced with the Dirt Path texture pre-rotated 90 degrees as a
+    one-time offline image edit, not a runtime transform. `MapBuilder::
+    stamp_theme_path` now decides horizontal vs. vertical for each tile
+    at GENERATION time (from its own path neighbors) and bakes that
+    choice directly into `tile_variant` as one of the two real cells -
+    `map_render.rs` needed no path-specific code at all afterward, since
+    a horizontal path tile is now just an ordinary static glyph like any
+    other Floor variant. `MapTheme::path_variants()` renamed in spirit
+    from `(main, fork)` to `(vertical, horizontal)` to match. A corner
+    tile (connects both ways) still has no single right answer and keeps
+    the vertical/default look, same as always - real corner art would be
+    its own separate piece of work.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:

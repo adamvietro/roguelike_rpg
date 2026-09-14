@@ -4407,3 +4407,16 @@ Searched bracket-lib's own GitHub, its usage guide, and its official `flexible.r
 <br />
 
 Reverted to a genuine single draw per path tile - no base layer, no second overlay call, exactly what was asked for. Verified with the fast suite; still needs a live recording to confirm this is actually clean, including during the glide this time.
+
+## Real fix: pre-rotate the actual art once, no runtime rotation at all
+
+The overscale fix still showed full black lines in a fourth recording. The user's own next suggestion turned out to be the actual right answer, cutting through several rounds of chasing engine-level rendering behavior: replace a real atlas cell with a pre-rotated copy of the dirt-path texture, so a horizontal path tile is just an ordinary static glyph like any other tile - no `set_fancy`, no rotation, no NEAREST-filtered texel-boundary edge cases to chase at all.
+<br />
+
+Forest's Path Fork cell (cell 10) was the natural target - nothing used it for real branching (the original "fork" idea was always just a discrete accent, per the 2026-09-13 rotation-limitation note earlier this same day), so repurposing it cost nothing. Edited `resources/map_tiles.png` directly with a one-time Pillow script: cropped the existing vertical Dirt Path cell (cell 9), rotated it 90 degrees as a plain offline image operation (no GPU/shader involved at all), and pasted it over the Path Fork cell - verified via a per-cell byte comparison against a backup that exactly one 32x32 cell changed, nothing else in the atlas touched.
+<br />
+
+Moved the horizontal/vertical decision from render time into generation time, where it always should have lived: `MapBuilder::stamp_theme_path` now walks the connected line same as before, but a second pass classifies each tile from its own path neighbors (horizontal if it connects left/right but not up/down, vertical otherwise, including corners) and bakes that choice directly into `tile_variant` as one of two real, distinct atlas cells. `map_render.rs` reverted entirely back to its pre-rotation-work form - no special path-tile handling left in it at all, since a horizontal path tile is now indistinguishable from any other Floor variant as far as rendering is concerned. `MapTheme::path_variants` renamed in spirit from `(main, fork)` to `(vertical, horizontal)` to match.
+<br />
+
+Verified with a throwaway test (one connected line, every tile's variant matching its own actual neighbor connectivity, across 30 generations - removed after confirming) plus both headless simulations (consistent with every prior run). This should be the actual end of this saga - no more rendering theories to chase, since there's no runtime rotation left to have a theory about.

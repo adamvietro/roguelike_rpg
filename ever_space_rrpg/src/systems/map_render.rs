@@ -14,36 +14,6 @@ use crate::prelude::*;
 /// high.
 const MAP_SCROLL_Y_ANCHOR_OFFSET: f32 = 1.0;
 
-/// True if `pt` is a Floor tile currently showing `main_variant` - the
-/// theme's own connected-line path texture (see `MapTheme::
-/// path_variants`), as opposed to any other floor variant or the
-/// one-off `fork` tile at the path's own endpoint (which has no
-/// meaningful "direction" of its own, so it's deliberately excluded from
-/// this check and never rotated).
-fn is_path_main_tile(map: &Map, pt: Point, main_variant: u8) -> bool {
-    map.in_bounds(pt) && {
-        let idx = map_idx(pt.x, pt.y);
-        map.tiles[idx] == TileType::Floor && map.tile_variant[idx] == main_variant
-    }
-}
-
-/// Whether the path tile at `pt` reads as running horizontally rather
-/// than vertically - true if a left/right neighbor is ALSO a path tile
-/// and no up/down neighbor is. The source art was drawn as a north-
-/// south trail (2026-09-13 - "we have a path tile that has the path
-/// going north and south being used to go east to west"), so a
-/// horizontal run needs a 90-degree turn to read correctly; a lone tile
-/// or a corner (connects both ways) has no single right answer and
-/// stays unrotated, same as before this fix - a corner would need its
-/// own dedicated art to look right either way.
-fn path_tile_is_horizontal(map: &Map, pt: Point, main_variant: u8) -> bool {
-    let horizontal = is_path_main_tile(map, pt + Point::new(-1, 0), main_variant)
-        || is_path_main_tile(map, pt + Point::new(1, 0), main_variant);
-    let vertical = is_path_main_tile(map, pt + Point::new(0, -1), main_variant)
-        || is_path_main_tile(map, pt + Point::new(0, 1), main_variant);
-    horizontal && !vertical
-}
-
 #[system]
 #[read_component(FieldOfView)]
 #[read_component(Player)]
@@ -105,11 +75,6 @@ pub fn map_render(
     let mut dungeon_scroll_batch = DrawBatch::new();
     dungeon_scroll_batch.target(MAP_SCROLL_CONSOLE);
 
-    // The theme's connected-line path variant (see `MapTheme::
-    // path_variants`), if it has one - `None` for Dungeon/Sewer, so the
-    // horizontal-rotation check below never fires for them.
-    let path_main_variant = theme.path_variants().map(|(main, _)| main);
-
     for y in y_range {
         for x in x_range.clone() {
             let pt = Point::new(x, y);
@@ -118,41 +83,6 @@ pub fn map_render(
             {
                 let fx = pt.x as f32 - ox;
                 let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
-                // A horizontal-running path tile always routes through
-                // the fancy scroll console (even at rest, unlike every
-                // other MapTiles tile) as ONE single rotated draw - see
-                // path_tile_is_horizontal's own doc comment for why this
-                // texture needs a 90-degree turn at all. No layering, no
-                // base-layer fallback: earlier versions tried that as a
-                // workaround for a visible hairline gap at the rotated
-                // tile's edge, but layering introduced its own new
-                // problems (a second, wrong-oriented tile fighting the
-                // first for the same cell) instead of fixing the real
-                // cause. bracket-terminal's own font textures use NEAREST
-                // (not bilinear) filtering with zero UV padding between
-                // atlas cells (confirmed in bracket-terminal 0.8.7's own
-                // source, vendored locally) - a well-documented class of
-                // bug for rotated pixel-art sprites in exactly this kind
-                // of engine: a rotated quad's edge fragments can land
-                // right on a texel boundary and round to the wrong
-                // (adjacent) texel, which shows as a hairline seam that's
-                // far more visible once it's animating (the exact
-                // rounding point shifts every frame during a glide) than
-                // in one static frame. SCALE_FUDGE overscales the
-                // rotated quad by a couple percent - standard fix for
-                // this exact class of bug - so any hairline rounding gap
-                // gets swallowed by deliberate overlap into the
-                // surrounding same-colored grass instead of showing a
-                // seam.
-                const SCALE_FUDGE: f32 = 1.03;
-                let path_rotation = match (sheet, path_main_variant) {
-                    (TileSpriteSheet::MapTiles, Some(main))
-                        if path_tile_is_horizontal(map, pt, main) =>
-                    {
-                        Some(Degrees::new(90.0))
-                    }
-                    _ => None,
-                };
                 match sheet {
                     TileSpriteSheet::Dungeon => {
                         dungeon_scroll_batch.set_fancy(
@@ -164,16 +94,12 @@ pub fn map_render(
                             glyph,
                         );
                     }
-                    TileSpriteSheet::MapTiles if is_panning || path_rotation.is_some() => {
-                        let (rotation, scale) = match path_rotation {
-                            Some(rotation) => (rotation, SCALE_FUDGE),
-                            None => (Degrees::new(0.0), 1.0),
-                        };
+                    TileSpriteSheet::MapTiles if is_panning => {
                         tile_scroll_batch.set_fancy(
                             PointF::new(fx, fy),
                             0,
-                            rotation,
-                            PointF::new(scale, scale),
+                            Degrees::new(0.0),
+                            PointF::new(1.0, 1.0),
                             color_pair,
                             glyph,
                         );
