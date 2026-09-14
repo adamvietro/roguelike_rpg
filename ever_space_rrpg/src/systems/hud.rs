@@ -122,7 +122,12 @@ const SHOP_TOOLTIP_ROW_OFFSET: i32 = 4;
 /// wide enough for the longest "{name} x{count} - {price}g" line
 /// currently possible, with margin either side.
 const SHOP_TOOLTIP_WIDTH: i32 = 40;
-const SHOP_TOOLTIP_HEIGHT: i32 = 3;
+// Bumped 3 -> 4 2026-09-14 on direct feedback that the text sat too
+// close to the top edge, with a visibly larger gap of black space below
+// it than above - the extra row gives the text (moved to box_y + 2,
+// see its own print_color call) real clearance on both sides instead of
+// being pinned to the row right under the border's top edge.
+const SHOP_TOOLTIP_HEIGHT: i32 = 4;
 
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
@@ -245,14 +250,27 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
     // against the border with almost no gap).
     let icons_right_col = (icons_right_px * HUD_COLS + 1279) / 1280;
     let right = icons_right_col + 1;
-    // Ceiling division (the "+ 799" trick), THEN +1 for real clearance -
-    // see this function's own doc comment.
+    // Ceiling division (the "+ 799" trick) - see this function's own doc
+    // comment on the right edge above for why ceiling, not truncating,
+    // division. No longer a further "+1" on top of that: tightened
+    // 2026-09-14 on direct feedback that there was "far more space below
+    // than we need" once the border itself got thin (PIXEL_BOX_TILE_
+    // SCALE_COMPACT) - the old extra clearance row, sized for a much
+    // thicker border, now just reads as dead black fill under the icon.
     let icons_bottom_row = (icons_bottom_px * HUD_ROWS + 799) / 800;
-    let bottom = icons_bottom_row + 1;
+    let bottom = icons_bottom_row;
 
     let top = if has_labels {
         let (_, label_row) = ability_bar_label_position(start_col);
-        label_row - 1
+        // Bumped from `label_row - 1` to `label_row - 2` 2026-09-14 on
+        // direct feedback ("the border is overlapping the icons for the
+        // abilities") - this box's own top clearance was numerically
+        // IDENTICAL to the no-labels branch below despite having an
+        // extra row of content (the label) to clear, which the no-labels
+        // branch never had to account for. One more row of real
+        // clearance between the border's top edge and the label/icon
+        // below it.
+        label_row - 2
     } else {
         // No label row to clear above the icons here - just the icon's
         // own top edge, with the same real-clearance reasoning as the
@@ -460,7 +478,7 @@ pub fn hud(
                     PIXEL_BOX_TILE_SCALE_COMPACT,
                 );
                 shop_text_batch.print_color(
-                    Point::new(box_x + 2, box_y + 1),
+                    Point::new(box_x + 2, box_y + 2),
                     text,
                     ColorPair::new(GREEN, BLACK),
                 );
