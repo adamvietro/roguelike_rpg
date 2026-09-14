@@ -120,23 +120,22 @@ fn find_prefab_placement(
 }
 
 pub fn apply_prefab(mb: &mut MapBuilder, rng: &mut RandomNumberGenerator) {
-    let pick = rng.range(0, 3);
-    let template = match pick {
+    let template = match rng.range(0, 3) {
         0 => FORTRESS,
         1 => TURRET,
         2 => BUNKER,
         _ => unreachable!(),
     };
-    // Only the FORTRESS template's own wall ring becomes a moat - see
-    // MapTheme::fortress_moat_variant's own doc comment. `None` for
-    // Turret/Bunker, or for a theme with no fortress moat configured
-    // (Dungeon, deliberately - 2026-09-13), keeps every '#' a plain Wall
-    // exactly as before.
-    let moat_variant = if pick == 0 {
-        mb.theme.fortress_moat_variant()
-    } else {
-        None
-    };
+    // Whichever of the three shapes got picked has a PREFAB_MOAT_
+    // CHANCE_PCT chance of getting its own wall ring turned into a moat
+    // instead of plain Wall - see MapTheme::prefab_moat_variant's own
+    // doc comment. `None` for a theme with no moat configured at all
+    // (Dungeon, deliberately), or simply on an unlucky roll, keeps every
+    // '#' a plain Wall exactly as before.
+    let moat_variant = mb
+        .theme
+        .prefab_moat_variant()
+        .filter(|_| rng.range(0, 100) < super::PREFAB_MOAT_CHANCE_PCT);
 
     let placement = find_prefab_placement(mb, rng, template.1, template.2);
 

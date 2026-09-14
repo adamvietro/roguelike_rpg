@@ -233,21 +233,29 @@ pub trait MapTheme: Sync + Send {
     fn water_variants(&self) -> Vec<u16> {
         Vec::new()
     }
-    /// Index into `water_variants()` to use as the FORTRESS prefab's
-    /// wall ring, instead of the usual plain `TileType::Wall` - `None`
-    /// (the default) keeps the ring as plain Wall. A moat still fully
-    /// blocks the same way a wall did (see `TileType::Water`), it just
-    /// lets the player see the fortress's interior/guards through it
-    /// instead of a solid brick face - not every theme has a liquid that
-    /// fits this (Dungeon deliberately doesn't, 2026-09-13 - a stone
-    /// dungeon fortress reads oddly with a moat).
-    fn fortress_moat_variant(&self) -> Option<u8> {
+    /// Index into `water_variants()` to use for whichever of the three
+    /// `apply_prefab` room shapes (FORTRESS/TURRET/BUNKER) gets picked,
+    /// instead of the usual plain `TileType::Wall` on its ring - `None`
+    /// (the default) keeps every one of them plain Wall. `apply_prefab`
+    /// only actually applies this some of the time (`PREFAB_MOAT_
+    /// CHANCE_PCT`, 2026-09-13 - "have a chance to be surrounded by
+    /// water", after Fortress-only-and-always turned out to read oddly
+    /// once Turret/Bunker showed up looking untouched next to it), so
+    /// even a theme with this set to `Some` won't water EVERY placement.
+    /// A moat still fully blocks the same way a wall did (see
+    /// `TileType::Water`), it just lets the player see the room's
+    /// interior/guards through it instead of a solid brick face - not
+    /// every theme has a liquid that fits this (Dungeon deliberately
+    /// doesn't - a stone dungeon reads oddly with a moat).
+    fn prefab_moat_variant(&self) -> Option<u8> {
         None
     }
-    /// Same as `fortress_moat_variant`, for the CHEST_ROOM prefab's own
-    /// wall ring instead. Independent of `fortress_moat_variant` - a
-    /// theme can use a different `water_variants()` index for each (or
-    /// only implement one of the two).
+    /// Same as `prefab_moat_variant`, for the CHEST_ROOM prefab's own
+    /// wall ring instead - independent of it (a theme can use a
+    /// different `water_variants()` index for each, or only implement
+    /// one of the two), and NOT subject to `PREFAB_MOAT_CHANCE_PCT` -
+    /// the chest room stays deterministic (always moated when `Some`),
+    /// since only the Fortress/Turret/Bunker trio was asked to vary.
     fn chest_moat_variant(&self) -> Option<u8> {
         None
     }
@@ -359,6 +367,12 @@ const WALL_WATER_PATCH_COUNT_MAX: i32 = 2;
 /// patch's own radius, matching "a small patch" rather than a floor-
 /// sized region.
 const WALL_WATER_PATCH_RADIUS: i32 = 1;
+/// Percent chance (0-99) that whichever of the three `apply_prefab` room
+/// shapes (FORTRESS/TURRET/BUNKER) gets picked this time actually gets
+/// its theme's `prefab_moat_variant` applied, for a theme that has one
+/// configured - see that method's own doc comment. Tune this if 50/50
+/// reads as too common or too rare in practice.
+pub(crate) const PREFAB_MOAT_CHANCE_PCT: i32 = 50;
 
 const NUM_ROOMS: usize = 20;
 pub struct MapBuilder {

@@ -81,7 +81,7 @@ impl MapTheme for DungeonTheme {
     /// Cells 15-16 (Broken Toppled Pillar, Cracked Iron Grate/Portcullis
     /// Chunk) plus cell 14 (Rubble Pile) - row `tile_row() + 3` cols
     /// 1-3. Cell 13 (Water/sewage puddle, col 0) deliberately left
-    /// unclaimed here - Dungeon has no `fortress_moat_variant`/`water_
+    /// unclaimed here - Dungeon has no `prefab_moat_variant`/`water_
     /// variants` override (2026-09-13, "the dungeon doesn't really have
     /// a special tile like [Forest's water moat]"), and reusing that
     /// same puddle art as a solid, opaque obstacle would read as
@@ -156,9 +156,10 @@ impl MapTheme for ForestTheme {
         vec![0]
     }
 
-    /// Forest's Fortress ring becomes a real moat (2026-09-13 - "have
-    /// the water as the walls for the fort").
-    fn fortress_moat_variant(&self) -> Option<u8> {
+    /// Forest's Fortress/Turret/Bunker ring has a chance (`PREFAB_MOAT_
+    /// CHANCE_PCT`) of becoming a real moat (2026-09-13 - "have the
+    /// water as the walls for the fort").
+    fn prefab_moat_variant(&self) -> Option<u8> {
         Some(0)
     }
 
@@ -260,7 +261,7 @@ impl MapTheme for SewerTheme {
     /// Sludge (index 1) - "same logic [as Forest's Fortress moat]...
     /// for the sludge... so that we can use them as wall for the
     /// fortress."
-    fn fortress_moat_variant(&self) -> Option<u8> {
+    fn prefab_moat_variant(&self) -> Option<u8> {
         Some(1)
     }
 

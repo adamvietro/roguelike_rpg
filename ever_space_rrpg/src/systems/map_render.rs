@@ -14,6 +14,36 @@ use crate::prelude::*;
 /// high.
 const MAP_SCROLL_Y_ANCHOR_OFFSET: f32 = 1.0;
 
+/// True if `pt` is a Floor tile currently showing `main_variant` - the
+/// theme's own connected-line path texture (see `MapTheme::
+/// path_variants`), as opposed to any other floor variant or the
+/// one-off `fork` tile at the path's own endpoint (which has no
+/// meaningful "direction" of its own, so it's deliberately excluded from
+/// this check and never rotated).
+fn is_path_main_tile(map: &Map, pt: Point, main_variant: u8) -> bool {
+    map.in_bounds(pt) && {
+        let idx = map_idx(pt.x, pt.y);
+        map.tiles[idx] == TileType::Floor && map.tile_variant[idx] == main_variant
+    }
+}
+
+/// Whether the path tile at `pt` reads as running horizontally rather
+/// than vertically - true if a left/right neighbor is ALSO a path tile
+/// and no up/down neighbor is. The source art was drawn as a north-
+/// south trail (2026-09-13 - "we have a path tile that has the path
+/// going north and south being used to go east to west"), so a
+/// horizontal run needs a 90-degree turn to read correctly; a lone tile
+/// or a corner (connects both ways) has no single right answer and
+/// stays unrotated, same as before this fix - a corner would need its
+/// own dedicated art to look right either way.
+fn path_tile_is_horizontal(map: &Map, pt: Point, main_variant: u8) -> bool {
+    let horizontal = is_path_main_tile(map, pt + Point::new(-1, 0), main_variant)
+        || is_path_main_tile(map, pt + Point::new(1, 0), main_variant);
+    let vertical = is_path_main_tile(map, pt + Point::new(0, -1), main_variant)
+        || is_path_main_tile(map, pt + Point::new(0, 1), main_variant);
+    horizontal && !vertical
+}
+
 #[system]
 #[read_component(FieldOfView)]
 #[read_component(Player)]
@@ -75,6 +105,11 @@ pub fn map_render(
     let mut dungeon_scroll_batch = DrawBatch::new();
     dungeon_scroll_batch.target(MAP_SCROLL_CONSOLE);
 
+    // The theme's connected-line path variant (see `MapTheme::
+    // path_variants`), if it has one - `None` for Dungeon/Sewer, so the
+    // horizontal-rotation check below never fires for them.
+    let path_main_variant = theme.path_variants().map(|(main, _)| main);
+
     for y in y_range {
         for x in x_range.clone() {
             let pt = Point::new(x, y);
@@ -83,6 +118,19 @@ pub fn map_render(
             {
                 let fx = pt.x as f32 - ox;
                 let fy = pt.y as f32 - oy + MAP_SCROLL_Y_ANCHOR_OFFSET;
+                // A horizontal-running path tile always routes through
+                // the fancy scroll console (even at rest, unlike every
+                // other MapTiles tile) purely to reach set_fancy's
+                // rotation parameter - see path_tile_is_horizontal's own
+                // doc comment for why this specific texture needs it.
+                let path_rotation = match (sheet, path_main_variant) {
+                    (TileSpriteSheet::MapTiles, Some(main))
+                        if path_tile_is_horizontal(map, pt, main) =>
+                    {
+                        Some(Degrees::new(90.0))
+                    }
+                    _ => None,
+                };
                 match sheet {
                     TileSpriteSheet::Dungeon => {
                         dungeon_scroll_batch.set_fancy(
@@ -94,11 +142,11 @@ pub fn map_render(
                             glyph,
                         );
                     }
-                    TileSpriteSheet::MapTiles if is_panning => {
+                    TileSpriteSheet::MapTiles if is_panning || path_rotation.is_some() => {
                         tile_scroll_batch.set_fancy(
                             PointF::new(fx, fy),
                             0,
-                            Degrees::new(0.0),
+                            path_rotation.unwrap_or(Degrees::new(0.0)),
                             PointF::new(1.0, 1.0),
                             color_pair,
                             glyph,

@@ -1004,14 +1004,27 @@ L2/L3):
   start` (greedily descending a BFS distance field, ties broken at
   random so open rooms still wobble naturally while corridors stay
   straight), stamping a genuinely connected line. `Path Fork` marks just
-  the path's own north-most endpoint - real branching, or rotating a
-  single glyph to point a fork multiple directions, isn't possible on
-  the plain (non-`set_fancy`) console map tiles render on at rest, so
-  this became a discrete accent rather than a second real branch.
-  Promoted `bfs_distance_field` out of `screens/battle.rs`'s class-
-  survivability bot (which had its own private copy of the exact same
-  BFS-not-DijkstraMap logic) into `Map::bfs_distance_field`, now shared
-  by both.
+  the path's own north-most endpoint rather than a real second branch -
+  a real branch would need to point toward wherever the OTHER branch
+  actually goes, which is a materially harder problem than the
+  horizontal/vertical rotation fix below (only two fixed orientations,
+  decided purely from a tile's own immediate neighbors). Promoted
+  `bfs_distance_field` out of `screens/battle.rs`'s class-survivability
+  bot (which had its own private copy of the exact same BFS-not-
+  DijkstraMap logic) into `Map::bfs_distance_field`, now shared by both.
+  - **Follow-up**: the connected line's single dirt-path texture was
+    drawn as a north-south trail, so an east-west run of it looked
+    visibly wrong - the user's own screenshot caught this. `map_render`
+    now checks each path tile's immediate neighbors and, for one running
+    horizontally (left/right neighbor is also path, up/down isn't),
+    routes it through the existing fancy scroll console (`MAP_TILE_
+    SCROLL_CONSOLE`, otherwise only used while the camera pans) with a
+    real 90-degree `set_fancy` rotation instead of the plain console
+    every other at-rest tile still uses - no new art or console needed,
+    since that console already draws this exact sheet during a pan, just
+    with rotation hardcoded to 0 until now. A corner tile (connects both
+    ways) has no single right answer and stays unrotated, same as
+    before - would need real corner art to actually fix.
 - **Phase 3**: the "special wall" row (13-16, never placed by any
   generator before this) put to real use, differently for its two kinds
   of cell:
@@ -1020,15 +1033,20 @@ L2/L3):
     register more than one distinct look) are blocking but deliberately
     NOT opaque (`Map::is_opaque` gained a `TileType::Water` special
     case) - a moat should still let the player see through it, the
-    whole reason to use water instead of a solid wall. Used for: the
-    FORTRESS prefab's wall ring (`fortress_moat_variant` - Forest uses
-    Water, Sewer uses Sludge, Dungeon deliberately stays plain wall -
-    "the dungeon doesn't really have a special tile like [that]"), the
-    CHEST_ROOM prefab's own ring (`chest_moat_variant`, Sewer's Dirty
-    Water only), and a handful of small isolated Wall-to-Water patches
-    elsewhere on the map (`wall_water_patch_variant`, Sewer only) -
-    purely cosmetic, since Water is exactly as blocking as the Wall it
-    replaces.
+    whole reason to use water instead of a solid wall. Used for: any of
+    the three `apply_prefab` room shapes (FORTRESS/TURRET/BUNKER)'s own
+    wall ring, with a chance (`prefab_moat_variant` + `PREFAB_MOAT_
+    CHANCE_PCT`, 50% - Forest uses Water, Sewer uses Sludge, Dungeon
+    deliberately stays plain wall always - "the dungeon doesn't really
+    have a special tile like [that]"; a real screenshot of a plain
+    Turret/Bunker next to an always-watered Fortress prompted widening
+    this from Fortress-only-and-guaranteed to all three, each
+    independently rolled), the CHEST_ROOM prefab's own ring
+    (`chest_moat_variant`, Sewer's Dirty Water only, still guaranteed
+    when set - only the Fortress/Turret/Bunker trio was asked to vary),
+    and a handful of small isolated Wall-to-Water patches elsewhere on
+    the map (`wall_water_patch_variant`, Sewer only) - purely cosmetic,
+    since Water is exactly as blocking as the Wall it replaces.
   - **Solid-obstacle cells** (Forest's Stump/Log/Briar, Dungeon's
     Rubble/Pillar/Portcullis Chunk, Sewer's Pipe-Valve/Collapsed Grate)
     join the Wall variant pool via the same two-row split Floor already
