@@ -257,11 +257,15 @@ border-embedded look for now.
   real context difference from the Item Menu worth confirming looks
   right (does a solid black bar background read well over live gameplay,
   or does it want to stay closer to see-through there specifically).
-- `systems/hud.rs`'s 3 bars have the SAME same-console text/fill bug the
-  Item Menu just got fixed for - they use `label_batch` (targeting
-  `HUD_CONSOLE`) for both the fill AND the Ability Bar's own number
-  labels. Not yet fixed; should get the identical `PANEL_TEXT_CONSOLE`
-  treatment once the Item Menu fix itself is confirmed live.
+- `systems/hud.rs`'s Ability Bar had the SAME same-console text/fill bug
+  the Item Menu was fixed for (its number-key labels printed onto
+  `label_batch`/`HUD_CONSOLE`, the same console as the fill) - fixed
+  2026-09-14 by moving the labels onto a `text_batch` targeting
+  `PANEL_TEXT_CONSOLE`, the same console the Item Menu fix already uses.
+  The Item Bar and Battle Bar draw no text of their own (icons only, on
+  `ABILITY_BAR_CONSOLE`), so they never had this bug. Not yet screenshot-
+  verified - still part of the general "3 dungeon-HUD bars unverified
+  live" item above.
 - The remaining 4 of 13 sites: the shop-item tooltip, Pause Hints, the
   battle log, and the in-combat Battle Actions box (its border color
   already switches live between yellow/green - moot now that

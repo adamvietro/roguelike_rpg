@@ -4582,3 +4582,10 @@ Fix: a genuinely separate console for text, not a same-console reordering (there
 <br />
 
 Full `cargo check`/`build`/`test` suite passes clean, brace balance confirmed, full diff reviewed before committing. `systems/hud.rs`'s three dungeon-HUD bars have the identical latent bug (their `label_batch` does double duty for both fill and the Ability Bar's own number labels) - flagged in `docs/UI_Panel_Sheet_Guide.md`'s "Still open" list as a known follow-up, not yet started, since it should wait on the Item Menu fix itself being confirmed live first. Next: a fresh screenshot from the user to confirm this actually closes the "text lets the map show through" issue.
+
+## Confirmed live, then straight on to the HUD bars
+
+User confirmed the Item Menu fix live - "That is PERFECT!!!! Awesome." No further correction rounds needed. Moved immediately on to the dungeon HUD's Ability Bar per direct instruction ("move onto the ability bars out of battle").
+<br />
+
+Only the Ability Bar actually had this bug - its number-key labels (1-9/0) print onto `label_batch` (`HUD_CONSOLE`), the exact same console `draw_filled_pixel_box`'s own fill uses there. The Item Bar and Battle Bar draw icons only (on `ABILITY_BAR_CONSOLE`, a separate console from the fill), so they were never affected. Fixed the same way as the Item Menu: moved the label `print_color` call onto a new `text_batch` targeting `PANEL_TEXT_CONSOLE` (the same console registered for the Item Menu fix, already later in z-order than every console the HUD bars use), submitted last in the function's own batch order. `cargo check`/`build`/`test` clean, brace balance confirmed, diff reviewed before committing. Still needs its own live screenshot - these bars sit over the LIVE dungeon view, a real context difference from the Item Menu's paused full-screen state, flagged as an open question a few rounds back and still unconfirmed.
