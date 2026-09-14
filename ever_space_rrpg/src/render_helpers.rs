@@ -359,6 +359,34 @@ fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i
     (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
 }
 
+/// The border's own REAL rendered footprint (after `pixel_box_tiles`'
+/// whole-tile rounding), converted back into (x, y, width, height) on
+/// HUD_CONSOLE's cell grid - confirmed live 2026-09-14 that filling to the
+/// box's original, un-rounded nominal size (what `draw_filled_pixel_box`
+/// did at first) doesn't exactly coincide with where the border itself
+/// ends up once its own size rounds to a whole tile count, leaving the
+/// fill visibly spilling past the border on some edges and short of it on
+/// others. Deriving the fill's own rect from this SAME rounded footprint,
+/// instead of the box's original nominal size, guarantees the two always
+/// match exactly - there's no longer two independent roundings that could
+/// disagree.
+fn pixel_box_hud_rect(x: i32, y: i32, width: i32, height: i32) -> (i32, i32, i32, i32) {
+    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+    let s = PIXEL_BOX_TILE_SCALE;
+
+    let px_left = base_col * 32.0;
+    let px_top = base_row * 32.0;
+    let px_right = (base_col + tiles_w as f32 * s) * 32.0;
+    let px_bottom = (base_row + tiles_h as f32 * s) * 32.0;
+
+    let hud_x = (px_left * HUD_COLS as f32 / 1280.0).round() as i32;
+    let hud_y = (px_top * HUD_ROWS as f32 / 800.0).round() as i32;
+    let hud_x2 = (px_right * HUD_COLS as f32 / 1280.0).round() as i32;
+    let hud_y2 = (px_bottom * HUD_ROWS as f32 / 800.0).round() as i32;
+
+    (hud_x, hud_y, hud_x2 - hud_x, hud_y2 - hud_y)
+}
+
 /// Real pixel-art replacement for `draw_ascii_box` - draws a hollow
 /// nine-slice border (4 corners + 4 tiled edges, no filled interior yet,
 /// same hollow shape `draw_ascii_box` already has) from
@@ -469,8 +497,15 @@ pub fn draw_filled_pixel_box(
     height: i32,
     theme: UiPanelTheme,
 ) {
+    // The fill's rect comes from the border's own REAL rounded footprint
+    // (pixel_box_hud_rect), not the box's original nominal x/y/width/
+    // height - confirmed live 2026-09-14 that using the nominal size let
+    // the fill and the border (which rounds to a whole tile count) drift
+    // apart by a few pixels, spilling past the border on some edges and
+    // falling short on others. See pixel_box_hud_rect's own doc comment.
+    let (fill_x, fill_y, fill_w, fill_h) = pixel_box_hud_rect(x, y, width, height);
     text_batch.fill_region(
-        Rect::with_size(x, y, width, height),
+        Rect::with_size(fill_x, fill_y, fill_w, fill_h),
         ColorPair::new(BLACK, BLACK),
         to_cp437('█'),
     );
