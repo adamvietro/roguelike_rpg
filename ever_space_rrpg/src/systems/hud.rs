@@ -482,6 +482,17 @@ pub fn hud(
         // draw_filled_pixel_box recipe already proven on the Item Menu.
         let mut panel_batch = DrawBatch::new();
         panel_batch.target(UI_PANEL_CONSOLE);
+        // Number-key labels (1-9/0) print on top of the Ability Bar's own
+        // black fill (label_batch/HUD_CONSOLE) below - same same-console
+        // overwrite bug the Item Menu had (see item_menu.rs's print_box
+        // and PANEL_TEXT_CONSOLE's own doc comment in main.rs): printing
+        // text on the SAME console as the fill REPLACES the fill's own
+        // cell rather than layering onto it, letting the live dungeon
+        // view show through around each digit. PANEL_TEXT_CONSOLE is
+        // registered later in z-order than HUD_CONSOLE specifically so
+        // this doesn't happen.
+        let mut text_batch = DrawBatch::new();
+        text_batch.target(PANEL_TEXT_CONSOLE);
         // (name, description-lookup key, box_y for the tooltip anchor) -
         // whichever bar's icon the mouse is currently over, checked
         // across BOTH bars so hovering either one shows its description.
@@ -617,7 +628,7 @@ pub fn hud(
             }
 
             let (label_col, label_row) = ability_bar_label_position(col);
-            label_batch.print_color(
+            text_batch.print_color(
                 Point::new(label_col, label_row),
                 ability_bar_key_label(i),
                 ColorPair::new(if owned { YELLOW } else { GRAY }, BLACK),
@@ -672,6 +683,7 @@ pub fn hud(
         badge_batch.submit(10004).expect("Batch error");
         portrait_batch.submit(10005).expect("Batch error");
         panel_batch.submit(10006).expect("Batch error");
+        text_batch.submit(10007).expect("Batch error");
 
         // The hovered slot's tooltip (from either bar) - drawn on
         // HUD_CONSOLE (fine text) rather than either bar's own coarse
