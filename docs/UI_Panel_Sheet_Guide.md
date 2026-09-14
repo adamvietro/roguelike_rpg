@@ -8,20 +8,24 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-the Item Menu's 6 boxes refined across seven rounds of live screenshot
+the Item Menu's 6 boxes refined across eight rounds of live screenshot
 feedback, the 3 dungeon-HUD bars wired up too (not yet screenshot-
 verified - see "Using it" below)** - a saturated tint crushing the
 stone's own shading, the border swallowing box text at native scale, a
 real no_bg-console fill bug, the fill not quite nesting inside the
 border, a title-on-border attempt that hid every title outright, a blank
-description panel when nothing's selected, and (most recently) box
-titles inheriting a black background purely because the fill already
-covered their own row - fixed with a `has_title` flag on
-`draw_filled_pixel_box` that excludes just that row from the fill. The
-description panel also gained its own title, the one box that never had
-one. The remaining 4 of 13 sites (the shop-item tooltip, the Pause Hints
-box, the battle log, and the Battle Actions box - see `docs/ideas.md`
-item 10 for the full list) are still on `draw_ascii_box`.
+description panel when nothing's selected, and a real detour where a
+`has_title` flag briefly excluded the title row from the fill (on the
+wrong theory that titles having a black background was itself the bug)
+before getting reverted on direct correction - the black fill reaching
+up to meet the title row was the intended look the whole time, and
+excluding it just left the title illegible over a light background
+instead. `draw_filled_pixel_box` fills every box's full nominal area
+unconditionally now, no exceptions. The description panel also gained
+its own title, the one box that never had one. The remaining 4 of 13
+sites (the shop-item tooltip, the Pause Hints box, the battle log, and
+the Battle Actions box - see `docs/ideas.md` item 10 for the full list)
+are still on `draw_ascii_box`.
 
 ## The 4-theme, 3x3 layout
 

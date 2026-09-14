@@ -4556,3 +4556,16 @@ With the Item Menu confirmed working end to end, moved straight on to the dungeo
 <br />
 
 Flagged one real unknown before calling this done: these three bars sit over the LIVE dungeon view during actual exploration, not a paused full-screen menu like the Item Menu - a solid black background behind each bar is a bigger visual statement there (permanently blocking part of the live game view under each bar) than it was inside an already-fullscreen menu. Not fixed preemptively - worth a real screenshot and the user's own reaction before assuming the same treatment is right in this different context. `docs/UI_Panel_Sheet_Guide.md` updated with the new site count (9 of 13 done). Full `cargo check`/`build`/`test` suite passes clean, including the permanent `hud_system_execution_tests` regression test.
+
+## A real wrong turn on the title/fill question - reverted on direct correction
+
+Added the Description panel's own title as asked, but also read "the label will not have the black background" as license to exclude the title's own row from the fill entirely (a `has_title` flag). Wrong call, confirmed two rounds later: the user clarified directly that the black fill reaching UP to meet the title row - "coming up out of the top of the borders" - was specifically the look they liked, not something to fix. Worse, excluding that row left the title with nothing solid behind it at all, which is exactly what surfaced as "the text makes it so we can see the map below" once the title happened to sit over a light part of the frozen background.
+<br />
+
+This took genuine back-and-forth to actually land on - a first "does this make sense?" summary from me (after the initial complaint) got the FILL direction backwards, a second correction from the user spelled out all three points explicitly (like the fill sticking up, want labels, but text needs solid black behind it too), and only then was the real, single root cause clear: one flag, wrongly added, explained the whole thing. Reverted `has_title` entirely - `draw_filled_pixel_box` fills every box's full nominal area unconditionally again, no exceptions, across all 9 wired-up sites.
+<br />
+
+Also used the pause to actually VERIFY (not just assume) the separate edge-rounding concern flagged a few rounds back - wrote a real standalone script running `pixel_box_hud_rect`'s exact math against this game's real box dimensions (Items/Description/Stats/Dungeon Actions) and confirmed the fill matches the nominal box exactly, zero difference, in every real case. That concern was never actually live; the title-row exclusion was the whole story.
+<br />
+
+**Worth remembering**: when a user says "does this make sense?" after correcting course, that's a real request to confirm understanding before touching code again - not a formality. Two rounds of guessing wrong here versus one round of describing the plan and waiting for an explicit yes would have been a meaningfully cheaper way to get to the same fix. `docs/UI_Panel_Sheet_Guide.md` updated again. Full `cargo check`/`build`/`test` suite passes clean.
