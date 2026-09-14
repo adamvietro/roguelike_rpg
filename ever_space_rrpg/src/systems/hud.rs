@@ -471,8 +471,6 @@ pub fn hud(
 
         let mut bar_batch = DrawBatch::new();
         bar_batch.target(ABILITY_BAR_CONSOLE);
-        let mut label_batch = DrawBatch::new();
-        label_batch.target(HUD_CONSOLE);
         let mut badge_batch = DrawBatch::new();
         badge_batch.target(ABILITY_BAR_BADGE_CONSOLE);
         let mut portrait_batch = DrawBatch::new();
@@ -480,17 +478,19 @@ pub fn hud(
         // The real PixelLab panel border (item 10 in docs/ideas.md) for
         // the Item/Ability/Battle Bar frames - same UI_PANEL_CONSOLE/
         // draw_filled_pixel_box recipe already proven on the Item Menu.
+        // The bars' own black fill lives here too now (see
+        // draw_panel_fill's own doc comment in render_helpers.rs) - no
+        // separate HUD_CONSOLE label_batch needed anymore for the fill.
         let mut panel_batch = DrawBatch::new();
         panel_batch.target(UI_PANEL_CONSOLE);
         // Number-key labels (1-9/0) print on top of the Ability Bar's own
-        // black fill (label_batch/HUD_CONSOLE) below - same same-console
-        // overwrite bug the Item Menu had (see item_menu.rs's print_box
-        // and PANEL_TEXT_CONSOLE's own doc comment in main.rs): printing
-        // text on the SAME console as the fill REPLACES the fill's own
-        // cell rather than layering onto it, letting the live dungeon
-        // view show through around each digit. PANEL_TEXT_CONSOLE is
-        // registered later in z-order than HUD_CONSOLE specifically so
-        // this doesn't happen.
+        // black fill - same same-console overwrite bug the Item Menu had
+        // (see item_menu.rs's print_box and PANEL_TEXT_CONSOLE's own doc
+        // comment in main.rs) would apply if these were printed straight
+        // onto a SimpleConsole sharing the fill's own cells; PANEL_TEXT_
+        // CONSOLE is registered later in z-order than everything else
+        // this function draws to, so its own text is never at risk of
+        // this regardless.
         let mut text_batch = DrawBatch::new();
         text_batch.target(PANEL_TEXT_CONSOLE);
         // (name, description-lookup key, box_y for the tooltip anchor) -
@@ -603,7 +603,7 @@ pub fn hud(
         }
         if item_n > 0 {
             let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
+            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -637,7 +637,7 @@ pub fn hud(
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(ability_start_col, ability_n, true);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
+            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -675,11 +675,12 @@ pub fn hud(
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
                 ability_bar_box_bounds(battle_start_col, battle_n, false);
-            draw_filled_pixel_box(&mut label_batch, &mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Dungeon);
+            // Swamp, not Dungeon - direct request 2026-09-14, this bar
+            // specifically (the other two dungeon-HUD bars stay Dungeon).
+            draw_filled_pixel_box(&mut panel_batch, box_x, box_y, box_w, box_h, UiPanelTheme::Swamp);
         }
 
         bar_batch.submit(10001).expect("Batch error");
-        label_batch.submit(10002).expect("Batch error");
         badge_batch.submit(10004).expect("Batch error");
         portrait_batch.submit(10005).expect("Batch error");
         panel_batch.submit(10006).expect("Batch error");

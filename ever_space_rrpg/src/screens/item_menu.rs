@@ -87,23 +87,25 @@ const FOOTER_Y: i32 = STATS_Y + STATS_HEIGHT + 2;
 /// the 6 boxes on this screen was converted, rather than keep an unused
 /// branch around).
 ///
-/// `fill_batch` (HUD_CONSOLE) draws ONLY the box's own fill+border,
+/// `panel_batch` (UI_PANEL_CONSOLE) draws the box's own fill+border,
 /// `text_batch` (PANEL_TEXT_CONSOLE) draws EVERYTHING printed - title,
 /// "Nothing here.", every list entry. Two different consoles, not two
 /// batches on the same one: confirmed live 2026-09-14, traced to
 /// bracket-terminal's real source (see PANEL_TEXT_CONSOLE's own doc
 /// comment in main.rs), that `SimpleConsole::set` REPLACES a cell's
 /// entire (glyph, fg, bg) outright rather than layering onto whatever
-/// was drawn there before - text printed on the SAME console as the
-/// fill doesn't sit "on top of" the fill, it OVERWRITES that cell's
-/// fill entirely, and a letter's own near-black "empty" pixels then get
-/// discarded by HUD_CONSOLE's no_bg shader, revealing the live dungeon
-/// view underneath instead of solid black. Registering text on its own
-/// LATER console means the fill's own cells are never touched by a text
-/// draw at all, so a letter's discarded pixels reveal the fill sitting
-/// untouched one console down instead.
+/// was drawn there before - text printed on the SAME console as a fill
+/// on a `SimpleConsole` (which HUD_CONSOLE is, and PANEL_TEXT_CONSOLE
+/// itself is too) doesn't sit "on top of" the fill, it OVERWRITES that
+/// cell's fill entirely, and a letter's own near-black "empty" pixels
+/// then get discarded by the console's own no_bg shader, revealing the
+/// live dungeon view underneath instead of solid black. UI_PANEL_CONSOLE
+/// itself doesn't have this problem (see `draw_panel_fill`'s own doc
+/// comment in render_helpers.rs for why), which is why the fill lives
+/// there now rather than on HUD_CONSOLE - but printed TEXT still needs
+/// its own later console regardless, since HUD_CONSOLE/PANEL_TEXT_CONSOLE
+/// remain plain `SimpleConsole`s.
 fn print_box(
-    fill_batch: &mut DrawBatch,
     panel_batch: &mut DrawBatch,
     text_batch: &mut DrawBatch,
     x: i32,
@@ -114,7 +116,7 @@ fn print_box(
     slots: &[AbilityBarSlot],
     selected: Option<usize>,
 ) {
-    draw_filled_pixel_box(fill_batch, panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
+    draw_filled_pixel_box(panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
     // Back to row y, not y+1 - the y+1 nudge (tried 2026-09-14, aiming to
     // land the title "on" the border per direct feedback) turned out to be
     // a real architectural dead end, not a pixel-tuning miss: the border
@@ -279,7 +281,6 @@ impl State {
         text_batch.target(PANEL_TEXT_CONSOLE);
 
         print_box(
-            &mut batch,
             &mut panel_batch,
             &mut text_batch,
             LEFT_X,
@@ -291,7 +292,6 @@ impl State {
             items_selected,
         );
         print_box(
-            &mut batch,
             &mut panel_batch,
             &mut text_batch,
             RIGHT_X,
@@ -303,7 +303,6 @@ impl State {
             battle_selected,
         );
         print_box(
-            &mut batch,
             &mut panel_batch,
             &mut text_batch,
             LEFT_X,
@@ -315,7 +314,6 @@ impl State {
             equipped_selected,
         );
         print_box(
-            &mut batch,
             &mut panel_batch,
             &mut text_batch,
             RIGHT_X,
@@ -331,7 +329,6 @@ impl State {
         // module's doc comment). Sits directly below Equipped Items,
         // filling the rest of the left column's lower half.
         draw_filled_pixel_box(
-            &mut batch,
             &mut panel_batch,
             LEFT_X,
             STATS_Y,
@@ -439,7 +436,6 @@ impl State {
         // whichever slot the cursor currently sits on (across any of
         // the 4 navigable boxes).
         draw_filled_pixel_box(
-            &mut batch,
             &mut panel_batch,
             DESC_X,
             DESC_Y,

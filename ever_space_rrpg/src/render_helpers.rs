@@ -299,9 +299,13 @@ impl UiPanelTheme {
 /// Item Menu box's own list text). 0.375 * 32 = 12px, matching
 /// HUD_CONSOLE's own real cell width (1280/107 ~= 11.96px) so the new
 /// border reads at roughly the same visual weight the old 1-cell-thick
-/// ASCII border had. First-pass guess pending a screenshot, same as
-/// every other bracket-lib pixel value in this project.
-const PIXEL_BOX_TILE_SCALE: f32 = 0.375;
+/// ASCII border had. Bumped 0.375 -> 0.5 (12px -> 16px) 2026-09-14 on
+/// direct feedback that the borders read too thin/small once live -
+/// still a first-pass guess pending a fresh screenshot, same as every
+/// other bracket-lib pixel value in this project. Deliberately doesn't
+/// touch icon/portrait rendering - those go through their own separate
+/// scale (draw_portrait/draw_portrait_fancy), not this constant.
+const PIXEL_BOX_TILE_SCALE: f32 = 0.5;
 
 /// Draws one `ui_panels.png` tile via `set_fancy` at `PIXEL_BOX_TILE_SCALE`,
 /// at a fractional (col, row) already in UI_PANEL_CONSOLE's native 32px-cell
@@ -359,32 +363,55 @@ fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32) -> (f32, f32, i32, i
     (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
 }
 
-/// The border's own REAL rendered footprint (after `pixel_box_tiles`'
-/// whole-tile rounding), converted back into (x, y, width, height) on
-/// HUD_CONSOLE's cell grid - confirmed live 2026-09-14 that filling to the
-/// box's original, un-rounded nominal size (what `draw_filled_pixel_box`
-/// did at first) doesn't exactly coincide with where the border itself
-/// ends up once its own size rounds to a whole tile count, leaving the
-/// fill visibly spilling past the border on some edges and short of it on
-/// others. Deriving the fill's own rect from this SAME rounded footprint,
-/// instead of the box's original nominal size, guarantees the two always
-/// match exactly - there's no longer two independent roundings that could
-/// disagree.
-fn pixel_box_hud_rect(x: i32, y: i32, width: i32, height: i32) -> (i32, i32, i32, i32) {
-    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+/// Draws the box's solid black interior fill as ONE `set_fancy` quad,
+/// stretched via a non-uniform `PointF` scale to cover EXACTLY the same
+/// real footprint as `draw_pixel_box`'s own border tiles - built from the
+/// SAME `base_col`/`base_row`/`tiles_w`/`tiles_h` numbers `pixel_box_tiles`
+/// already produces for the border, not an independently-rounded rect on
+/// a different console's coarser cell grid (the old approach, via a now-
+/// removed `pixel_box_hud_rect` - confirmed live 2026-09-14 that snapping
+/// to HUD_CONSOLE's own ~12px cells could drift the fill a few pixels off
+/// the border's real sub-pixel footprint, visibly spilling past or falling
+/// short of it, especially with the border itself only ~12-16px thick).
+///
+/// Sharing the border's exact numbers works because this fill lives on
+/// UI_PANEL_CONSOLE too (not HUD_CONSOLE) - confirmed against
+/// bracket-terminal's real source that `with_fancy_console` consoles are
+/// backed by `FlexiConsole`, a SPARSE console whose `set_fancy` PUSHES a
+/// new `FlexiTile` onto a `Vec` rather than overwriting a fixed per-cell
+/// array the way `SimpleConsole::set` does - so this fill and the
+/// border's own corner/edge tiles can freely coexist and even overlap on
+/// the same console without either one wiping the other out (draw this
+/// BEFORE the border so the border's own art still paints over it,
+/// same reasoning `draw_filled_pixel_box` already documents).
+///
+/// The position/scale math: `rebuild_vertices` (bracket-terminal's real
+/// fancy-console backend) always builds one native-cell-sized quad
+/// starting AT a tile's `position` and scales it around ITS OWN center
+/// (`position + 0.5` cell) by `t.scale`, independently per axis (GLSL
+/// `base_pos *= aScale` is a component-wise vec2 multiply, confirmed
+/// straight from the real vertex shader source, not guessed) - so a
+/// single glyph CAN be stretched into an arbitrary non-square rectangle,
+/// not just resized uniformly. `draw_pixel_box`'s own tiles sit at
+/// `base_col + i*s` for column `i`, each `s` wide, so the border's real
+/// left/right edges work out to `base_col + 0.5 -/+ s/2` and
+/// `base_col + 0.5 + s*(tiles_w - 1) -/+ s/2` respectively - center
+/// `base_col + 0.5 + s*(tiles_w - 1)/2`, width `tiles_w * s`. Matching
+/// that with one `set_fancy` call means: `position = center - 0.5`
+/// (`base_col + s*(tiles_w - 1)/2`), `scale = (tiles_w*s, tiles_h*s)`.
+fn draw_panel_fill(batch: &mut DrawBatch, base_col: f32, base_row: f32, tiles_w: i32, tiles_h: i32) {
     let s = PIXEL_BOX_TILE_SCALE;
-
-    let px_left = base_col * 32.0;
-    let px_top = base_row * 32.0;
-    let px_right = (base_col + tiles_w as f32 * s) * 32.0;
-    let px_bottom = (base_row + tiles_h as f32 * s) * 32.0;
-
-    let hud_x = (px_left * HUD_COLS as f32 / 1280.0).round() as i32;
-    let hud_y = (px_top * HUD_ROWS as f32 / 800.0).round() as i32;
-    let hud_x2 = (px_right * HUD_COLS as f32 / 1280.0).round() as i32;
-    let hud_y2 = (px_bottom * HUD_ROWS as f32 / 800.0).round() as i32;
-
-    (hud_x, hud_y, hud_x2 - hud_x, hud_y2 - hud_y)
+    let center_col = base_col + s * (tiles_w - 1) as f32 / 2.0;
+    let center_row = base_row + s * (tiles_h - 1) as f32 / 2.0;
+    let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    batch.set_fancy(
+        PointF::new(center_col, center_row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
+        0,
+        Degrees::new(0.0),
+        PointF::new(tiles_w as f32 * s, tiles_h as f32 * s),
+        ColorPair::new(BLACK, bg_transparent),
+        to_cp437('█'),
+    );
 }
 
 /// Real pixel-art replacement for `draw_ascii_box` - draws a hollow
@@ -469,25 +496,34 @@ pub fn draw_pixel_box(
 
 /// A `draw_pixel_box` border plus the solid-black interior fill every real
 /// call site needs alongside it (see `draw_pixel_box`'s own doc comment on
-/// why it doesn't fill the interior itself yet) - `text_batch` must target
-/// whatever console the box's own text/icons draw on (the fill needs to
-/// land there, UNDER that text, so drawing this before the text lets it
-/// naturally get overwritten at the right cells), `panel_batch` must
-/// target UI_PANEL_CONSOLE. Always WHITE tint - see `draw_pixel_box`'s own
-/// doc comment for why a category color crushes this shaded material.
+/// why it doesn't fill the interior itself yet). `panel_batch` must target
+/// UI_PANEL_CONSOLE - fill AND border both live there now (see
+/// `draw_panel_fill`'s own doc comment for why that's safe on this
+/// specific sparse console type). Always WHITE tint on the border - see
+/// `draw_pixel_box`'s own doc comment for why a category color crushes
+/// this shaded material.
+///
+/// Any text a caller prints on top of this box (title, list entries, a
+/// number label) needs its OWN separately-registered, later console
+/// (PANEL_TEXT_CONSOLE) - NOT this function's `panel_batch`, and NOT
+/// HUD_CONSOLE either. See PANEL_TEXT_CONSOLE's own doc comment in
+/// main.rs and `screens/item_menu.rs`'s `print_box` for the full story:
+/// HUD_CONSOLE (and any other `SimpleConsole`) stores one fixed `Tile`
+/// per cell, so text printed there REPLACES whatever was in that cell
+/// rather than layering onto it - fine for the border/fill above, which
+/// no longer touches HUD_CONSOLE at all, but still a real trap for any
+/// TEXT this box's caller prints, since HUD_CONSOLE is a `SimpleConsole`
+/// even though this fill isn't drawn there anymore.
 ///
 /// Fills with a full-block glyph (`█`, CP437 219) tinted BLACK via `fg`,
-/// NOT a space glyph with a black `bg` - confirmed live 2026-09-14 that a
-/// `bg`-only fill is a silent no-op on `HUD_CONSOLE` specifically, traced
-/// to `HUD_CONSOLE` being a `with_simple_console_no_bg` console: its own
-/// fragment shader (`CONSOLE_NO_BG_FS` in bracket-terminal's real GLSL
-/// source) receives a background color as an input but never actually
-/// reads it anywhere - every fragment is either the glyph's own texture
-/// (if bright enough) or a hard `discard`, with no third "solid
-/// background" case at all. A "no_bg" console can still be painted a
-/// solid color, just through the FOREGROUND channel on an opaque glyph
-/// instead - texture_white * BLACK = black, same multiply-tint mechanism
-/// every other tinted icon in this project already relies on.
+/// same multiply-tint mechanism every other tinted icon in this project
+/// already relies on (texture_white * BLACK = black) - not a `bg` color,
+/// which was confirmed live 2026-09-14 to be a silent no-op on the
+/// `no_bg` console this fill used to target (see `docs/UI_Panel_Sheet_
+/// Guide.md` for the full shader-source trace); moving the fill to
+/// UI_PANEL_CONSOLE's fancy shader (`SPRITE_CONSOLE_FS` - `FragColor =
+/// original * ourColor`, no discard at all) keeps working the same way
+/// for the same underlying reason.
 ///
 /// Fills the box's FULL nominal area, title row included - a `has_title`
 /// flag briefly existed here (2026-09-14) to carve the title's own row
@@ -502,7 +538,6 @@ pub fn draw_pixel_box(
 /// unfilled text would. One full-box fill for every caller, no
 /// exceptions.
 pub fn draw_filled_pixel_box(
-    text_batch: &mut DrawBatch,
     panel_batch: &mut DrawBatch,
     x: i32,
     y: i32,
@@ -510,18 +545,13 @@ pub fn draw_filled_pixel_box(
     height: i32,
     theme: UiPanelTheme,
 ) {
-    // The fill's rect comes from the border's own REAL rounded footprint
-    // (pixel_box_hud_rect), not the box's original nominal x/y/width/
-    // height - confirmed live 2026-09-14 that using the nominal size let
-    // the fill and the border (which rounds to a whole tile count) drift
-    // apart by a few pixels, spilling past the border on some edges and
-    // falling short on others. See pixel_box_hud_rect's own doc comment.
-    let (fill_x, fill_y, fill_w, fill_h) = pixel_box_hud_rect(x, y, width, height);
-    text_batch.fill_region(
-        Rect::with_size(fill_x, fill_y, fill_w, fill_h),
-        ColorPair::new(BLACK, BLACK),
-        to_cp437('█'),
-    );
+    let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height);
+    // Fill drawn BEFORE the border so the border's own corner/edge art
+    // still paints over it wherever they'd otherwise coincide - see
+    // draw_panel_fill's own doc comment for why this doesn't erase the
+    // fill the way it would on a SimpleConsole (it can't; this console
+    // only ever adds tiles, never overwrites one already queued).
+    draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h);
     draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK));
 }
 
