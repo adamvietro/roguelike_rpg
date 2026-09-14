@@ -8,14 +8,18 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-one call site wired up (Item Menu's Items box) as a first real
-integration** - not yet screenshot-verified live (this project's own
-standing rule: bracket-lib pixel positioning can't be verified without a
-real render). The other three Item Menu boxes, the three dungeon-HUD bars,
-the Pause Hints box, the battle log, and the Battle Actions box (see
-`docs/ideas.md` item 10 for the full 13-site list) are still on
-`draw_ascii_box` - swap them one at a time once this first one is
-confirmed correct.
+one call site wired up (Item Menu's Items box), two real rounds of live
+screenshot feedback already fixed** - a saturated tint color crushing the
+stone's own shading (fixed: tint WHITE, not a category color - see
+"Using it" below), and the border rendering at native 32px, oversized
+enough to swallow the box's own text (fixed: `PIXEL_BOX_TILE_SCALE`,
+plus a deliberate black interior fill since the frozen dungeon view was
+bleeding through). Still pending a THIRD screenshot to confirm those two
+fixes actually landed right. The other three Item Menu boxes, the three
+dungeon-HUD bars, the Pause Hints box, the battle log, and the Battle
+Actions box (see `docs/ideas.md` item 10 for the full 13-site list) are
+still on `draw_ascii_box` - swap them one at a time once this first one
+is confirmed correct.
 
 ## The 4-theme, 3x3 layout
 
@@ -146,37 +150,68 @@ used, so swapping one call site is close to a one-line change. `batch`
 must target `UI_PANEL_CONSOLE` specifically (a different console than
 whatever draws the box's own text, since `ui_panels.png` is a different
 font at a different native cell size - see `UI_PANEL_CONSOLE`'s own doc
-comment in `main.rs`). `tint` recolors the source art the same way
-`UNOWNED_ICON_TINT` already does elsewhere (the console shader multiplies
-texture color by whatever `ColorPair` is passed) - pass the box's existing
-`draw_ascii_box` color to keep the same red/blue/green/white/yellow
-coding, or WHITE for the art's own true colors.
+comment in `main.rs`).
 
-Two real, deliberate simplifications versus a pixel-perfect box (see
-`draw_pixel_box`'s own doc comment for the full reasoning):
+**Pass WHITE for `tint`, not the box's old `draw_ascii_box` color** -
+confirmed live 2026-09-14 that a strong saturated tint (BLUE, in the
+Items box's case) crushes this shaded/textured stone material into a
+flat, unnatural-looking color wash. The console shader's multiply-tint
+trick (same one `UNOWNED_ICON_TINT` uses elsewhere) works fine on this
+project's flat, already-colorful ability icons, but not on subtle
+grey-shaded stone/wood/metal art - the whole point of generating real
+textured material is lost if a tint flattens it back into a solid color.
+The box's own title text still carries its category color, so switching
+to WHITE loses no actual information about which box is which.
+
+**Every tile draws at `PIXEL_BOX_TILE_SCALE` (0.375x, ~12px), not the
+source art's native 32px** - also confirmed live: at full native size
+the border was thick enough to swallow an Item Menu box's own list text
+entirely. `set_fancy` scales a glyph around its own center (confirmed
+against bracket-terminal's real vertex-shader source), so `draw_pixel_box`
+also closes up the spacing between tile centers by that same factor -
+scaling the glyph alone without doing this would open a visible gap
+between adjacent tiles.
+
+**Callers should also fill the box's interior with a deliberate solid
+color first** (see `screens/item_menu.rs::print_box`'s own
+`DrawBatch::fill_region` call for the pattern) - without it, whatever's
+on the console(s) underneath (for the Item Menu, the frozen paused
+dungeon view) bleeds through the box's interior instead of a clean
+background. Draw the fill on the SAME console/batch the box's own text
+uses, before that text, so the text naturally overwrites the fill at its
+own cells with no extra console/z-order needed.
+
+Two real, deliberate simplifications versus a pixel-perfect box remain
+even at the smaller scale (see `draw_pixel_box`'s own doc comment for the
+full reasoning):
 
 - The box's top-left corner lands at the exact right pixel (via
   `set_fancy`'s fractional positioning), but its overall size is rounded
-  to the nearest whole 32px tile count - up to ~16px larger/smaller than
-  the original ASCII box's exact footprint. Confirmed via the Items box's
-  own real numbers (`LEFT_X=3, TOP_Y=12, LEFT_WIDTH=50, TOP_HEIGHT=11` on
-  the 107x67 HUD_CONSOLE grid): the pixel-art version renders at 19x4
-  tiles (608x128px) versus the ASCII version's exact 598x131px - a few
-  pixels off on each axis, not pixel-identical.
-- No filled interior yet (see "The center tile exists... " above).
+  to the nearest whole tile count at the smaller scale - within a few
+  pixels of the original ASCII box's exact footprint, not pixel-identical.
+- No real textured filled interior yet - the black `fill_region` above is
+  a flat color stand-in, not the sheet's own center tile art (see "The
+  center tile exists..." above for why that needs a bigger, deferred
+  change).
 
 ## Still open
 
-- Screenshot verification of the Items box (the one live call site) -
-  needed before wiring up the other 12 sites.
+- A third screenshot, confirming the WHITE tint / smaller scale / black
+  fill fixes actually look right together - needed before wiring up the
+  other 12 sites.
 - The 3 other Item Menu boxes, the 3 HUD bars, Pause Hints, the battle
   log, and the Battle Actions box (its border color already switches
-  live between yellow/green - `draw_pixel_box`'s `tint` parameter already
-  supports this the same way `draw_ascii_box` did, just needs wiring).
-- A filled interior (see above) - needs the `UI_PANEL_CONSOLE` reordering
-  discussed above.
+  live between yellow/green - moot now that `draw_pixel_box` calls use
+  WHITE regardless of category color, so this just needs wiring, not any
+  special-casing for the color switch).
+- A real textured filled interior (see above) - needs the
+  `UI_PANEL_CONSOLE` reordering discussed above.
 - Per-tile fractional stretching for genuinely pixel-perfect sizing
   (see `systems/hud.rs`'s "how do you scale these" design discussion in
   `docs/journal.md`'s 2026-09-14 entry) - not needed yet since the
   whole-tile rounding is visually negligible at this project's box sizes,
   but the plan if a smaller/tighter box ever needs it.
+- `PIXEL_BOX_TILE_SCALE` (0.375) is a first-pass guess matched to
+  HUD_CONSOLE's own real cell width, not yet confirmed against a real
+  screenshot - the first number to retune if the border still reads too
+  thick/thin once seen live.
