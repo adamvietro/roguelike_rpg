@@ -550,6 +550,35 @@ tracking, its own shop map/UI.
   clamped camera position at both ends of a glide instead. Verified with
   an exhaustive test (every possible position on the map, not just
   samples) that the window can never extend past bounds.
+- **Camera now also clamps to Arena's own reveal rectangle, not just the
+  full map** (2026-09-14, `arena-camera-reveal-clamp` branch) — the fix
+  above only ever clamped against the full 80x50 `SCREEN_WIDTH/HEIGHT`
+  grid, correct for an ordinary dungeon floor but not for Arena's own
+  wave/shop maps, which deliberately reveal only a much smaller rectangle
+  centered in that same grid to look small (`MapBuilder::new_arena_wave`/
+  `new_arena_shop`) - everything outside it stays permanently unrevealed
+  Wall. A player near the edge of the clearing (still well inside the
+  full map's own outer bounds, so the existing clamp never engaged) could
+  pan the camera past the reveal rectangle's real edge into that
+  unrevealed space, rendering as black - found from a real user recording
+  ("did we not set the battle arena to not have the camera go out of
+  bounds?") and confirmed by working out the exact clamp math before
+  touching code, not guessed. `Camera` now carries its own bounds
+  (defaulting to the full map via `new`, or an explicit rectangle via a
+  new `new_bounded`); `clamped_top_left` became an instance method so
+  `camera_render_offset`'s mid-glide interpolation agrees with the same
+  bounds instead of the fixed full-map constants. Handles the case where
+  the reveal rectangle is narrower than the display window itself (the
+  wave map's 34-wide rectangle is, vs. `DISPLAY_WIDTH`'s 40) by centering
+  the window on it instead of clamping, since no position could ever
+  fully fit the window inside a too-narrow rectangle. Both real call
+  sites (`arena_state.rs`'s `arena_begin_wave`, and `main.rs`'s
+  `build_shop_room` - shared by Arena's own shop and Dungeon Crawl's
+  between-floor shop) already had the reveal rectangle in scope right
+  next to their existing `Camera::new` call. Verified with an exhaustive
+  throwaway test (every point in the full 80x50 map, for the default
+  full-map camera and both of Arena's real reveal rectangles), removed
+  after confirming.
 
 ## Battle arena backgrounds — real painted scenes for Forest/Dungeon/Sewer/Swamp
 
