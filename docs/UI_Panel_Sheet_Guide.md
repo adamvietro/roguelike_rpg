@@ -8,18 +8,20 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-one call site wired up (Item Menu's Items box), two real rounds of live
-screenshot feedback already fixed** - a saturated tint color crushing the
-stone's own shading (fixed: tint WHITE, not a category color - see
-"Using it" below), and the border rendering at native 32px, oversized
-enough to swallow the box's own text (fixed: `PIXEL_BOX_TILE_SCALE`,
-plus a deliberate black interior fill since the frozen dungeon view was
-bleeding through). Still pending a THIRD screenshot to confirm those two
-fixes actually landed right. The other three Item Menu boxes, the three
-dungeon-HUD bars, the Pause Hints box, the battle log, and the Battle
-Actions box (see `docs/ideas.md` item 10 for the full 13-site list) are
-still on `draw_ascii_box` - swap them one at a time once this first one
-is confirmed correct.
+all 6 Item Menu boxes wired up, three real rounds of live screenshot
+feedback fixed so far** - a saturated tint crushing the stone's own
+shading (fixed: tint WHITE, not a category color), the border rendering
+at native 32px and swallowing box text (fixed: `PIXEL_BOX_TILE_SCALE`),
+a real no_bg-console fill bug that left the frozen dungeon view bleeding
+through box interiors (fixed: fill via the foreground channel, not
+background - see "Using it" below for all three), plus direct feedback on
+title placement and box spacing (title nudged onto the border's own row,
+`BOX_GAP`/`SUB_GAP` widened). Still pending a FOURTH screenshot to
+confirm all of that actually landed right. The remaining 7 of 13 sites
+(the three dungeon-HUD bars, the Pause Hints box, the battle log, and the
+Battle Actions box - see `docs/ideas.md` item 10 for the full list) are
+still on `draw_ascii_box` - swap them one at a time once the Item Menu is
+confirmed correct.
 
 ## The 4-theme, 3x3 layout
 
@@ -172,14 +174,27 @@ also closes up the spacing between tile centers by that same factor -
 scaling the glyph alone without doing this would open a visible gap
 between adjacent tiles.
 
-**Callers should also fill the box's interior with a deliberate solid
-color first** (see `screens/item_menu.rs::print_box`'s own
-`DrawBatch::fill_region` call for the pattern) - without it, whatever's
-on the console(s) underneath (for the Item Menu, the frozen paused
-dungeon view) bleeds through the box's interior instead of a clean
-background. Draw the fill on the SAME console/batch the box's own text
-uses, before that text, so the text naturally overwrites the fill at its
-own cells with no extra console/z-order needed.
+**Use `render_helpers::draw_filled_pixel_box` (border + fill together),
+not `draw_pixel_box` alone** - every real call site needs a deliberate
+solid interior fill or whatever's on the console(s) underneath (for the
+Item Menu, the frozen paused dungeon view) bleeds through instead of a
+clean background. `draw_filled_pixel_box` draws the fill on the SAME
+console/batch the box's own text uses, before that text, so the text
+naturally overwrites the fill at its own cells with no extra console/
+z-order needed.
+
+**The fill itself has to go through the FOREGROUND channel, not the
+background one** - a real, confirmed bug (2026-09-14), not a rect-math
+mistake: `HUD_CONSOLE` is a `with_simple_console_no_bg` console, and its
+actual fragment shader (`CONSOLE_NO_BG_FS` in bracket-terminal's real
+GLSL source) takes a background color as an input but never reads it
+anywhere - every fragment is either the glyph's own opaque texture or a
+hard `discard`, with no "solid background" case at all. A `fill_region`
+call with a space glyph and `bg=BLACK` is a silent no-op on this console
+type - `draw_filled_pixel_box` instead fills with a full-block glyph
+(CP437 219, `'█'`) tinted BLACK via `fg`, the same multiply-tint trick
+every other tinted icon in this project already relies on, just applied
+to a solid block instead of a sprite.
 
 Two real, deliberate simplifications versus a pixel-perfect box remain
 even at the smaller scale (see `draw_pixel_box`'s own doc comment for the
@@ -189,17 +204,26 @@ full reasoning):
   `set_fancy`'s fractional positioning), but its overall size is rounded
   to the nearest whole tile count at the smaller scale - within a few
   pixels of the original ASCII box's exact footprint, not pixel-identical.
-- No real textured filled interior yet - the black `fill_region` above is
-  a flat color stand-in, not the sheet's own center tile art (see "The
-  center tile exists..." above for why that needs a bigger, deferred
-  change).
+- No real textured filled interior yet - the black fill is a flat color
+  stand-in, not the sheet's own center tile art (see "The center tile
+  exists..." above for why that needs a bigger, deferred change).
+
+**Box titles print one row below the box's own nominal top row**
+(`y + 1`, not `y`) - the pixel-art border tiles get an extra north-anchor
+correction (`WIGGLE_CONSOLE_Y_ANCHOR_OFFSET`, see `draw_panel_tile`) that
+plain `print_color`'d text never goes through, so a title printed at the
+box's exact nominal row visibly sat above where the border's own top edge
+actually rendered instead of "on" it. A one-row nudge, not a scaled
+offset - simpler and more directly informed by what the screenshot
+actually showed, but still a first-pass guess like everything else here.
 
 ## Still open
 
-- A third screenshot, confirming the WHITE tint / smaller scale / black
-  fill fixes actually look right together - needed before wiring up the
-  other 12 sites.
-- The 3 other Item Menu boxes, the 3 HUD bars, Pause Hints, the battle
+- A fourth screenshot, confirming the fill-bug fix, the title-row nudge,
+  and the widened box spacing (see `screens/item_menu.rs`'s `BOX_GAP`/
+  `SUB_GAP`) all actually look right together - needed before wiring up
+  the other 12 sites.
+- The remaining 7 of 13 sites: the 3 HUD bars, Pause Hints, the battle
   log, and the Battle Actions box (its border color already switches
   live between yellow/green - moot now that `draw_pixel_box` calls use
   WHITE regardless of category color, so this just needs wiring, not any

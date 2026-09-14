@@ -145,6 +145,18 @@ You have direct file access and a real terminal here, so use them:
   grey); for full-color custom sprite icons, a light grey barely dims them
   — use a much darker dedicated tint for "disabled" icon states, not the
   same constant used for greyed-out text.
+- **A `with_simple_console_no_bg` console's `bg` parameter is a total
+  no-op** — confirmed straight from bracket-terminal's real
+  `CONSOLE_NO_BG_FS` GLSL source, not guessed: the shader receives a
+  background color as an input but never reads it anywhere; every
+  fragment is either the glyph's own opaque texture or a hard `discard`,
+  with no "solid background" code path at all. `DrawBatch::fill_region`/
+  `set`/`set_bg` with a space glyph and a `bg` color on a `no_bg` console
+  (e.g. `HUD_CONSOLE`) silently does nothing (2026-09-14, `render_helpers::
+  draw_filled_pixel_box`). To actually paint a solid color on a `no_bg`
+  console, use a full-block glyph (CP437 219, `'█'`) tinted via `fg`
+  instead — the same multiply-tint trick every other tinted icon in this
+  project already relies on, just aimed at a solid block.
 - Converting a pixel boundary into a row/column across two consoles of
   different resolution: which way to round (floor vs. ceiling) depends on
   which side of the boundary that edge must stay on. A flat "+1"/"-1"
