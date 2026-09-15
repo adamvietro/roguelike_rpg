@@ -938,7 +938,7 @@ impl State {
         // other first-pass box size in this project - pending a
         // screenshot.
         const MSG_BOX_X: i32 = 10;
-        const MSG_BOX_Y: i32 = 17;
+        const MSG_BOX_Y: i32 = 21;
         const MSG_BOX_WIDTH: i32 = 30;
         const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 3;
 
