@@ -401,6 +401,18 @@ mod prelude {
     /// (e.g. "x2" for two Freeze Traps), which sit ON TOP of those same
     /// icons and therefore need to move later in lockstep with them.
     pub const ABILITY_BAR_ICON_BADGE_CONSOLE: usize = 49;
+    /// Console 50, battle-only: fancy, same DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT/32px grid as UI_PANEL_CONSOLE, sourced from
+    /// `battle_bar_frame.png` (item 10 in docs/ideas.md) - the player's
+    /// real pixel-art HP/ATB bars (`render_helpers::draw_pixel_bar`),
+    /// replacing the old `[####----]` ASCII-text bars
+    /// (`battle::hp_bar_string`) for the player specifically (enemies
+    /// keep the ASCII version - see docs/journal.md's 2026-09-14 entry).
+    /// FANCY for the same reason UI_PANEL_CONSOLE is: `set_fancy`'s
+    /// fractional positioning and non-uniform per-axis scale are what
+    /// let one glyph become a precisely-sized colored fill quad, the
+    /// same trick `render_helpers::draw_panel_fill` already uses.
+    pub const BATTLE_BAR_CONSOLE: usize = 50;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -461,6 +473,7 @@ mod prelude {
         PANEL_TEXT_CONSOLE,
         ABILITY_BAR_ICON_CONSOLE,
         ABILITY_BAR_ICON_BADGE_CONSOLE,
+        BATTLE_BAR_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -1696,6 +1709,10 @@ fn main() -> BError {
         // same grid as ABILITY_BAR_BADGE_CONSOLE, terminal8x8.png - see
         // its own doc comment above.
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
+        // Console 50 (BATTLE_BAR_CONSOLE): fancy, console 0's own grid,
+        // sourced from battle_bar_frame.png - see its own doc comment
+        // above.
+        .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "battle_bar_frame.png")
         .with_vsync(false)
         .build()?;
 

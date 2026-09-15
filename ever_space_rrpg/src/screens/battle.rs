@@ -806,28 +806,65 @@ impl State {
         }
 
         ctx.print_color(32, 58, WHITE, BLACK, "You");
-        ctx.print_color(
-            32,
-            59,
-            WHITE,
-            BLACK,
-            &format!(
-                "{} {}/{}",
-                hp_bar_string(player_hp, player_max, 16),
-                player_hp.max(0),
-                player_max
-            ),
-        );
-        ctx.print_color(
-            32,
-            56,
+
+        // The player's own real pixel-art HP/ATB bars (item 10 in
+        // docs/ideas.md) - replaces hp_bar_string's ASCII `[####----]`
+        // rendering for the player specifically; enemies keep the ASCII
+        // version (see docs/journal.md's 2026-09-14 entry for why - a
+        // deliberate scope choice, not an oversight). draw_pixel_bar
+        // works in HUD_CONSOLE cell units, not this block's own
+        // FINE_TEXT_CONSOLE column - PLAYER_BAR_HUD_X converts via the
+        // real pixel ratio between the two consoles (both span the same
+        // 1280x800 window), same conversion the battle log box above
+        // uses. Row positions and the bar's own width are NOT converted
+        // from the old text layout the same way - the bars are taller
+        // graphics than a single text row ever was, so they need more
+        // vertical room between them than the old cramped 1-2-row text
+        // gaps allowed. First-pass values, like every other bracket-lib
+        // pixel value in this project - pending a screenshot.
+        const PLAYER_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
+        const PLAYER_ATB_BAR_HUD_Y: i32 = 36;
+        const PLAYER_HP_BAR_HUD_Y: i32 = 40;
+        const PLAYER_BAR_WIDTH: i32 = 20;
+
+        let mut player_bar_batch = DrawBatch::new();
+        player_bar_batch.target(BATTLE_BAR_CONSOLE);
+        draw_pixel_bar(
+            &mut player_bar_batch,
+            PLAYER_BAR_HUD_X,
+            PLAYER_ATB_BAR_HUD_Y,
+            PLAYER_BAR_WIDTH,
+            battle.player_gauge as i32,
+            ATB_GAUGE_MAX as i32,
             if battle.player_gauge >= ATB_GAUGE_MAX {
                 GREEN
             } else {
                 CYAN
             },
+        );
+        draw_pixel_bar(
+            &mut player_bar_batch,
+            PLAYER_BAR_HUD_X,
+            PLAYER_HP_BAR_HUD_Y,
+            PLAYER_BAR_WIDTH,
+            player_hp,
+            player_max,
+            RED,
+        );
+        player_bar_batch.submit(0).expect("Batch error");
+
+        // The HP bar's own "current/max" number - stays plain text on
+        // FINE_TEXT_CONSOLE (this block's own console), printed a few
+        // rows below the bar rather than converted through HUD_CONSOLE
+        // units the way the bar itself needs to be; a single text line
+        // has no reason to fight that conversion when it can just sit
+        // at a fine-grid row chosen to visually clear the bar above it.
+        ctx.print_color(
+            32,
+            62,
+            WHITE,
             BLACK,
-            &hp_bar_string(battle.player_gauge as i32, ATB_GAUGE_MAX as i32, 16),
+            &format!("{}/{}", player_hp.max(0), player_max),
         );
 
         // --- Active-status line for the player: previously Defending,

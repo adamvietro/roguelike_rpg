@@ -629,6 +629,112 @@ pub fn draw_filled_pixel_box_scaled(
     draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK), scale);
 }
 
+/// Every tile draws at this fraction of `battle_bar_frame.png`'s native
+/// 32px - same reasoning as `PIXEL_BOX_TILE_SCALE`/`_COMPACT`, a
+/// first-pass guess (16px tiles) pending a screenshot. Deliberately its
+/// own constant, not reused from the panel-box scales - a status bar and
+/// a box border are different enough visual elements that there's no
+/// reason to assume the same number looks right for both.
+const PIXEL_BAR_TILE_SCALE: f32 = 0.5;
+
+/// How much of a bar tile's native 32px height the colored fill uses,
+/// and how far down from the tile's own top edge that fill starts -
+/// measured directly from the real generated pixel data
+/// (`resources/battle_bar_frame.png`), not guessed: the frame's opaque
+/// wood-and-gold channel walls occupy roughly rows 6-9 and 25-28 of
+/// each 32px tile, leaving a transparent channel from about row 10 to
+/// row 24 (15px) for the fill to show through. `FILL_HEIGHT_FRACTION`
+/// (0.45, slightly less than the full 15px channel for a small margin)
+/// and `FILL_TOP_FRACTION` (0.3, ~row 9-10) position the fill inside
+/// that channel rather than guessing a centered default.
+const BAR_FILL_HEIGHT_FRACTION: f32 = 0.45;
+const BAR_FILL_TOP_FRACTION: f32 = 0.3;
+
+/// Converts a bar given in HUD_CONSOLE cell units into `BATTLE_BAR_
+/// CONSOLE`'s own 32px-tile terms - the exact same conversion (and the
+/// exact same center-shift correction) `pixel_box_tiles` already
+/// applies for panel boxes, just for a bar's single row instead of a
+/// full 3x3 box. See `pixel_box_tiles`'s own doc comment for the real
+/// vertex-shader derivation behind the correction - it applies
+/// identically here, since this uses the exact same `set_fancy`
+/// scale-around-a-fixed-center mechanism.
+fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
+    let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
+    let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
+    let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
+
+    let tile_px = 32.0 * scale;
+    let tiles_w = (((px_x1 - px_x0) / tile_px).round() as i32).max(2);
+
+    let center_shift = (1.0 - scale) / 2.0;
+    (px_x0 / 32.0 - center_shift, px_y0 / 32.0 - center_shift, tiles_w)
+}
+
+/// Draws a real pixel-art status bar (colored proportional fill + the
+/// wood-and-gold `battle_bar_frame.png` frame drawn over it) at `(x, y)`
+/// in HUD_CONSOLE cell units, `width` HUD_CONSOLE columns wide -
+/// replaces `battle::hp_bar_string`'s `[####----]` ASCII rendering for
+/// the player's own HP/ATB bars specifically (item 10 in docs/ideas.md;
+/// enemies keep the ASCII version - see docs/journal.md's 2026-09-14
+/// entry for why). `batch` must target `BATTLE_BAR_CONSOLE`.
+///
+/// `battle_bar_frame.png` is a plain 3-cell row (left cap, tileable
+/// middle, right cap - glyph indices 0/1/2 directly, no `UiPanelTheme`-
+/// style 3x3 block since a bar has no top/bottom edges to tile), unlike
+/// the 9-slice panel boxes - the same `draw_panel_tile`/`pixel_bar_
+/// tiles` machinery still applies since it's the exact same `set_fancy`
+/// tiling mechanism, just laid out in one row instead of three.
+///
+/// Fill drawn BEFORE the frame (same z-order reasoning as
+/// `draw_filled_pixel_box_scaled` - `BATTLE_BAR_CONSOLE` is a sparse
+/// `FlexiConsole` too, so the frame's own opaque wood always paints over
+/// the fill wherever they coincide, regardless of draw order elsewhere
+/// on the same console this frame). Fill width is `current/max` of the
+/// bar's own total tile width, clamped to `[0.0, 1.0]` same as
+/// `battle::hp_bar_string`'s own ratio math; a `max <= 0` bar (a dead
+/// enemy, or a divide-by-zero guard) renders fully empty rather than
+/// panicking.
+pub fn draw_pixel_bar(
+    batch: &mut DrawBatch,
+    x: i32,
+    y: i32,
+    width: i32,
+    current: i32,
+    max: i32,
+    fill_color: (u8, u8, u8),
+) {
+    let s = PIXEL_BAR_TILE_SCALE;
+    let (base_col, base_row, tiles_w) = pixel_bar_tiles(x, y, width, s);
+    let last_col = tiles_w - 1;
+
+    let ratio = if max <= 0 {
+        0.0
+    } else {
+        (current.max(0) as f32 / max as f32).clamp(0.0, 1.0)
+    };
+    if ratio > 0.0 {
+        let fill_tiles_w = tiles_w as f32 * ratio;
+        let fill_center_col = base_col + s * fill_tiles_w / 2.0;
+        let fill_center_row = base_row + s * (BAR_FILL_TOP_FRACTION + BAR_FILL_HEIGHT_FRACTION / 2.0);
+        let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+        batch.set_fancy(
+            PointF::new(fill_center_col, fill_center_row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
+            0,
+            Degrees::new(0.0),
+            PointF::new(s * fill_tiles_w, s * BAR_FILL_HEIGHT_FRACTION),
+            ColorPair::new(fill_color, bg_transparent),
+            to_cp437('█'),
+        );
+    }
+
+    let tint = ColorPair::new(WHITE, RGBA::from_f32(0.0, 0.0, 0.0, 0.0));
+    draw_panel_tile(batch, base_col, base_row, 0, tint, s);
+    for c in 1..last_col {
+        draw_panel_tile(batch, base_col + c as f32 * s, base_row, 1, tint, s);
+    }
+    draw_panel_tile(batch, base_col + last_col as f32 * s, base_row, 2, tint, s);
+}
+
 /// Small horizontal shake for a portrait mid-"Attacking" flash - a few
 /// quick back-and-forth oscillations that decay to nothing exactly as the
 /// flash itself expires, so the portrait is back in its resting spot the
