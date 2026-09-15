@@ -212,7 +212,7 @@ impl State {
                 ctx.quitting = true;
             } else if key == VirtualKeyCode::O {
                 self.options_return_to = TurnState::TitleScreen;
-                self.options_cursor = 0;
+                self.options_cursor = MenuCursor::new();
                 self.resources.insert(TurnState::Options);
             } else if key == VirtualKeyCode::H {
                 self.stats_view_mode = StatsViewMode::Overview;

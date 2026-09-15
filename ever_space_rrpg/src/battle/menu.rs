@@ -218,14 +218,3 @@ impl MenuCursor {
     }
 }
 
-/// A simple bracket-style text health bar, e.g. "[######----]".
-pub fn hp_bar_string(current: i32, max: i32, width: usize) -> String {
-    if max <= 0 {
-        return format!("[{}]", "-".repeat(width));
-    }
-    let ratio = (current.max(0) as f32 / max as f32).min(1.0);
-    let filled = ((ratio * width as f32).round() as usize).min(width);
-    let empty = width - filled;
-    format!("[{}{}]", "#".repeat(filled), "-".repeat(empty))
-}
-

@@ -82,32 +82,29 @@ const FOOTER_Y: i32 = STATS_Y + STATS_HEIGHT + 2;
 /// selected_local_index in item_menu_tick.
 ///
 /// The real PixelLab border (item 10 in docs/ideas.md) via
-/// `draw_filled_pixel_box` - every box on this screen uses it now, no
-/// `draw_ascii_box` fallback left to switch on (dropped once the last of
-/// the 6 boxes on this screen was converted, rather than keep an unused
-/// branch around).
+/// `render_helpers::PanelBox` - every box on this screen uses it now
+/// (converted from a shared hand-rolled `panel_batch`/`text_batch` pair
+/// to `PanelBox` 2026-09-14, once that helper was built and confirmed
+/// working on the Battle Log box; see `docs/journal.md`'s same-day
+/// entries). `PanelBox` already targets the right two consoles
+/// internally (`UI_PANEL_CONSOLE` for fill+border, `PANEL_TEXT_CONSOLE`
+/// for text) - see that struct's own doc comment in render_helpers.rs
+/// for why text needs a console registered LATER than whatever drew the
+/// fill it sits on top of, not just later in the same batch.
 ///
-/// `panel_batch` (UI_PANEL_CONSOLE) draws the box's own fill+border,
-/// `text_batch` (PANEL_TEXT_CONSOLE) draws EVERYTHING printed - title,
-/// "Nothing here.", every list entry. Two different consoles, not two
-/// batches on the same one: confirmed live 2026-09-14, traced to
-/// bracket-terminal's real source (see PANEL_TEXT_CONSOLE's own doc
-/// comment in main.rs), that `SimpleConsole::set` REPLACES a cell's
-/// entire (glyph, fg, bg) outright rather than layering onto whatever
-/// was drawn there before - text printed on the SAME console as a fill
-/// on a `SimpleConsole` (which HUD_CONSOLE is, and PANEL_TEXT_CONSOLE
-/// itself is too) doesn't sit "on top of" the fill, it OVERWRITES that
-/// cell's fill entirely, and a letter's own near-black "empty" pixels
-/// then get discarded by the console's own no_bg shader, revealing the
-/// live dungeon view underneath instead of solid black. UI_PANEL_CONSOLE
-/// itself doesn't have this problem (see `draw_panel_fill`'s own doc
-/// comment in render_helpers.rs for why), which is why the fill lives
-/// there now rather than on HUD_CONSOLE - but printed TEXT still needs
-/// its own later console regardless, since HUD_CONSOLE/PANEL_TEXT_CONSOLE
-/// remain plain `SimpleConsole`s.
+/// Title prints at `dy = -1` (one row ABOVE `y`, i.e. above the box's
+/// own top border) rather than `dy = 0` - applying the fix
+/// `docs/UI_Panel_Sheet_Guide.md`'s "Still open" list had already
+/// diagnosed and left pending: at this screen's box heights/scale
+/// (`PIXEL_BOX_TILE_SCALE`, the default, not `_COMPACT`), `dy = 0`
+/// landed the title ON the border's own real footprint rather than
+/// clearly inside it - a real, confirmed-live regression from the
+/// center-shift fix (`pixel_box_tiles`), not the SAME "erased outright"
+/// failure an earlier, now-stale attempt at `y + 1` hit before that fix
+/// existed (`PANEL_TEXT_CONSOLE` is registered AFTER `UI_PANEL_CONSOLE`,
+/// so text on it was never actually at risk of being painted over by
+/// the border - only ever a positioning question, not a z-order one).
 fn print_box(
-    panel_batch: &mut DrawBatch,
-    text_batch: &mut DrawBatch,
     x: i32,
     y: i32,
     width: i32,
@@ -116,33 +113,17 @@ fn print_box(
     slots: &[AbilityBarSlot],
     selected: Option<usize>,
 ) {
-    draw_filled_pixel_box(panel_batch, x, y, width, height, UiPanelTheme::Dungeon);
-    // Back to row y, not y+1 - the y+1 nudge (tried 2026-09-14, aiming to
-    // land the title "on" the border per direct feedback) turned out to be
-    // a real architectural dead end, not a pixel-tuning miss: the border
-    // draws on UI_PANEL_CONSOLE, a console registered (and therefore
-    // z-ordered) AFTER HUD_CONSOLE - wherever the title's row coincides
-    // with the border's own real footprint, the border's fully opaque
-    // tile paints directly over the title and hides it completely,
-    // regardless of DrawBatch command order within HUD_CONSOLE itself
-    // (confirmed live: the nudge didn't misplace the title, it erased it
-    // outright on every box). Reverted to the row that's actually
-    // confirmed visible. Getting a title to read as genuinely embedded
-    // in the border art would need a real new console layered even later
-    // than UI_PANEL_CONSOLE - not attempted here.
-    text_batch.print_color(Point::new(x + 2, y), format!(" {} ", title), ColorPair::new(YELLOW, BLACK));
+    let mut panel_box = PanelBox::new(x, y, width, height, UiPanelTheme::Dungeon, PIXEL_BOX_TILE_SCALE);
+    panel_box.text_color_raw(2, -1, YELLOW, BLACK, format!(" {} ", title));
 
     if slots.is_empty() {
-        text_batch.print_color(
-            Point::new(x + 2, y + 2),
-            "Nothing here.",
-            ColorPair::new(GRAY, BLACK),
-        );
+        panel_box.text_color(0, 0, GRAY, BLACK, "Nothing here.");
+        panel_box.submit();
         return;
     }
 
     for (i, slot) in slots.iter().enumerate() {
-        let row = y + 2 + i as i32;
+        let row = i as i32;
         let owned = slot.owned.is_some();
         let label = match slot.owned {
             Some((count, _)) if count > 1 => format!("{} x{}", slot.name, count),
@@ -157,19 +138,12 @@ fn print_box(
             GRAY
         };
         if is_selected {
-            text_batch.print_color(
-                Point::new(x + 2, row),
-                format!("> {}", label),
-                ColorPair::new(color, BLACK),
-            );
+            panel_box.text_color(0, row, color, BLACK, format!("> {}", label));
         } else {
-            text_batch.print_color(
-                Point::new(x + 4, row),
-                label,
-                ColorPair::new(color, BLACK),
-            );
+            panel_box.text_color(2, row, color, BLACK, label);
         }
     }
+    panel_box.submit();
 }
 
 impl State {
@@ -271,18 +245,8 @@ impl State {
         ctx.set_active_console(HUD_CONSOLE);
         let mut batch = DrawBatch::new();
         batch.target(HUD_CONSOLE);
-        let mut panel_batch = DrawBatch::new();
-        panel_batch.target(UI_PANEL_CONSOLE);
-        // Every printed character on this screen goes here, not on
-        // HUD_CONSOLE - see print_box's own doc comment for why text has
-        // to live on a console registered LATER than whatever drew the
-        // fill it sits on top of, not just later in the same batch.
-        let mut text_batch = DrawBatch::new();
-        text_batch.target(PANEL_TEXT_CONSOLE);
 
         print_box(
-            &mut panel_batch,
-            &mut text_batch,
             LEFT_X,
             TOP_Y,
             LEFT_WIDTH,
@@ -292,8 +256,6 @@ impl State {
             items_selected,
         );
         print_box(
-            &mut panel_batch,
-            &mut text_batch,
             RIGHT_X,
             TOP_Y,
             RIGHT_WIDTH,
@@ -303,8 +265,6 @@ impl State {
             battle_selected,
         );
         print_box(
-            &mut panel_batch,
-            &mut text_batch,
             LEFT_X,
             BOTTOM_Y,
             LEFT_WIDTH,
@@ -314,8 +274,6 @@ impl State {
             equipped_selected,
         );
         print_box(
-            &mut panel_batch,
-            &mut text_batch,
             RIGHT_X,
             BOTTOM_Y,
             RIGHT_WIDTH,
@@ -327,24 +285,18 @@ impl State {
 
         // Box 3 (Stats) - static, never gets the cursor (see this
         // module's doc comment). Sits directly below Equipped Items,
-        // filling the rest of the left column's lower half.
-        draw_filled_pixel_box(
-            &mut panel_batch,
+        // filling the rest of the left column's lower half. Converted to
+        // PanelBox alongside print_box above - title at dy=-1, same
+        // pending fix, same reasoning (see print_box's own doc comment).
+        let mut stats_box = PanelBox::new(
             LEFT_X,
             STATS_Y,
             LEFT_WIDTH,
             STATS_HEIGHT,
             UiPanelTheme::Dungeon,
+            PIXEL_BOX_TILE_SCALE,
         );
-        // Back to STATS_Y, not STATS_Y + 1 - see print_box's own comment
-        // on why that nudge got reverted (it hid the title entirely, not
-        // just misplaced it). text_batch, not batch - see print_box's own
-        // doc comment for why text needs its own later console.
-        text_batch.print_color(
-            Point::new(LEFT_X + 2, STATS_Y),
-            " Stats ",
-            ColorPair::new(YELLOW, BLACK),
-        );
+        stats_box.text_color_raw(2, -1, YELLOW, BLACK, " Stats ");
         let health = self
             .ecs
             .entry_ref(player)
@@ -389,14 +341,10 @@ impl State {
             .get::<Option<ArenaRun>>()
             .and_then(|run| *run);
 
-        let mut stats_row = STATS_Y + 2;
+        let mut stats_dy = 0;
         let mut print_stat = |label: &str, value: String| {
-            text_batch.print_color(
-                Point::new(LEFT_X + 2, stats_row),
-                format!("{}: {}", label, value),
-                ColorPair::new(WHITE, BLACK),
-            );
-            stats_row += 1;
+            stats_box.text_color(0, stats_dy, WHITE, BLACK, format!("{}: {}", label, value));
+            stats_dy += 1;
         };
         if let Some(class) = &class {
             print_stat("Class", class.clone());
@@ -431,27 +379,21 @@ impl State {
             }
             None => print_stat("Dungeon Level", (map_level + 1).to_string()),
         }
+        stats_box.submit();
 
         // Box 1.1 - the shared description panel, full width, for
         // whichever slot the cursor currently sits on (across any of
-        // the 4 navigable boxes).
-        draw_filled_pixel_box(
-            &mut panel_batch,
+        // the 4 navigable boxes). Title at dy=-1 - same pending fix as
+        // print_box/Stats above.
+        let mut desc_box = PanelBox::new(
             DESC_X,
             DESC_Y,
             DESC_WIDTH,
             DESC_HEIGHT,
             UiPanelTheme::Dungeon,
+            PIXEL_BOX_TILE_SCALE,
         );
-        // Added 2026-09-14 - every other box on this screen already had
-        // its own title, this one didn't. text_batch, not batch - see
-        // print_box's own doc comment for why text needs its own later
-        // console.
-        text_batch.print_color(
-            Point::new(DESC_X + 2, DESC_Y),
-            " Description ",
-            ColorPair::new(YELLOW, BLACK),
-        );
+        desc_box.text_color_raw(2, -1, YELLOW, BLACK, " Description ");
         match selected_slot {
             Some(slot) => {
                 let description = description_for_item_name(&slot.name)
@@ -460,11 +402,7 @@ impl State {
                     .iter()
                     .enumerate()
                 {
-                    text_batch.print_color(
-                        Point::new(DESC_X + 2, DESC_Y + 2 + i as i32),
-                        line,
-                        ColorPair::new(WHITE, BLACK),
-                    );
+                    desc_box.text_color(0, i as i32, WHITE, BLACK, line.clone());
                 }
             }
             // Nothing under the cursor right now (an empty list, or the
@@ -474,13 +412,16 @@ impl State {
             // unobtrusive hollow ASCII box. Same GRAY "Nothing here."
             // convention the empty lists themselves already use.
             None => {
-                text_batch.print_color(
-                    Point::new(DESC_X + 2, DESC_Y + 2),
+                desc_box.text_color(
+                    0,
+                    0,
+                    GRAY,
+                    BLACK,
                     "Select an item or action to see its description.",
-                    ColorPair::new(GRAY, BLACK),
                 );
             }
         }
+        desc_box.submit();
 
         // Footer stays on plain HUD_CONSOLE (via batch) - it sits in the
         // open area below every box, never on top of a fill, so it was
@@ -492,8 +433,6 @@ impl State {
             ColorPair::new(GRAY, BLACK),
         );
         batch.submit(0).expect("Batch error");
-        panel_batch.submit(0).expect("Batch error");
-        text_batch.submit(0).expect("Batch error");
 
         // Enter only actions the two USABLE boxes (Items, Dungeon
         // Actions) - Equipped Items and Battle Actions stay browse-only,

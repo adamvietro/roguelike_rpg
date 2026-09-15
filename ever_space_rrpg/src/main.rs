@@ -403,11 +403,13 @@ mod prelude {
     pub const ABILITY_BAR_ICON_BADGE_CONSOLE: usize = 49;
     /// Console 50, battle-only: fancy, same DISPLAY_WIDTH x
     /// DISPLAY_HEIGHT/32px grid as UI_PANEL_CONSOLE, sourced from
-    /// `battle_bar_frame.png` (item 10 in docs/ideas.md) - the player's
-    /// real pixel-art HP/ATB bars (`render_helpers::draw_pixel_bar`),
-    /// replacing the old `[####----]` ASCII-text bars
-    /// (`battle::hp_bar_string`) for the player specifically (enemies
-    /// keep the ASCII version - see docs/journal.md's 2026-09-14 entry).
+    /// `battle_bar_frame.png` (item 10 in docs/ideas.md) - real pixel-
+    /// art HP/ATB bars (`render_helpers::draw_pixel_bar`), replacing
+    /// the old `[####----]` ASCII-text bars this project used to draw
+    /// with a now-removed `battle::hp_bar_string` helper. Both the
+    /// player's own HP/ATB bars and each enemy's own ATB gauge (added
+    /// 2026-09-15 - enemies don't have a real HP bar of their own right
+    /// now, see docs/journal.md's same-day entry) render here.
     /// FANCY for the same reason UI_PANEL_CONSOLE is: `set_fancy`'s
     /// fractional positioning and non-uniform per-axis scale are what
     /// let one glyph become a precisely-sized colored fill quad, the
@@ -422,6 +424,21 @@ mod prelude {
     /// needs a console later than BOTH, not just later than the fill/
     /// border the way every other converted box's own text only needed.
     pub const BATTLE_BAR_TEXT_CONSOLE: usize = 51;
+    /// Console 52, dungeon-view: plain (no_bg), same grid as
+    /// `CHARACTER_PORTRAIT_HUD_CONSOLE` (31, `ABILITY_BAR_COLS x
+    /// ABILITY_BAR_ROWS`), same font (`character_portrait.png`) - a
+    /// SECOND, LATER-registered instance of that exact console config,
+    /// same fix as `ABILITY_BAR_ICON_CONSOLE`'s own doc comment above
+    /// for the exact same underlying problem: once the dungeon HUD's
+    /// player-status frame got a real `PanelBox` border 2026-09-14 (its
+    /// fill living on `UI_PANEL_CONSOLE`, registered AFTER console 31),
+    /// that fill's fully-opaque quad started painting directly over the
+    /// class-portrait icon drawn on `CHARACTER_PORTRAIT_HUD_CONSOLE`
+    /// (confirmed live - the box rendered with nothing inside it).
+    /// `systems/hud.rs`'s player-status portrait now draws here instead;
+    /// console 31 stays registered (nothing else ever used it) rather
+    /// than renumber everything after it to remove it outright.
+    pub const CHARACTER_PORTRAIT_HUD_ICON_CONSOLE: usize = 52;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -484,6 +501,7 @@ mod prelude {
         ABILITY_BAR_ICON_BADGE_CONSOLE,
         BATTLE_BAR_CONSOLE,
         BATTLE_BAR_TEXT_CONSOLE,
+        CHARACTER_PORTRAIT_HUD_ICON_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -581,11 +599,14 @@ struct State {
     /// on.
     class_select_anim_frame: usize,
     class_select_anim_elapsed_ms: f32,
-    /// Cursor row for the Options screen's browsing list (the 4 rebindable
-    /// Actions plus Battle Speed/ATB Mode, 6 rows total) - see
-    /// screens/options.rs. Reset to 0 every time Options is freshly
-    /// entered (from the title screen or from Pause).
-    options_cursor: usize,
+    /// Cursor for the Options screen's 4 category boxes (Audio, Video,
+    /// Hotkeys, Gameplay) - see screens/options.rs. `col` picks the
+    /// left column (Audio, then Hotkeys stacked below it) or the right
+    /// (Video, then Gameplay) - same 2-stacked-column shape `screens/
+    /// item_menu.rs`'s own `item_menu_cursor` already uses, not a new
+    /// pattern. Reset to a fresh cursor every time Options is entered
+    /// (from the title screen or from Pause).
+    options_cursor: MenuCursor,
     /// Cursor row for History's Overview class list - see
     /// screens/stats_view.rs. Reset to 0 whenever the History screen is
     /// freshly entered from the title screen (not when returning to
@@ -828,7 +849,7 @@ impl State {
             pending_theme_choice: ThemeChoice::Random,
             class_select_anim_frame: 0,
             class_select_anim_elapsed_ms: 0.0,
-            options_cursor: 0,
+            options_cursor: MenuCursor::new(),
             stats_view_cursor: 0,
             item_menu_cursor: MenuCursor::new(),
             pause_cursor: 0,
@@ -1728,6 +1749,10 @@ fn main() -> BError {
         // as HUD_CONSOLE, terminal8x8.png - see its own doc comment
         // above.
         .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
+        // Console 52 (CHARACTER_PORTRAIT_HUD_ICON_CONSOLE): plain
+        // (no_bg), same grid as console 31, character_portrait.png -
+        // see its own doc comment above.
+        .with_simple_console_no_bg(ABILITY_BAR_COLS, ABILITY_BAR_ROWS, "character_portrait.png")
         .with_vsync(false)
         .build()?;
 

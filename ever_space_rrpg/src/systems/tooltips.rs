@@ -24,9 +24,14 @@ pub fn tooltips(ecs: &SubWorld, #[resource] mouse_pos: &Point, #[resource] camer
         ),
         None => *mouse_pos + Point::new(camera.left_x, camera.top_y),
     };
-    let mut draw_batch = DrawBatch::new();
-    draw_batch.target(HUD_CONSOLE);
     let player_fov = fov.iter(ecs).nth(0).unwrap();
+    // Wrapped in a real render_helpers::PanelBox 2026-09-14 (direct
+    // request) - Swamp, matching every other border on this HUD, sized
+    // dynamically to the text's own length (this tooltip's content
+    // varies - just a name, or "name : N hp" - unlike the shop
+    // tooltip's own fixed SHOP_TOOLTIP_WIDTH, which never needs to fit
+    // more than one specific line shape). Same dx=2/dy=2 text inset the
+    // shop tooltip already uses.
     positions
         .iter(ecs)
         .filter(|(_, pos, _)| **pos == map_pos && player_fov.visible_tiles.contains(&pos))
@@ -40,7 +45,16 @@ pub fn tooltips(ecs: &SubWorld, #[resource] mouse_pos: &Point, #[resource] camer
                 } else {
                     name.0.clone()
                 };
-            draw_batch.print(screen_pos, &display);
+            let width = display.chars().count() as i32 + 4;
+            let mut tooltip_box = PanelBox::new(
+                screen_pos.x,
+                screen_pos.y,
+                width,
+                4,
+                UiPanelTheme::Swamp,
+                PIXEL_BOX_TILE_SCALE_COMPACT,
+            );
+            tooltip_box.text_color(0, 0, WHITE, BLACK, display);
+            tooltip_box.submit();
         });
-    draw_batch.submit(10100).expect("Batch error");
 }

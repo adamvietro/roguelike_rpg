@@ -1,4 +1,6 @@
 use crate::prelude::*;
+use object_pool::Reusable;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Draws `render`'s glyph in a single cell at (col, row) in the given
 /// DrawBatch's target console coordinate space. Used to render scaled-up
@@ -210,16 +212,20 @@ pub fn print_menu_row_left(
     }
 }
 
-/// Which of `resources/ui_panels.png`'s five theme bands `draw_pixel_box`
+/// Which of `resources/ui_panels.png`'s six theme bands `draw_pixel_box`
 /// should draw from - see that sheet's own row-mapping doc
-/// (`docs/UI_Panel_Sheet_Guide.md`). Each theme owns 3 of the sheet's 15
+/// (`docs/UI_Panel_Sheet_Guide.md`). Each theme owns 3 of the sheet's 18
 /// rows (a 3x3 nine-slice grid, 32px cells). Dungeon/Forest/Sewer/Swamp
 /// are in the same order `map_builder::dungeon_theme_pool()` already
 /// uses; `Battle` (added 2026-09-14) is the first theme NOT tied to a
 /// map theme - it's for the battle screen specifically (the ability-
 /// selection box, the battle log), an ornate carved wood-and-gold
 /// material generated separately, appended as the sheet's 5th band
-/// rather than reusing any of the map-theme rows.
+/// rather than reusing any of the map-theme rows. `Gears` (added
+/// 2026-09-15) is the second - a brass/gunmetal steampunk-and-science
+/// frame with cog medallions at the corners, generated for the
+/// redesigned Options screen specifically, appended as the sheet's 6th
+/// band the same way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiPanelTheme {
     Dungeon,
@@ -227,10 +233,11 @@ pub enum UiPanelTheme {
     Sewer,
     Swamp,
     Battle,
+    Gears,
 }
 
 impl UiPanelTheme {
-    /// The first of this theme's 3 rows on the 3-col x 15-row
+    /// The first of this theme's 3 rows on the 3-col x 18-row
     /// `ui_panels.png` atlas.
     fn base_row(self) -> i32 {
         match self {
@@ -239,6 +246,7 @@ impl UiPanelTheme {
             UiPanelTheme::Sewer => 2,
             UiPanelTheme::Swamp => 3,
             UiPanelTheme::Battle => 4,
+            UiPanelTheme::Gears => 5,
         }
     }
 
@@ -272,7 +280,7 @@ impl UiPanelTheme {
 /// actually needing. Deliberately doesn't touch icon/portrait
 /// rendering - those go through their own separate scale (draw_portrait/
 /// draw_portrait_fancy), not this constant.
-const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
+pub const PIXEL_BOX_TILE_SCALE: f32 = 0.3;
 
 /// The compact counterpart to `PIXEL_BOX_TILE_SCALE`, for boxes small in
 /// EITHER dimension - the dungeon HUD's Item/Ability/Battle Bars (as few
@@ -559,13 +567,15 @@ pub fn draw_pixel_box(
 /// number label) needs its OWN separately-registered, later console
 /// (PANEL_TEXT_CONSOLE) - NOT this function's `panel_batch`, and NOT
 /// HUD_CONSOLE either. See PANEL_TEXT_CONSOLE's own doc comment in
-/// main.rs and `screens/item_menu.rs`'s `print_box` for the full story:
-/// HUD_CONSOLE (and any other `SimpleConsole`) stores one fixed `Tile`
-/// per cell, so text printed there REPLACES whatever was in that cell
-/// rather than layering onto it - fine for the border/fill above, which
-/// no longer touches HUD_CONSOLE at all, but still a real trap for any
-/// TEXT this box's caller prints, since HUD_CONSOLE is a `SimpleConsole`
-/// even though this fill isn't drawn there anymore.
+/// main.rs for the full story: HUD_CONSOLE (and any other
+/// `SimpleConsole`) stores one fixed `Tile` per cell, so text printed
+/// there REPLACES whatever was in that cell rather than layering onto
+/// it - fine for the border/fill above, which no longer touches
+/// HUD_CONSOLE at all, but still a real trap for any TEXT this box's
+/// caller prints, since HUD_CONSOLE is a `SimpleConsole` even though
+/// this fill isn't drawn there anymore. `PanelBox` (below) is the
+/// preferred way to get this right without having to remember any of
+/// this - it owns both consoles itself.
 ///
 /// Fills with a full-block glyph (`█`, CP437 219) tinted BLACK via `fg`,
 /// same multiply-tint mechanism every other tinted icon in this project
@@ -590,26 +600,15 @@ pub fn draw_pixel_box(
 /// unfilled text would. One full-box fill for every caller, no
 /// exceptions.
 ///
-/// Draws at `PIXEL_BOX_TILE_SCALE`, the default sized for large boxes
-/// (the Item Menu, the Paused screen's Hints box) - use `draw_filled_
-/// pixel_box_scaled` directly for anything small in either dimension
-/// (the dungeon HUD bars, the shop tooltip), which need `PIXEL_BOX_
-/// TILE_SCALE_COMPACT` instead. See that constant's own doc comment for
-/// the real numbers behind why one scale doesn't fit every box size.
-pub fn draw_filled_pixel_box(
-    panel_batch: &mut DrawBatch,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    theme: UiPanelTheme,
-) {
-    draw_filled_pixel_box_scaled(panel_batch, x, y, width, height, theme, PIXEL_BOX_TILE_SCALE);
-}
-
-/// `draw_filled_pixel_box` with an explicit `scale` instead of always
-/// `PIXEL_BOX_TILE_SCALE` - see that function's own doc comment, and
-/// `PIXEL_BOX_TILE_SCALE_COMPACT`'s, for when to reach for this instead.
+/// `scale` - pass `PIXEL_BOX_TILE_SCALE` for a large box (the Item Menu,
+/// the Paused screen's Hints box) or `PIXEL_BOX_TILE_SCALE_COMPACT` for
+/// anything small in either dimension (the dungeon HUD bars, the shop
+/// tooltip). See that constant's own doc comment for the real numbers
+/// behind why one scale doesn't fit every box size. (A plain
+/// `draw_filled_pixel_box` wrapper defaulting to `PIXEL_BOX_TILE_SCALE`
+/// used to exist here - removed 2026-09-14 once every call site had
+/// either moved to `PanelBox` or already needed an explicit scale
+/// anyway, leaving it with zero real callers.)
 pub fn draw_filled_pixel_box_scaled(
     panel_batch: &mut DrawBatch,
     x: i32,
@@ -629,6 +628,212 @@ pub fn draw_filled_pixel_box_scaled(
     draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK), scale);
 }
 
+/// Ever-increasing, shared across every `PanelBox` - never reset per
+/// frame, since `submit`'s only job is giving two DIFFERENT `PanelBox`
+/// instances that might land on the SAME console in the SAME frame
+/// (e.g. a shop tooltip box and an item box, both on UI_PANEL_CONSOLE)
+/// distinct `z_order`s. Confirmed straight from bracket-terminal's real
+/// `DrawBatch::submit`/`render_draw_buffer` source
+/// (command_buffer.rs) that this actually matters: the global command
+/// buffer is `Vec<(z_order, Vec<DrawCommand>)>`, sorted with
+/// `sort_unstable_by` on `z_order` alone right before rendering - two
+/// batches sharing a z_order on the same console have UNSPECIFIED
+/// relative order (sort_unstable isn't stable), which is exactly the
+/// "ambiguous draw order" bug every hand-rolled call site so far has
+/// had to dodge by manually picking distinct numbers (see e.g.
+/// `systems/hud.rs`'s 10000-10009 range). Starting at 20000, clear of
+/// every z_order any hand-rolled site already uses (highest existing,
+/// surveyed 2026-09-14: 10100 in `systems/tooltips.rs`) - a `PanelBox`
+/// can coexist in the same frame as any not-yet-converted call site
+/// with zero risk of collision either way.
+static PANEL_BOX_Z: AtomicUsize = AtomicUsize::new(20000);
+
+/// The reusable helper the user asked for 2026-09-14, after several
+/// rounds of the same small mistakes recurring across ~11 hand-rolled
+/// call sites (wrong console for the fill vs. the text, a same-console
+/// z_order collision, forgetting the `PANEL_TEXT_CONSOLE` layering
+/// requirement entirely, hand-computing `BOX_X + 1`/`box_y + 1`-style
+/// offsets slightly wrong). Owns BOTH batches a bordered box actually
+/// needs - `panel` (fill + border, targets `UI_PANEL_CONSOLE`) and
+/// `text` (targets `PANEL_TEXT_CONSOLE`, registered later specifically
+/// so text drawn over the fill isn't erased by it - see that console's
+/// own doc comment in main.rs) - so a call site can't get the
+/// console/z-order pairing wrong; `submit` is the only way to flush
+/// either one, and it always sends both to the right place.
+///
+/// Deliberately does NOT try to own icon placement itself. Icons in
+/// this project live on a real mix of consoles/grids - some (e.g.
+/// `CHARACTER_PORTRAIT_HUD_CONSOLE`) share HUD_CONSOLE's own cell grid,
+/// same as this box's own x/y/width/height and its `text` batch, so
+/// `cell()` below (a plain coordinate lookup, box-relative to
+/// absolute) is enough to place one correctly; others (most notably
+/// `ABILITY_BAR_ICON_CONSOLE`, the dungeon HUD bars' own dungeonfont
+/// grid - see that console's own doc comment in main.rs) use a
+/// COMPLETELY different cell size and have no meaningful "HUD-cell
+/// offset from this box" at all. Pretending a single method could
+/// place an icon on either kind of console correctly would be the
+/// wrong abstraction, not a shortcut - callers on a foreign grid keep
+/// positioning icons the way `systems/hud.rs` already correctly does,
+/// independently, tied to that console's own constants.
+/// The standard content margin every `PanelBox` reserves automatically -
+/// `text_color`/`text_color_centered`'s own `dx`/`dy` are offsets from
+/// THIS point, not from the raw border. Added 2026-09-14, replacing what
+/// used to be every call site hand-picking its own padding (`dx` values
+/// of 1, 2, and 4 all showed up across different boxes for what was
+/// meant to be the same "don't sit on the border" margin, and it showed:
+/// direct feedback that the padding/centering across different boxes
+/// "is not quite right"). One flat inset for every `PanelBox` regardless
+/// of `scale` - `PIXEL_BOX_TILE_SCALE_COMPACT`'s border tile is thinner
+/// in real pixels than `PIXEL_BOX_TILE_SCALE`'s, but both stay under one
+/// HUD_CONSOLE cell wide either way, so a single cell of clearance is
+/// real breathing room for both rather than needing a second, scale-
+/// dependent constant.
+pub const PANEL_CONTENT_INSET_X: i32 = 2;
+/// 2, not 1 - surveyed every existing call site's own dy before picking
+/// this (2026-09-14): nearly all of them already independently landed on
+/// "content starts 2 rows below the border" (the Item Menu's list rows,
+/// its Stats/Description boxes, the Battle Log, both tooltips, the Pause
+/// Hints title) - 2 is the one value that lets `dy = 0` be the genuine
+/// first-content-row for almost every box with no per-site adjustment,
+/// rather than forcing most call sites to still write `dy = 1` to
+/// recover their own already-correct position.
+pub const PANEL_CONTENT_INSET_Y: i32 = 2;
+
+pub struct PanelBox {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    panel: Reusable<'static, DrawBatch>,
+    text: Reusable<'static, DrawBatch>,
+}
+
+impl PanelBox {
+    /// Draws the border+fill immediately (into its own internal batch,
+    /// not yet submitted) and returns the box ready for `text_color`/
+    /// `cell` calls. `scale` - pass `PIXEL_BOX_TILE_SCALE` for a big
+    /// box, `PIXEL_BOX_TILE_SCALE_COMPACT` for a short/narrow one, same
+    /// choice every `draw_filled_pixel_box_scaled` call already makes.
+    pub fn new(x: i32, y: i32, width: i32, height: i32, theme: UiPanelTheme, scale: f32) -> Self {
+        let mut panel = DrawBatch::new();
+        panel.target(UI_PANEL_CONSOLE);
+        draw_filled_pixel_box_scaled(&mut panel, x, y, width, height, theme, scale);
+        let mut text = DrawBatch::new();
+        text.target(PANEL_TEXT_CONSOLE);
+        PanelBox { x, y, width, height, panel, text }
+    }
+
+    /// Prints text at an offset from the box's standard content origin
+    /// (`x + PANEL_CONTENT_INSET_X + dx, y + PANEL_CONTENT_INSET_Y +
+    /// dy`, NOT the raw border - see `PANEL_CONTENT_INSET_X/Y`'s own doc
+    /// comment) onto this box's own `PANEL_TEXT_CONSOLE` batch - never
+    /// the fill's own console, so it can't ever hit the SimpleConsole-
+    /// overwrite bug `PANEL_TEXT_CONSOLE` itself exists to avoid (see
+    /// that console's own doc comment in main.rs). `dx = 0, dy = 0` is
+    /// the standard "first line of content" position for every box;
+    /// `dy = 1, 2, ...` for subsequent lines; a nonzero `dx` is for
+    /// deliberate indentation relative to that same origin (e.g. an
+    /// unselected list row sitting a couple columns right of a selected
+    /// one's own "> " marker), not a per-box padding choice anymore.
+    /// Returns `&mut Self` so multiple lines chain: `.text_color(...)
+    /// .text_color(...)`.
+    pub fn text_color(
+        &mut self,
+        dx: i32,
+        dy: i32,
+        fg: impl Into<RGBA>,
+        bg: impl Into<RGBA>,
+        text: impl ToString,
+    ) -> &mut Self {
+        self.text_color_raw(PANEL_CONTENT_INSET_X + dx, PANEL_CONTENT_INSET_Y + dy, fg, bg, text)
+    }
+
+    /// `text_color` without the standard content inset - `dx`/`dy` are
+    /// raw offsets from the box's own `x, y` (the border's top-left),
+    /// same convention `text_color` itself used before the inset
+    /// existed. The one real remaining use: a title meant to print
+    /// ABOVE the box entirely (`dy = -1`, e.g. the Item Menu's box
+    /// titles and the Battle Log's) - that position is deliberately
+    /// OUTSIDE the padded content area, not just a small dy tweak on
+    /// top of it, so it needs the raw coordinate, not an inset one.
+    pub fn text_color_raw(
+        &mut self,
+        dx: i32,
+        dy: i32,
+        fg: impl Into<RGBA>,
+        bg: impl Into<RGBA>,
+        text: impl ToString,
+    ) -> &mut Self {
+        let pos = self.cell(dx, dy);
+        self.text.print_color(pos, text.to_string(), ColorPair::new(fg, bg));
+        self
+    }
+
+    /// Same as `text_color`, but centered on `PANEL_TEXT_CONSOLE`'s own
+    /// full width (via `DrawBatch::print_color_centered`) rather than at
+    /// a box-relative `dx` - for a box that's itself horizontally
+    /// centered on that same HUD_CONSOLE-wide grid (e.g. the Pause
+    /// screen's Hints box), so the two centers already coincide. Only
+    /// `dy` is box-relative here (still offset from the same standard
+    /// content origin as `text_color` - `dy = 0` is the first line);
+    /// `print_color_centered` ignores x entirely, console-wide, not
+    /// box-relative - the caller is responsible for making sure the box
+    /// itself is actually centered the same way, `PanelBox` can't check
+    /// that for you.
+    pub fn text_color_centered(
+        &mut self,
+        dy: i32,
+        fg: impl Into<RGBA>,
+        bg: impl Into<RGBA>,
+        text: impl ToString,
+    ) -> &mut Self {
+        self.text_color_centered_raw(PANEL_CONTENT_INSET_Y + dy, fg, bg, text)
+    }
+
+    /// `text_color_centered` without the standard content inset - same
+    /// relationship `text_color_raw` has to `text_color`, just for the
+    /// centered variant. Added 2026-09-15 for the ability-bar hover-
+    /// description box specifically, which wanted its box snug on both
+    /// top AND bottom (no blank row either side of the text) rather
+    /// than the standard inset - `dy = 1` is the box's own genuine
+    /// first interior row (right below the border), not a padded one.
+    pub fn text_color_centered_raw(
+        &mut self,
+        dy: i32,
+        fg: impl Into<RGBA>,
+        bg: impl Into<RGBA>,
+        text: impl ToString,
+    ) -> &mut Self {
+        self.text.print_color_centered(self.y + dy, text, ColorPair::new(fg, bg));
+        self
+    }
+
+    /// Absolute HUD_CONSOLE-grid coordinate for a RAW box-relative
+    /// offset (border-relative, no content inset applied - see
+    /// `text_color_raw`'s own doc comment on why that's the right
+    /// default for a generic coordinate lookup) - for anything that
+    /// needs the raw `Point` rather than a text call, e.g. an icon drawn
+    /// via `draw_portrait`/`draw_wiggling_portrait` on a console that
+    /// ALSO shares HUD_CONSOLE's own grid. See this struct's own doc
+    /// comment for why a foreign-grid console (like `ABILITY_BAR_ICON_
+    /// CONSOLE`) can't be addressed this way.
+    pub fn cell(&self, dx: i32, dy: i32) -> Point {
+        Point::new(self.x + dx, self.y + dy)
+    }
+
+    /// Flushes both batches with a shared, auto-assigned `z_order` (see
+    /// `PANEL_BOX_Z`'s own doc comment) - the caller never picks a
+    /// z_order at all, closing off that entire bug class. Consumes
+    /// `self`: a `PanelBox` is single-use, matching how every hand-
+    /// rolled `panel_batch`/`text_batch` pair was already used (built,
+    /// drawn into, submitted once, dropped).
+    pub fn submit(mut self) {
+        let z = PANEL_BOX_Z.fetch_add(1, Ordering::Relaxed);
+        self.panel.submit(z).expect("Batch error");
+        self.text.submit(z).expect("Batch error");
+    }
+}
+
 /// Every tile draws at this fraction of `battle_bar_frame.png`'s native
 /// 32px - same reasoning as `PIXEL_BOX_TILE_SCALE`/`_COMPACT`. Deliberately
 /// its own constant, not reused from the panel-box scales - a status bar
@@ -642,6 +847,24 @@ pub fn draw_filled_pixel_box_scaled(
 /// on); growing the whole bar grows the fill's absolute height too,
 /// closing that gap without touching the fill's own proportions.
 const PIXEL_BAR_TILE_SCALE: f32 = 0.75;
+
+/// The fractional HUD_CONSOLE-row shift that centers a `draw_pixel_bar`
+/// bar on a text row it overlays but can't literally share - moved here
+/// from `systems/hud.rs` 2026-09-15 once `screens/battle.rs`'s own HP
+/// bar needed the exact same fix, so it wouldn't get redefined (and
+/// risk drifting) at a second call site. Derived exactly, not guessed:
+/// at `PIXEL_BAR_TILE_SCALE` (0.75) a bar's own real rendered height is
+/// 32px * 0.75 = 24px, while a HUD_CONSOLE text row is only 800/HUD_ROWS
+/// (~11.94px) - the two don't divide evenly, so no WHOLE row for the
+/// bar can center whole-row text inside it; shifting the bar by this
+/// fraction of a row instead centers its real pixel span on a text row
+/// fixed at the SAME whole-number row to within a fraction of a pixel
+/// (verified with a real Python script against the actual `set_fancy`
+/// transform - see docs/journal.md's 2026-09-15 entry for the numbers).
+/// Only ever applies to the BAR's own `y` (via `draw_pixel_bar`) - never
+/// to the text's own row, which is what this constant is centering
+/// AROUND, and which stays a caller's own plain `i32` row throughout.
+pub const BAR_TEXT_VERTICAL_CENTER_SHIFT: f32 = -0.505;
 
 /// How much of a bar tile's native 32px height the colored fill uses,
 /// and how far down from the tile's own top edge that fill starts -
@@ -664,9 +887,19 @@ const BAR_FILL_TOP_FRACTION: f32 = 0.3;
 /// vertex-shader derivation behind the correction - it applies
 /// identically here, since this uses the exact same `set_fancy`
 /// scale-around-a-fixed-center mechanism.
-fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
+///
+/// `y` is `f32`, not `i32` - added 2026-09-15 so a caller can shift the
+/// bar by a FRACTION of a HUD_CONSOLE row, not just a whole one. Needed
+/// because a bar's own real rendered height (32px * `PIXEL_BAR_TILE_
+/// SCALE`, 24px at the current 0.75) and a plain-console text row's real
+/// height (800/HUD_ROWS, ~11.94px) don't divide evenly - text overlaid
+/// on a bar can only ever print on ONE whole row, so there is no integer
+/// `y` that centers the bar around a text row fixed at a DIFFERENT
+/// integer row; only a fractional shift of the bar itself can. See
+/// `draw_pixel_bar`'s own doc comment for where this is actually used.
+fn pixel_bar_tiles(x: i32, y: f32, width: i32, scale: f32) -> (f32, f32, i32) {
     let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
-    let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
+    let px_y0 = y * 800.0 / HUD_ROWS as f32;
     let px_x1 = ((x + width) * 1280) as f32 / HUD_COLS as f32;
 
     let tile_px = 32.0 * scale;
@@ -679,10 +912,22 @@ fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
 /// Draws a real pixel-art status bar (colored proportional fill + the
 /// wood-and-gold `battle_bar_frame.png` frame drawn over it) at `(x, y)`
 /// in HUD_CONSOLE cell units, `width` HUD_CONSOLE columns wide -
-/// replaces `battle::hp_bar_string`'s `[####----]` ASCII rendering for
-/// the player's own HP/ATB bars specifically (item 10 in docs/ideas.md;
-/// enemies keep the ASCII version - see docs/journal.md's 2026-09-14
-/// entry for why). `batch` must target `BATTLE_BAR_CONSOLE`.
+/// replaces the old `[####----]` ASCII rendering this project used to
+/// draw with a now-removed `battle::hp_bar_string` helper (item 10 in
+/// docs/ideas.md). Originally the player's own HP/ATB bars only; each
+/// enemy's own ATB gauge moved onto this same mechanism 2026-09-15 (see
+/// docs/journal.md's same-day entry). `batch` must target `BATTLE_BAR_
+/// CONSOLE`.
+///
+/// `y` is `f32` - pass a plain whole-number row (e.g. `3.0`) for a bar
+/// whose overlaid text ALSO lives on that exact row and nothing needs
+/// correcting; pass a fractional row (see `systems/hud.rs`'s own HP bar,
+/// shifted -0.505 rows 2026-09-15) when the bar needs to visually center
+/// on a text row it can't literally share - real math behind that value
+/// is in this session's 2026-09-15 journal entry, not guessed: the bar's
+/// own real height and a text row's real height don't divide evenly, so
+/// no whole-row choice can center whole-row text inside this bar: only
+/// shifting the BAR by a fraction of a row can.
 ///
 /// `battle_bar_frame.png` is a plain 4-cell row (left cap, tileable
 /// middle, right cap, then a dedicated solid-white fill cell - glyph
@@ -699,10 +944,9 @@ fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
 /// `FlexiConsole` too, so the frame's own opaque wood always paints over
 /// the fill wherever they coincide, regardless of draw order elsewhere
 /// on the same console this frame). Fill width is `current/max` of the
-/// bar's own total tile width, clamped to `[0.0, 1.0]` same as
-/// `battle::hp_bar_string`'s own ratio math; a `max <= 0` bar (a dead
-/// enemy, or a divide-by-zero guard) renders fully empty rather than
-/// panicking.
+/// bar's own total tile width, clamped to `[0.0, 1.0]`; a `max <= 0`
+/// bar (a dead enemy, or a divide-by-zero guard) renders fully empty
+/// rather than panicking.
 ///
 /// The fill's glyph is `battle_bar_frame.png`'s own dedicated 4th cell
 /// (raw index 3, a plain solid opaque white square) - NOT `to_cp437('█')`
@@ -720,7 +964,7 @@ fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
 pub fn draw_pixel_bar(
     batch: &mut DrawBatch,
     x: i32,
-    y: i32,
+    y: f32,
     width: i32,
     current: i32,
     max: i32,

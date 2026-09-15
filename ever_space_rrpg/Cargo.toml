@@ -9,6 +9,12 @@ bracket-lib = "~0.8.1"
 legion = "=0.3.1"
 serde = "=1.0.115"
 ron = "=0.6.1"
+# Already pulled in transitively by bracket-terminal (DrawBatch::new()
+# returns a Reusable<'static, DrawBatch>) - added directly, pinned to the
+# exact version already locked, only so render_helpers::PanelBox can name
+# that type for its own owned batch fields. Doesn't change dependency
+# resolution, just exposes the name.
+object-pool = "=0.5.4"
 
 [profile.release]
 lto = "thin"

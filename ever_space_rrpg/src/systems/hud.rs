@@ -47,15 +47,6 @@ const HEALTH_BAR_START_ROW: i32 = 3;
 /// the Paused screen (see screens/pause.rs), so there's nothing left to
 /// collide with even if this grows later.
 const HEALTH_BAR_WIDTH: i32 = 16;
-/// How many HUD_CONSOLE rows tall the health bar reads as (see hud()'s
-/// bar-drawing loop). A single row rather than 2+ deliberately - text can
-/// only ever print on one whole integer row (bracket-lib's console API
-/// has no sub-cell/fractional row positioning for text the way set_fancy
-/// offers for individual glyphs), so a multi-row bar can never actually
-/// CENTER the "current / max" overlay between its rows - it has to pick
-/// one, which reads as off-center. One row sidesteps that: the text row
-/// and the bar row are the same row, centered by construction.
-const HEALTH_BAR_ROWS: i32 = 1;
 
 /// Small status-effect badges, just below the class-portrait icon, for
 /// lasting effects on the player (Invisible Cloak, Stealth, Ice Armor -
@@ -129,16 +120,47 @@ const SHOP_TOOLTIP_WIDTH: i32 = 40;
 // being pinned to the row right under the border's top edge.
 const SHOP_TOOLTIP_HEIGHT: i32 = 4;
 
-/// Extra HUD_CONSOLE columns of box width, each side, for the Ability
-/// Bar and Battle Bar specifically (both hold class abilities/
-/// techniques) - a deliberate WIDTH choice, not clearance-math
-/// compensation the way `ability_bar_box_bounds`'s own rounding is (see
-/// its doc comment). Direct request 2026-09-14: "wider ability boxes
-/// for the abilities and smaller for the items." The Item Bar passes 0
-/// (stays at its own tight, icon-fit width); first-pass value pending a
-/// screenshot, same as every other bracket-lib pixel value in this
-/// project.
-const ABILITY_BOX_EXTRA_PAD: i32 = 3;
+/// Extra HUD_CONSOLE columns of box width, each side, for the Battle Bar
+/// specifically. Originally 3 (a deliberate WIDTH choice, direct request
+/// 2026-09-14: "wider ability boxes for the abilities and smaller for
+/// the items"), dropped to 1 2026-09-15 on direct feedback ("Too much
+/// padding on the sides") once it was the Battle Bar's own turn in this
+/// session's one-bar-at-a-time pass - same value the Ability Bar's own
+/// side pad already settled on the round before.
+const BATTLE_BOX_EXTRA_SIDE_PAD: i32 = 1;
+/// No bottom-padding parameter existed for the Battle Bar's box at all
+/// before 2026-09-15 - same gap the Item Bar and Ability Bar both had,
+/// same fix, same "no padding on the bottom" feedback. Scoped to only
+/// the Battle Bar's own draw call, not the shared `ability_bar_box_
+/// bounds` function.
+const BATTLE_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
+
+/// Extra HUD_CONSOLE columns/rows added ONLY to the Item Bar's own box
+/// width/height (right and bottom edges respectively) - direct feedback
+/// 2026-09-15 that those two edges specifically sat too close to the
+/// potion/scroll icons. Whole HUD_CONSOLE units, not fractional ones -
+/// `PanelBox`'s geometry (and the `ability_bar_box_bounds` math feeding
+/// it) is i32 HUD_CONSOLE cells throughout; genuine fractional-cell
+/// padding would mean threading `f32` positions through that whole
+/// pipeline (`pixel_box_tiles`'s own center-shift math in particular)
+/// rather than just this one box's own margin, for a difference small
+/// enough (a HUD_CONSOLE cell is ~12px; half of one is ~6px) it may not
+/// even read as different in a screenshot - not attempted here. First-
+/// pass value pending a screenshot round, same as every other bracket-
+/// lib pixel value in this project.
+const ITEM_BOX_EXTRA_RIGHT_PAD: i32 = 1;
+const ITEM_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
+
+/// Same idea as the Item Bar's own extra pad above, but for the Ability
+/// Bar specifically - direct feedback 2026-09-15 that the Ability Bar's
+/// OLD side padding (it used to share `BATTLE_BOX_EXTRA_SIDE_PAD`/3 with
+/// the Battle Bar) was "WAY too much," and that its bottom edge had none
+/// at all, same gap the Item Bar had. Deliberately its own separate
+/// constant, not a shared one with either other bar - see this session's
+/// standing preference to tune one bar at a time without changing a
+/// sibling's own value.
+const ABILITY_BOX_EXTRA_SIDE_PAD: i32 = 1;
+const ABILITY_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
 
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
@@ -156,17 +178,19 @@ fn ability_bar_key_label(i: usize) -> &'static str {
 /// technique class_select's headline/description split already uses
 /// between BIG_TEXT_CONSOLE and HUD_CONSOLE. The label sits one
 /// HUD_CONSOLE row above the bar's own top pixel edge (just above each
-/// icon, not overlapping it) and aligned to that icon's own LEFT pixel
-/// edge (not centered - a single digit is narrow enough that left-
-/// aligned still reads as "belonging to" the icon immediately to its
-/// right, and it avoids needing to also know the label's own rendered
-/// width to center it).
+/// icon, not overlapping it) and NEAR (not exactly at) that icon's own
+/// LEFT pixel edge - nudged +1 HUD_CONSOLE column right 2026-09-15 on
+/// direct feedback that flush-left read as "a little too far to the
+/// left." Still not centered - a single digit is narrow enough that
+/// left-of-center still reads as "belonging to" the icon immediately to
+/// its right, and it avoids needing to also know the label's own
+/// rendered width to center it.
 fn ability_bar_label_position(col: i32) -> (i32, i32) {
     let bar_top_px = ability_bar_row() * (800 / ABILITY_BAR_ROWS);
     let label_row = (bar_top_px * HUD_ROWS / 800) - 1;
 
     let icon_left_px = col * (1280 / ABILITY_BAR_COLS);
-    let label_col = icon_left_px * HUD_COLS / 1280;
+    let label_col = icon_left_px * HUD_COLS / 1280 + 1;
 
     (label_col, label_row)
 }
@@ -214,14 +238,16 @@ fn draw_stack_count_badge(batch: &mut DrawBatch, col: i32, bar_row: i32, count: 
 }
 
 /// The (x, y, width, height) box - in HUD_CONSOLE cell terms, for
-/// render_helpers::draw_ascii_box, the same ASCII box style the battle
-/// menu already uses - that should enclose one bar's icons (and, if
-/// `has_labels`, their number labels too) as one group, for a single
-/// surrounding border. `start_col`/`n` are the bar's own column range on
-/// ABILITY_BAR_CONSOLE - the out-of-combat Ability Bar centers itself
-/// (see ability_bar_start_col) while the Battle Bar sits explicitly to
-/// its right, so this takes the range directly rather than recomputing
-/// it.
+/// `render_helpers::PanelBox` - that should enclose one bar's icons (and,
+/// if `has_labels`, their number labels too) as one group, for a single
+/// surrounding border. `start_col`/`n` are the bar's own column range,
+/// `row` its row, on ABILITY_BAR_CONSOLE - the out-of-combat Ability Bar
+/// centers itself (see ability_bar_start_col) while the Battle Bar sits
+/// explicitly to its right, so this takes the range directly rather than
+/// recomputing it. `row` was hardcoded to `ability_bar_row()` internally
+/// until the player-status frame's portrait icon (a DIFFERENT row/col on
+/// this same console - see HEALTH_FRAME_ICON_COL/ROW) needed this same
+/// bounding-box math too, 2026-09-14.
 ///
 /// No nominal-cell padding beyond the rounding direction itself anymore
 /// (removed 2026-09-14, see each edge's own comment below) - past
@@ -252,11 +278,12 @@ fn draw_stack_count_badge(batch: &mut DrawBatch, col: i32, bar_row: i32, count: 
 /// from the icon there), so they need no ceiling correction at all.
 fn ability_bar_box_bounds(
     start_col: i32,
+    row: i32,
     n: i32,
     has_labels: bool,
     extra_side_pad: i32,
 ) -> (i32, i32, i32, i32) {
-    let bar_row = ability_bar_row();
+    let bar_row = row;
 
     let icons_left_px = start_col * (1280 / ABILITY_BAR_COLS);
     let icons_right_px = (start_col + n) * (1280 / ABILITY_BAR_COLS);
@@ -275,7 +302,7 @@ fn ability_bar_box_bounds(
     // padding ("too much padding around the edges," confirmed live).
     // `extra_side_pad` (HUD_CONSOLE columns, each side) is a deliberate
     // per-bar WIDTH choice on top of that minimum, not more clearance-
-    // math compensation - see ABILITY_BOX_EXTRA_PAD's own doc comment.
+    // math compensation - see BATTLE_BOX_EXTRA_SIDE_PAD/ABILITY_BOX_EXTRA_SIDE_PAD's own doc comment.
     let left = icons_left_px * HUD_COLS / 1280 - extra_side_pad;
     // Ceiling division (the "+ 1279" trick) still needed - plain
     // truncating division here rounds the right edge DOWN, i.e. toward
@@ -295,15 +322,16 @@ fn ability_bar_box_bounds(
 
     let top = if has_labels {
         let (_, label_row) = ability_bar_label_position(start_col);
-        // Exactly one row above the label - the minimum that keeps the
-        // border from sitting ON the label's own row (which would risk
-        // the border's opaque tile painting over the label text, the
-        // same failure mode print_box's own title nudge hit earlier).
-        // No extra buffer beyond that anymore - the extra row added
-        // 2026-09-14 to fix a reported overlap was compensating for the
-        // center-shift drift (see render_helpers::pixel_box_tiles' own
-        // doc comment), which is now fixed at its real source.
-        label_row - 1
+        // Two rows above the label, not one - `label_row - 1` (the
+        // value this used to be) put the border on the row directly
+        // ADJACENT to the label with zero blank rows between them,
+        // which is the minimum needed to keep the border from sitting
+        // ON the label's own row (the same failure mode print_box's own
+        // title nudge hit earlier) but isn't actually any real padding
+        // above it - direct feedback 2026-09-15 that the hotkey numbers
+        // read as having no top clearance at all. `- 2` leaves one
+        // genuine blank row between the border and the label text.
+        label_row - 2
     } else {
         // One row above the icon's own top edge - the same "away from
         // the icon, toward smaller rows" floor-rounding the left edge
@@ -318,18 +346,6 @@ fn ability_bar_box_bounds(
     (left, top, right - left, bottom - top)
 }
 
-/// The HUD_CONSOLE row a wrapped tooltip's FIRST line should start on,
-/// given how many lines it wrapped to and the Ability Bar's own box top
-/// row (`box_y` - see ability_bar_box_bounds). Anchors the tooltip's
-/// LAST line just above the box (row `box_y - 1`) and grows upward from
-/// there, so a longer description never collides with the box/icons
-/// below it regardless of how many lines it wraps to - a fixed row
-/// (what this used to be) works fine for a short description but runs
-/// the risk of a long one overlapping the bar itself.
-fn ability_bar_tooltip_start_row(box_y: i32, line_count: i32) -> i32 {
-    let bottom_row = box_y - 1;
-    bottom_row - (line_count - 1)
-}
 
 #[system]
 #[read_component(Health)]
@@ -373,44 +389,49 @@ pub fn hud(
     // Compact player-status frame, offset one icon-size down and right
     // from the corner: a class-portrait icon (drawn further down on
     // ABILITY_BAR_CONSOLE, see HEALTH_FRAME_ICON_COL/ROW) next to a health
-    // bar, replacing the old plain bar that used to span the ENTIRE top
-    // edge of the screen. HEALTH_BAR_START_COL/ROW line the bar up with
-    // the icon; HEALTH_BAR_WIDTH deliberately stops well short of
-    // HUD_COLS's full width so it doesn't run into the "Explore the
-    // Dungeon..." hint text centered on this same row range - all of
-    // these are still first-pass pixel guesses (see CLAUDE.md's
-    // bracket-lib layout gotcha) pending another screenshot.
+    // bar. HEALTH_BAR_START_COL/ROW line the bar up with the icon;
+    // HEALTH_BAR_WIDTH deliberately stops well short of HUD_COLS's full
+    // width so it doesn't run into the "Explore the Dungeon..." hint text
+    // centered on this same row range - first-pass pixel guesses (see
+    // CLAUDE.md's bracket-lib layout gotcha) pending another screenshot.
     //
-    // bar_horizontal only fills whole CELLS (one block glyph per cell, no
-    // partial-cell fill - confirmed against bracket-terminal's own
-    // draw_bar_horizontal source), so a bar this narrow on HUD_CONSOLE's
-    // fine ~12px-per-cell grid still gets HEALTH_BAR_WIDTH real fill
-    // steps - drawing it on the coarse 40px-per-cell icon console instead
-    // would look chunkier for the exact same reason with far fewer cells
-    // to work with. Drawn on HEALTH_BAR_ROWS consecutive rows (identical
-    // params each row) to fake a visually thick bar despite HUD_CONSOLE's
-    // cells being short.
-    for row in HEALTH_BAR_START_ROW..HEALTH_BAR_START_ROW + HEALTH_BAR_ROWS {
-        draw_batch.bar_horizontal(
-            Point::new(HEALTH_BAR_START_COL, row),
-            HEALTH_BAR_WIDTH,
-            player_health.current,
-            player_health.max,
-            ColorPair::new(RED, BLACK),
-        );
-    }
-    // Plain "current / max" numbers, no "Health:" label - centered on the
-    // BAR's own column range specifically (not the whole HUD_CONSOLE
-    // width the way the old label was), so it stays visually anchored to
-    // the bar regardless of how wide the rest of the console is.
-    let health_text = format!("{} / {}", player_health.current, player_health.max);
-    let health_text_col =
-        HEALTH_BAR_START_COL + (HEALTH_BAR_WIDTH - health_text.len() as i32) / 2;
-    draw_batch.print_color(
-        Point::new(health_text_col, HEALTH_BAR_START_ROW + HEALTH_BAR_ROWS / 2),
-        health_text,
-        ColorPair::new(WHITE, RED),
+    // The old plain `bar_horizontal` block-glyph bar (no real art, just
+    // tinted CP437 blocks) replaced 2026-09-14 with the same real
+    // PixelLab bar the battle screen's player HP bar already uses
+    // (`render_helpers::draw_pixel_bar`, `battle_bar_frame.png`) -
+    // BATTLE_BAR_CONSOLE/BATTLE_BAR_TEXT_CONSOLE are global consoles
+    // (registered once in main.rs, not screen-specific), and the dungeon
+    // HUD and the battle screen never draw in the same frame, so reusing
+    // them here is safe - no ATB bar alongside it, since ATB doesn't
+    // exist outside battle.
+    // BAR_TEXT_VERTICAL_CENTER_SHIFT (render_helpers.rs) - direct
+    // feedback 2026-09-15 that the overlaid "current / max" text (below,
+    // on a whole HUD_CONSOLE row it can't move off of without also
+    // moving the number away from where it visually belongs) sat too
+    // high in the bar rather than centered. See that constant's own doc
+    // comment for the real math behind it - the same fix `screens/
+    // battle.rs`'s player HP bar needed too, once it was that bar's turn.
+    let mut health_bar_batch = DrawBatch::new();
+    health_bar_batch.target(BATTLE_BAR_CONSOLE);
+    draw_pixel_bar(
+        &mut health_bar_batch,
+        HEALTH_BAR_START_COL,
+        HEALTH_BAR_START_ROW as f32 + BAR_TEXT_VERTICAL_CENTER_SHIFT,
+        HEALTH_BAR_WIDTH,
+        player_health.current,
+        player_health.max,
+        RED,
     );
+    health_bar_batch.submit(0).expect("Batch error");
+
+    let mut health_bar_text_batch = DrawBatch::new();
+    health_bar_text_batch.target(BATTLE_BAR_TEXT_CONSOLE);
+    health_bar_text_batch.print_color(
+        Point::new(HEALTH_BAR_START_COL + 2, HEALTH_BAR_START_ROW),
+        format!("{} / {}", player_health.current.max(0), player_health.max),
+        ColorPair::new(WHITE, BLACK),
+    );
+    health_bar_text_batch.submit(0).expect("Batch error");
 
     let (player, map_level) = <(Entity, &Player)>::query() // (1)
         .iter(ecs)
@@ -485,18 +506,15 @@ pub fn hud(
 
                 // The real PixelLab panel border (item 10 in docs/
                 // ideas.md), same as every other border on the dungeon
-                // screen now - own panel_batch/text_batch pair (not the
-                // shared batch/panel_batch/text_batch the out-of-combat
-                // bar block below declares, a separate scope) at z-values
-                // (10008/10009) distinct from that block's own (10006/
-                // 10007) - two batches sharing one z-value on the same
-                // console is an ambiguous draw order (the exact reason
-                // this block used to fold into draw_batch/submit(10000)
-                // rather than get its own batch at all).
-                let mut shop_panel_batch = DrawBatch::new();
-                shop_panel_batch.target(UI_PANEL_CONSOLE);
-                let mut shop_text_batch = DrawBatch::new();
-                shop_text_batch.target(PANEL_TEXT_CONSOLE);
+                // screen now. Converted to render_helpers::PanelBox
+                // 2026-09-14 alongside its wider rollout - PanelBox's own
+                // auto-assigned z_order (see its doc comment in render_
+                // helpers.rs) replaces the manually-picked 10008/10009
+                // this block used to need to stay clear of the out-of-
+                // combat bar block below's own 10006/10007 (two batches
+                // sharing a z_order on the same console is an ambiguous
+                // draw order) - that whole class of bug is now closed off
+                // by construction, not just avoided by careful numbering.
                 // Swamp, not Dungeon - direct request 2026-09-14 ("I want
                 // the tooltips to be the wooden and green corners").
                 // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale -
@@ -504,8 +522,7 @@ pub fn hud(
                 // that the default scale's border rows alone were ~50%
                 // of its total height (see that constant's own doc
                 // comment for the real numbers).
-                draw_filled_pixel_box_scaled(
-                    &mut shop_panel_batch,
+                let mut shop_box = PanelBox::new(
                     box_x,
                     box_y,
                     SHOP_TOOLTIP_WIDTH,
@@ -513,13 +530,8 @@ pub fn hud(
                     UiPanelTheme::Swamp,
                     PIXEL_BOX_TILE_SCALE_COMPACT,
                 );
-                shop_text_batch.print_color(
-                    Point::new(box_x + 2, box_y + 2),
-                    text,
-                    ColorPair::new(GREEN, BLACK),
-                );
-                shop_panel_batch.submit(10008).expect("Batch error");
-                shop_text_batch.submit(10009).expect("Batch error");
+                shop_box.text_color(0, 0, GREEN, BLACK, text);
+                shop_box.submit();
             }
         }
     }
@@ -558,15 +570,25 @@ pub fn hud(
         let mut badge_batch = DrawBatch::new();
         badge_batch.target(ABILITY_BAR_ICON_BADGE_CONSOLE);
         let mut portrait_batch = DrawBatch::new();
-        portrait_batch.target(CHARACTER_PORTRAIT_HUD_CONSOLE);
+        // CHARACTER_PORTRAIT_HUD_ICON_CONSOLE, NOT CHARACTER_PORTRAIT_
+        // HUD_CONSOLE - see that console's own doc comment in main.rs.
+        // Registered well before UI_PANEL_CONSOLE, so the player-status
+        // frame's new border (below) painted its opaque fill directly
+        // over the portrait once that border existed - confirmed live
+        // 2026-09-14, same failure mode ABILITY_BAR_ICON_CONSOLE was
+        // already built to dodge for the dungeonfont-sourced icons.
+        portrait_batch.target(CHARACTER_PORTRAIT_HUD_ICON_CONSOLE);
         // The real PixelLab panel border (item 10 in docs/ideas.md) for
         // the Item/Ability/Battle Bar frames - same UI_PANEL_CONSOLE/
-        // draw_filled_pixel_box recipe already proven on the Item Menu.
-        // The bars' own black fill lives here too now (see
-        // draw_panel_fill's own doc comment in render_helpers.rs) - no
-        // separate HUD_CONSOLE label_batch needed anymore for the fill.
-        let mut panel_batch = DrawBatch::new();
-        panel_batch.target(UI_PANEL_CONSOLE);
+        // draw_filled_pixel_box recipe already proven on the Item Menu -
+        // now render_helpers::PanelBox instead, one instance per bar
+        // (Item/Ability/Battle), converted 2026-09-14 alongside its
+        // wider rollout. None of the three bars print any title text of
+        // their own (the ability key labels below are unrelated,
+        // absolute-positioned - see text_batch's own comment), so each
+        // is just `PanelBox::new(...).submit()` where the fill used to
+        // go - no shared panel_batch needed anymore for these three.
+        //
         // Number-key labels (1-9/0) print on top of the Ability Bar's own
         // black fill - same same-console overwrite bug the Item Menu had
         // (see item_menu.rs's print_box and PANEL_TEXT_CONSOLE's own doc
@@ -614,6 +636,29 @@ pub fn hud(
                 }
             }
         }
+        // Border around the portrait, direct request 2026-09-14 - reuses
+        // ability_bar_box_bounds' own icon-footprint math (n=1, no
+        // labels, no extra pad - a snug fit, not a wider box like the
+        // Ability/Battle Bars get) now that it takes an explicit `row`
+        // instead of always `ability_bar_row()`. Swamp, matching every
+        // other border already on this HUD (the shop tooltip, all 3
+        // dungeon bars).
+        let (icon_box_x, icon_box_y, icon_box_w, icon_box_h) = ability_bar_box_bounds(
+            HEALTH_FRAME_ICON_COL,
+            HEALTH_FRAME_ICON_ROW,
+            1,
+            false,
+            0,
+        );
+        PanelBox::new(
+            icon_box_x,
+            icon_box_y,
+            icon_box_w,
+            icon_box_h,
+            UiPanelTheme::Swamp,
+            PIXEL_BOX_TILE_SCALE_COMPACT,
+        )
+        .submit();
 
         // Buff badges - the abilities' own real sprite icons, just below
         // the class portrait, for any lasting effect currently on the
@@ -678,7 +723,7 @@ pub fn hud(
                 },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, item_n, false, 0);
+                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, ability_bar_row(), item_n, false, 0);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -686,7 +731,7 @@ pub fn hud(
             }
         }
         if item_n > 0 {
-            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false, 0);
+            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, ability_bar_row(), item_n, false, 0);
             // Swamp, not Dungeon - direct request 2026-09-14, so all 3
             // dungeon HUD bars match (the other two already were/are).
             // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale - this
@@ -695,15 +740,28 @@ pub fn hud(
             // total width (see that constant's own doc comment for the
             // real numbers behind this, computed from ability_bar_box_
             // bounds' own real geometry, not eyeballed).
-            draw_filled_pixel_box_scaled(
-                &mut panel_batch,
+            //
+            // ITEM_BOX_EXTRA_RIGHT_PAD/BOTTOM_PAD - direct feedback
+            // 2026-09-15 that this specific box's own right and bottom
+            // edges (the icons' own footprint doesn't reach either one,
+            // unlike the left/top - see ability_bar_box_bounds' own doc
+            // comment) sit too close to the icons compared to a genuine
+            // margin. Deliberately scoped to ONLY this box's own draw
+            // call - `ability_bar_box_bounds` itself, and the Ability/
+            // Battle Bars that also call it, are untouched, since the
+            // user asked to work on the Item Bar in isolation first
+            // rather than change the shared function's own behavior.
+            // Whole HUD_CONSOLE columns/rows, not fractional ones - see
+            // this constant's own doc comment for why.
+            PanelBox::new(
                 box_x,
                 box_y,
-                box_w,
-                box_h,
+                box_w + ITEM_BOX_EXTRA_RIGHT_PAD,
+                box_h + ITEM_BOX_EXTRA_BOTTOM_PAD,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-            );
+            )
+            .submit();
         }
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
@@ -721,7 +779,7 @@ pub fn hud(
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
                 let (_, box_y, _, _) =
-                    ability_bar_box_bounds(ability_start_col, ability_n, true, ABILITY_BOX_EXTRA_PAD);
+                    ability_bar_box_bounds(ability_start_col, ability_bar_row(), ability_n, true, ABILITY_BOX_EXTRA_SIDE_PAD);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -737,18 +795,22 @@ pub fn hud(
         }
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(ability_start_col, ability_n, true, ABILITY_BOX_EXTRA_PAD);
+                ability_bar_box_bounds(ability_start_col, ability_bar_row(), ability_n, true, ABILITY_BOX_EXTRA_SIDE_PAD);
             // Swamp, not Dungeon - see the Item Bar's own comment above.
             // PIXEL_BOX_TILE_SCALE_COMPACT too - same reasoning.
-            draw_filled_pixel_box_scaled(
-                &mut panel_batch,
+            // ABILITY_BOX_EXTRA_BOTTOM_PAD - same "no bottom-padding
+            // parameter exists at all" gap the Item Bar had, direct
+            // feedback 2026-09-15. Scoped to only this draw call, same
+            // as the Item Bar's own fix.
+            PanelBox::new(
                 box_x,
                 box_y,
                 box_w,
-                box_h,
+                box_h + ABILITY_BOX_EXTRA_BOTTOM_PAD,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-            );
+            )
+            .submit();
         }
 
         // Battle Bar - the class's in-battle Techniques, read-only
@@ -777,7 +839,7 @@ pub fn hud(
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
                 let (_, box_y, _, _) =
-                    ability_bar_box_bounds(battle_start_col, battle_n, false, ABILITY_BOX_EXTRA_PAD);
+                    ability_bar_box_bounds(battle_start_col, ability_bar_row(), battle_n, false, BATTLE_BOX_EXTRA_SIDE_PAD);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -786,59 +848,75 @@ pub fn hud(
         }
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(battle_start_col, battle_n, false, ABILITY_BOX_EXTRA_PAD);
+                ability_bar_box_bounds(battle_start_col, ability_bar_row(), battle_n, false, BATTLE_BOX_EXTRA_SIDE_PAD);
             // Swamp - the first of the 3 dungeon HUD bars to switch
             // (2026-09-14); the Item and Ability Bars above joined it
             // the same day once asked for all 3 to match.
             // PIXEL_BOX_TILE_SCALE_COMPACT too - see the Item Bar's own
             // comment above.
-            draw_filled_pixel_box_scaled(
-                &mut panel_batch,
+            PanelBox::new(
                 box_x,
                 box_y,
                 box_w,
-                box_h,
+                box_h + BATTLE_BOX_EXTRA_BOTTOM_PAD,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-            );
+            )
+            .submit();
         }
 
         bar_batch.submit(10001).expect("Batch error");
         badge_batch.submit(10004).expect("Batch error");
         portrait_batch.submit(10005).expect("Batch error");
-        panel_batch.submit(10006).expect("Batch error");
         text_batch.submit(10007).expect("Batch error");
 
-        // The hovered slot's tooltip (from either bar) - drawn on
-        // HUD_CONSOLE (fine text) rather than either bar's own coarse
-        // console, which has no room for readable prose. Centered rather
-        // than aligned under the specific hovered icon, for the same
-        // reasoning the label positions above needed real pixel-ratio
-        // math to get right - a full sentence of prose is far more
-        // sensitive to being a few columns off than a single digit is.
+        // The hovered slot's tooltip (from either bar) - drawn in a real
+        // render_helpers::PanelBox (Swamp, matching every other border
+        // on this HUD) since 2026-09-14, was bare centered text before.
+        // Text still centered PER LINE via `text_color_centered_raw`
+        // (same reasoning as before: a full sentence of prose is far
+        // more sensitive to being a few columns off than a single digit
+        // is), so the box itself has to be horizontally centered on
+        // HUD_CONSOLE's own width too, for its border to actually line
+        // up with text centered on that same width (see `text_color_
+        // centered`'s own doc comment in render_helpers.rs).
+        //
+        // Snug on both top AND bottom (RAW, not the standard inset) -
+        // direct feedback 2026-09-15 that the box read as sitting
+        // "right on top of" whichever bar it describes, with no real
+        // gap between the two boxes' borders, AND that the text itself
+        // had unwanted padding above it. Fixed both at once: text now
+        // starts immediately at `dy = 1` (the box's own first real
+        // interior row, right below the border, matching the bottom
+        // edge's existing zero-padding convention), and TOOLTIP_GAP
+        // reserves one genuinely blank row between this box's own
+        // bottom border and the hovered bar's own top border (`box_y`)
+        // - previously 0 (the two borders landed on the exact same
+        // row), not a buffer at all.
         if let Some((name, box_y)) = hovered {
-            let mut tooltip_batch = DrawBatch::new();
-            tooltip_batch.target(HUD_CONSOLE);
             let description =
                 description_for_item_name(&name).unwrap_or_else(|| "No description.".to_string());
-            // Wrapped across multiple lines rather than one long
-            // print_color_centered call - some real descriptions
-            // (Freeze Trap's, for one) are long enough to run off both
-            // edges of the screen on a single line. Anchored to grow
-            // UPWARD from just above whichever bar's box was hovered
-            // (box_y, captured above) rather than a fixed row, so a
-            // longer description never collides with the box/icons
-            // below it regardless of how many lines it wraps to.
+            // Wrapped across multiple lines rather than one long line -
+            // some real descriptions (Freeze Trap's, for one) are long
+            // enough to run off both edges of the screen otherwise.
             let lines = wrap_text(&format!("{}: {}", name, description), 70);
-            let start_row = ability_bar_tooltip_start_row(box_y, lines.len() as i32);
+            const TOOLTIP_WIDTH: i32 = 74;
+            const TOOLTIP_GAP: i32 = 1;
+            let tooltip_x = (HUD_COLS - TOOLTIP_WIDTH) / 2;
+            let tooltip_height = lines.len() as i32 + 2;
+            let tooltip_y = box_y - TOOLTIP_GAP - tooltip_height;
+            let mut tooltip_box = PanelBox::new(
+                tooltip_x,
+                tooltip_y,
+                TOOLTIP_WIDTH,
+                tooltip_height,
+                UiPanelTheme::Swamp,
+                PIXEL_BOX_TILE_SCALE_COMPACT,
+            );
             for (i, line) in lines.iter().enumerate() {
-                tooltip_batch.print_color_centered(
-                    start_row + i as i32,
-                    line,
-                    ColorPair::new(WHITE, BLACK),
-                );
+                tooltip_box.text_color_centered_raw(1 + i as i32, WHITE, BLACK, line.clone());
             }
-            tooltip_batch.submit(10003).expect("Batch error");
+            tooltip_box.submit();
         }
     }
 }

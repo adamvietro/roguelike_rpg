@@ -96,6 +96,96 @@ fn enemy_text_position(count: usize, index: usize, rows: (f32, f32)) -> (i32, i3
     (console2_col, console2_row)
 }
 
+/// HUD_CONSOLE (center-x, y) for enemy #`index`'s own name, for use with
+/// `ctx.print_color_centered_at` - direct feedback 2026-09-15 that the
+/// name ("really small" on FINE_TEXT_CONSOLE, and left-aligned to the
+/// portrait's own left edge rather than centered under it) needed both
+/// a real size bump and real centering. HUD_CONSOLE's cells are ~1.5x
+/// FINE_TEXT_CONSOLE's own (800/67 vs 800/100 px tall) - a real,
+/// noticeable size increase using an existing console rather than new
+/// font/scaling infrastructure.
+///
+/// Centered on the portrait's own horizontal center (same `col`,
+/// `PORTRAIT_CELL_PX` math `enemy_bar_position` already uses - see that
+/// function's own doc comment), not the portrait's left edge the way
+/// `enemy_text_position` above still is. `y` converts the exact same
+/// real pixel row `enemy_text_position`'s own `console2_row` lands on
+/// into HUD_CONSOLE terms, so the name sits at the same vertical
+/// position as before, just bigger and actually centered horizontally.
+///
+/// Known real limit, not silently ignored: adjacent enemies' own name
+/// centers land only ~14 HUD columns apart in a full 4-enemy formation
+/// (verified with real numbers, not eyeballed) - a name longer than
+/// that (e.g. "Goblin Chieftain," 16 characters) could still overlap
+/// its neighbor's if that specific enemy ever appears in a 4-enemy
+/// group. Not fixed here - no evidence yet that combination actually
+/// occurs in real encounter data, and this project's own convention is
+/// to fix a real, observed problem rather than a hypothetical one.
+fn enemy_name_position(count: usize, index: usize, rows: (f32, f32)) -> (i32, i32) {
+    const PORTRAIT_CELL_PX: f32 = 1280.0 / BATTLE_PORTRAIT_COLS as f32;
+    const HUD_ROW_PX: f32 = 800.0 / HUD_ROWS as f32;
+    const CONSOLE2_ROW_PX: f32 = 800.0 / 100.0;
+
+    // enemy_portrait_position already handles count <= 1 correctly on
+    // its own (always (3.0, 1.0), the single-enemy portrait's own fixed
+    // spot) - no separate branch needed here. A real bug in an earlier
+    // version of this function hardcoded HUD_COLS's own screen-center
+    // (53) for count <= 1 instead of actually computing it from the
+    // portrait position the way every other case already did -
+    // confirmed live 2026-09-15 (a single enemy's name rendered dead
+    // center of the screen, nowhere near its own portrait, off to the
+    // right). Always deriving `col` from the real portrait position
+    // instead closes off that entire class of "forgot to handle this
+    // branch the same way" mistake.
+    let (col, _row) = enemy_portrait_position(count, index, rows);
+    let center_px = col * PORTRAIT_CELL_PX + PORTRAIT_CELL_PX / 2.0;
+    let hud_col = (center_px * HUD_COLS as f32 / 1280.0).round() as i32;
+
+    let (_, old_row) = enemy_text_position(count, index, rows);
+    let hud_row = (old_row as f32 * CONSOLE2_ROW_PX / HUD_ROW_PX).round() as i32;
+    (hud_col, hud_row)
+}
+
+/// HUD_CONSOLE (x, y) for a `render_helpers::draw_pixel_bar` centered
+/// above enemy portrait `(col, row)` - the same 5x5, 256x160px-cell
+/// grid `enemy_portrait_position` itself returns (see
+/// `BATTLE_PORTRAIT_COLS/ROWS`), NOT `enemy_text_position`'s own
+/// FINE_TEXT_CONSOLE units, so this tracks the portrait directly rather
+/// than going through a second, unrelated coordinate system. Centered:
+/// `x` is the portrait cell's own horizontal center minus half `width`.
+///
+/// `slot_from_head` stacks multiple bars above the same portrait - 0 is
+/// the slot closest to the head, 1 the next one up, and so on. Direct
+/// feedback 2026-09-15: the ATB bar should leave room for a health bar
+/// to be added "easily" later, directly under it - added at slot 0
+/// whenever that happens, this function needs no changes at all, and
+/// the ATB bar (already at slot 1, not 0) doesn't move either. Only the
+/// bar itself needs to be drawn at the new slot; the reserved gap
+/// already exists.
+///
+/// `SLOT_SPACING` (3.0 HUD rows) reuses the exact spacing the player's
+/// own ATB/HP bars already proved out (`PLAYER_HP_BAR_HUD_Y = PLAYER_
+/// ATB_BAR_HUD_Y + 3`) rather than a new, unverified number.
+/// `HEAD_MARGIN` (1.0 row) is breathing room between the bar stack and
+/// the portrait's own top edge - checked against the lowest real
+/// formation row (1.5, `map_builder/themes.rs`) before picking this,
+/// confirmed the resulting bar position stays well clear of row 0 even
+/// in that worst case, not just eyeballed.
+fn enemy_bar_position(col: f32, row: f32, width: i32, slot_from_head: i32) -> (i32, f32) {
+    const PORTRAIT_CELL_PX: f32 = 1280.0 / BATTLE_PORTRAIT_COLS as f32;
+    const PORTRAIT_ROW_PX: f32 = 800.0 / BATTLE_PORTRAIT_ROWS as f32;
+    const HUD_ROW_PX: f32 = 800.0 / HUD_ROWS as f32;
+    const HEAD_MARGIN: f32 = 1.0;
+    const SLOT_SPACING: f32 = 3.0;
+
+    let center_px = col * PORTRAIT_CELL_PX + PORTRAIT_CELL_PX / 2.0;
+    let x = (center_px * HUD_COLS as f32 / 1280.0 - width as f32 / 2.0).round() as i32;
+
+    let portrait_top_hud_row = row * PORTRAIT_ROW_PX / HUD_ROW_PX;
+    let y = portrait_top_hud_row - HEAD_MARGIN - SLOT_SPACING * (slot_from_head as f32 + 1.0);
+    (x, y)
+}
+
 /// BIG_TEXT_CONSOLE (col, row) to center a floating damage number over
 /// enemy #`index` (of `count`) - see the floating-damage-number block in
 /// battle_tick. Derived the same way the original single-enemy constants
@@ -728,28 +818,29 @@ impl State {
         // enemy present.
         let primary_target = battle.primary_target(&self.ecs);
         let enemy_count = battle.enemies.len();
-        // A narrower bar for multi-enemy - text now sits directly below
-        // each enemy's own (narrower, spread-out) portrait slot instead
-        // of one shared wide column, so the old width-16 bar (an 18+
-        // character string once the current/max numbers are appended)
-        // would run into the NEXT enemy's own text. Single-enemy keeps
-        // the original width entirely unchanged.
-        // A narrower bar for multi-enemy - even though the corrected
-        // console-2 math above gives a genuine 32-column gap between
-        // adjacent enemy columns (comfortable room for a full-width bar
-        // on its own), keeping this a bit narrower leaves visible
-        // breathing room on either side rather than filling the gap
-        // edge-to-edge. Single-enemy keeps the original width entirely
-        // unchanged.
-        let bar_width = if enemy_count <= 1 { 16 } else { 10 };
         // See MapTheme::enemy_formation_rows' own doc comment.
         let formation_rows = self
             .resources
             .get::<Box<dyn MapTheme>>()
             .unwrap()
             .enemy_formation_rows();
+        // Each enemy's own real pixel-art ATB gauge (item 10 in docs/
+        // ideas.md, direct request 2026-09-15) - replaces the old ASCII
+        // `[####----]` ATB bar that used to sit just below the name/HP
+        // text on FINE_TEXT_CONSOLE, with a real `draw_pixel_bar` bar
+        // centered above the enemy's own portrait instead (see
+        // enemy_bar_position's own doc comment). The old HP bar line is
+        // gone entirely, not just hidden - not dead code, since the
+        // exact removed lines are still in git history if it needs to
+        // come back; see enemy_bar_position's own `slot_from_head`
+        // parameter for how that would slot in without moving this bar.
+        //
+        // ENEMY_BAR_WIDTH reuses the same narrower-for-multi-enemy
+        // convention the old ASCII bar's own width already established.
+        let enemy_bar_width: i32 = if enemy_count <= 1 { 16 } else { 10 };
+        let mut enemy_bar_batch = DrawBatch::new();
+        enemy_bar_batch.target(BATTLE_BAR_CONSOLE);
         for (index, enemy) in battle.enemies.iter().enumerate() {
-            let (enemy_hp, enemy_max) = entity_health(&self.ecs, enemy.entity);
             let (col, base) = enemy_text_position(enemy_count, index, formation_rows);
             let is_target = Some(enemy.entity) == primary_target;
             let name_color = if is_target { YELLOW } else { WHITE };
@@ -758,37 +849,27 @@ impl State {
             } else {
                 enemy.name.clone()
             };
-            ctx.print_color(col, base, name_color, BLACK, &name_text);
-            ctx.print_color(
-                col,
-                base + 1,
-                YELLOW,
-                BLACK,
-                &format!(
-                    "{} {}/{}",
-                    hp_bar_string(enemy_hp, enemy_max, bar_width),
-                    enemy_hp.max(0),
-                    enemy_max
-                ),
+            // HUD_CONSOLE, centered, not FINE_TEXT_CONSOLE/left-aligned
+            // - direct feedback 2026-09-15 ("a little bigger" + "centered
+            // under the enemy"). See enemy_name_position's own doc
+            // comment for the real math and its one known limit.
+            let (name_col, name_row) = enemy_name_position(enemy_count, index, formation_rows);
+            ctx.set_active_console(HUD_CONSOLE);
+            ctx.print_color_centered_at(name_col, name_row, name_color, BLACK, &name_text);
+            ctx.set_active_console(FINE_TEXT_CONSOLE);
+
+            let (portrait_col, portrait_row) = enemy_portrait_position(enemy_count, index, formation_rows);
+            let (bar_x, bar_y) = enemy_bar_position(portrait_col, portrait_row, enemy_bar_width, 1);
+            draw_pixel_bar(
+                &mut enemy_bar_batch,
+                bar_x,
+                bar_y,
+                enemy_bar_width,
+                enemy.gauge as i32,
+                ATB_GAUGE_MAX as i32,
+                if enemy.gauge >= ATB_GAUGE_MAX { GREEN } else { CYAN },
             );
-            // ATB gauge, drawn as the same bracket-style bar as the HP bar
-            // just above it - reuses hp_bar_string's ratio/width logic
-            // directly by treating the gauge as a "current/max" pair of
-            // its own. CYAN (rather than the HP bar's implicit yellow-on-
-            // black) so the two bars read as different things at a
-            // glance. Full-ready shows in GREEN instead, as a clear
-            // "it's ready" signal distinct from "it's filling."
-            ctx.print_color(
-                col,
-                base + 2,
-                if enemy.gauge >= ATB_GAUGE_MAX {
-                    GREEN
-                } else {
-                    CYAN
-                },
-                BLACK,
-                &hp_bar_string(enemy.gauge as i32, ATB_GAUGE_MAX as i32, bar_width),
-            );
+
             if let Some(ActiveStatus::Dot {
                 label,
                 turns_remaining,
@@ -797,19 +878,20 @@ impl State {
             {
                 ctx.print_color(
                     col,
-                    base + 3,
+                    base + 1,
                     RED,
                     BLACK,
                     &format!("{} ({}t)", label, turns_remaining),
                 );
             }
         }
+        enemy_bar_batch.submit(0).expect("Batch error");
 
         // The player's own real pixel-art HP/ATB bars (item 10 in
-        // docs/ideas.md) - replaces hp_bar_string's ASCII `[####----]`
-        // rendering for the player specifically; enemies keep the ASCII
-        // version (see docs/journal.md's 2026-09-14 entry for why - a
-        // deliberate scope choice, not an oversight). draw_pixel_bar
+        // docs/ideas.md) - replaces the old ASCII `[####----]` rendering
+        // for the player specifically (each enemy's own ATB gauge moved
+        // onto this same mechanism separately, above - see docs/
+        // journal.md's 2026-09-15 entry). draw_pixel_bar
         // works in HUD_CONSOLE cell units, not this block's own
         // FINE_TEXT_CONSOLE column - PLAYER_ATB_BAR_HUD_X converts via
         // the real pixel ratio between the two consoles (both span the
@@ -841,22 +923,39 @@ impl State {
         // bars to be closer together and slightly off center of each
         // other") - the ATB bar keeps the original X, the HP bar sits a
         // few columns to its right; the vertical gap dropped from 4 rows
-        // to 3 (the bar's own rendered height at PIXEL_BAR_TILE_SCALE
-        // grew from the scale bump just above, so 3 rows is close
-        // without touching/overlapping - not measured, a first-pass
-        // guess like every other value here).
+        // to 3. Left at +3 (not re-tuned) 2026-09-15 once BAR_TEXT_
+        // VERTICAL_CENTER_SHIFT shipped for this same bar's text-
+        // centering fix - applying that shift to a bar already 3 rows
+        // below the ATB bar happens to land the real visual gap at
+        // ~0.5 HUD_CONSOLE rows (confirmed with real numbers, the
+        // user's own chosen option between two granularity-mismatched
+        // choices - see docs/journal.md's 2026-09-15 entry), which is
+        // exactly the closer-together spacing asked for - no separate
+        // change to this constant needed on top of the shift.
         const PLAYER_ATB_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
         const PLAYER_HP_BAR_HUD_X: i32 = PLAYER_ATB_BAR_HUD_X + 3;
         const PLAYER_ATB_BAR_HUD_Y: i32 = 36;
         const PLAYER_HP_BAR_HUD_Y: i32 = PLAYER_ATB_BAR_HUD_Y + 3;
         const PLAYER_BAR_WIDTH: i32 = 20;
+        // Nudges the ATB bar down to close the gap between it and the HP
+        // bar below - direct feedback 2026-09-15 that the existing ~0.5-
+        // row gap (a side effect of the HP bar's own text-centering fix)
+        // could be tighter. The ATB bar has no overlaid text, so unlike
+        // the HP bar it isn't pinned to a whole HUD_CONSOLE row at all -
+        // free to move by any real fraction, not just the 0.5/1.5-row
+        // jump the HP bar's own whole-row text left it. Solved exactly
+        // for a genuine 0.2-row real gap between the two bars (verified
+        // with a real Python script against the actual pixel math, same
+        // discipline as the text-centering fix itself - see docs/
+        // journal.md's 2026-09-15 entry for the numbers), not eyeballed.
+        const PLAYER_ATB_BAR_GAP_SHIFT: f32 = 0.285;
 
         let mut player_bar_batch = DrawBatch::new();
         player_bar_batch.target(BATTLE_BAR_CONSOLE);
         draw_pixel_bar(
             &mut player_bar_batch,
             PLAYER_ATB_BAR_HUD_X,
-            PLAYER_ATB_BAR_HUD_Y,
+            PLAYER_ATB_BAR_HUD_Y as f32 + PLAYER_ATB_BAR_GAP_SHIFT,
             PLAYER_BAR_WIDTH,
             battle.player_gauge as i32,
             ATB_GAUGE_MAX as i32,
@@ -866,10 +965,16 @@ impl State {
                 CYAN
             },
         );
+        // BAR_TEXT_VERTICAL_CENTER_SHIFT (render_helpers.rs) - the HP
+        // bar's own overlaid "current/max" text (below, on PLAYER_HP_
+        // BAR_HUD_Y, unchanged) sat too high in the bar otherwise, same
+        // fix the dungeon map's own HP bar needed first - see that
+        // constant's own doc comment for the real math. Not applied to
+        // the ATB bar above, which has no overlaid text to center on.
         draw_pixel_bar(
             &mut player_bar_batch,
             PLAYER_HP_BAR_HUD_X,
-            PLAYER_HP_BAR_HUD_Y,
+            PLAYER_HP_BAR_HUD_Y as f32 + BAR_TEXT_VERTICAL_CENTER_SHIFT,
             PLAYER_BAR_WIDTH,
             player_hp,
             player_max,
@@ -893,33 +998,111 @@ impl State {
         );
         player_bar_text_batch.submit(0).expect("Batch error");
 
-        // --- Active-status line for the player: previously Defending,
-        // Ice Armor, and an active counter all existed as real state with
-        // zero visual presence. One combined line, shown whenever any of
-        // it is active, ABOVE the name/HP block instead of below: the
-        // player portrait starts at pixel y=480 / row 60, so a status
-        // line at row 60 would sit directly under the portrait on
-        // console 3 (registered after console 2) and never actually be
-        // visible - row 57 keeps clear.
-        let mut player_statuses = Vec::new();
-        if battle.player_defending {
-            player_statuses.push("Defending".to_string());
-        }
+        // --- Player buffs: icon + a small remaining-count number, one
+        // per row stacked DOWNWARD - replaces the old single combined
+        // text line (2026-09-14's "Defending | Ice Armor (N left) | ..."
+        // joined string), direct feedback 2026-09-15 that (a) that line
+        // had no real layout for more than one active buff at once (it
+        // just kept growing wider, unbounded) and (b) its own fixed
+        // position (row 57) was never updated after this session's
+        // several rounds of moving the ATB/HP bars, so it now visibly
+        // overlapped them.
+        //
+        // Defending is deliberately NOT shown here at all - direct
+        // feedback: the Actions box itself already makes clear Defend
+        // was chosen (it's not a toggle the player can change back this
+        // turn), so a duplicate notification adds nothing. Countering
+        // IS shown - it has a real icon (`Counter Attack`'s own
+        // template glyph; `TechniqueEffect::Counter` is a generic
+        // effect kind in principle, but only one real technique uses it
+        // today, so its icon is a good enough stand-in) but no
+        // countdown of its own (armed for exactly one hit), so it's
+        // icon-only, no number.
+        //
+        // Icons draw on BUFF_BADGE_CONSOLE (`systems/hud.rs`'s own
+        // dungeon-HUD buff badges already use it the same way - same
+        // console, same `glyph_for_item_name` lookup, reused across
+        // screens the same way BATTLE_BAR_CONSOLE already is) - console
+        // 0's own 40x25/32px dungeonfont grid. Numbers print on
+        // HUD_CONSOLE, converted from the icon's own real pixel
+        // position rather than a second, independently-guessed spot.
+        // Column 15 -> 13 (2026-09-15, to clear the Actions box) ->
+        // BACK to 15 the same day - moving the buff column left instead
+        // put it behind the player sprite, a real regression the pure
+        // "clears the Actions box" math never accounted for (it only
+        // checked clearance on the RIGHT side, toward the box, not the
+        // LEFT side, toward the player). Direct feedback: keep the buff
+        // where it visually worked, move the Actions box (BOX_X, this
+        // function) to make room on ITS side instead - see BOX_X's own
+        // comment for the real numbers behind how far.
+        const PLAYER_BUFF_ICON_COL: i32 = 15;
+        const PLAYER_BUFF_ICON_ROW_START: i32 = 16;
+        const PLAYER_BUFF_ICON_ROW_STEP: i32 = 2;
+        let mut player_buffs: Vec<(char, Option<i32>)> = Vec::new();
         if let Some(armor) = entity_ice_armor(&self.ecs, battle.player) {
-            player_statuses.push(format!("Ice Armor ({} left)", armor.attacks_remaining));
+            if let Some(glyph) = glyph_for_item_name("Ice Armor") {
+                player_buffs.push((glyph, Some(armor.attacks_remaining)));
+            }
         }
         if let Some(remaining) = buff::remaining(battle, BuffKind::DamageReduction) {
-            player_statuses.push(format!("Battle Cry ({} left)", remaining));
+            if let Some(glyph) = glyph_for_item_name("Battle Cry") {
+                player_buffs.push((glyph, Some(remaining)));
+            }
         }
         if let Some(remaining) = buff::remaining(battle, BuffKind::Evasion) {
-            let chance = buff::flat_value(battle, BuffKind::Evasion);
-            player_statuses.push(format!("Dodge (+{}% evasion, {} left)", chance, remaining));
+            if let Some(glyph) = glyph_for_item_name("Dodge") {
+                player_buffs.push((glyph, Some(remaining)));
+            }
         }
         if battle.player_statuses.is_active(StatusKind::Counter) {
-            player_statuses.push("Countering".to_string());
+            if let Some(glyph) = glyph_for_item_name("Counter Attack") {
+                player_buffs.push((glyph, None));
+            }
         }
-        if !player_statuses.is_empty() {
-            ctx.print_color(32, 57, CYAN, BLACK, &player_statuses.join(" | "));
+        if !player_buffs.is_empty() {
+            let mut buff_icon_batch = DrawBatch::new();
+            buff_icon_batch.target(BUFF_BADGE_CONSOLE);
+            let mut buff_text_batch = DrawBatch::new();
+            buff_text_batch.target(HUD_CONSOLE);
+            for (i, (glyph, count)) in player_buffs.iter().enumerate() {
+                let row = PLAYER_BUFF_ICON_ROW_START + i as i32 * PLAYER_BUFF_ICON_ROW_STEP;
+                draw_portrait(
+                    &mut buff_icon_batch,
+                    PLAYER_BUFF_ICON_COL,
+                    row,
+                    Render {
+                        color: ColorPair::new(WHITE, BLACK),
+                        glyph: to_cp437(*glyph),
+                    },
+                );
+                if let Some(count) = count {
+                    // Real bug, not a positioning taste issue - direct
+                    // feedback 2026-09-15 ("I don't see the amount").
+                    // The old nudge-based formula put this text INSIDE
+                    // the icon's own 32px cell footprint (verified with
+                    // real pixel math: icon spans [480,512)x[512,544)
+                    // at this exact position, the old text landed at
+                    // (490,513) - squarely inside it), and BUFF_BADGE_
+                    // CONSOLE (25) is registered AFTER HUD_CONSOLE (18),
+                    // so the icon's own opaque glyph painted directly
+                    // over the number every frame. Recomputed for real
+                    // clearance instead of another guessed nudge: text
+                    // starts ICON_TEXT_GAP_PX past the icon's own real
+                    // right edge (not just "a column or two off"),
+                    // vertically centered on the icon's own row.
+                    const ICON_TEXT_GAP_PX: i32 = 4;
+                    let hud_col = ((PLAYER_BUFF_ICON_COL + 1) * 32 + ICON_TEXT_GAP_PX) * HUD_COLS
+                        / 1280;
+                    let hud_row = (row * 32 + 16) * HUD_ROWS / 800;
+                    buff_text_batch.print_color(
+                        Point::new(hud_col, hud_row),
+                        count.to_string(),
+                        ColorPair::new(CYAN, BLACK),
+                    );
+                }
+            }
+            buff_icon_batch.submit(0).expect("Batch error");
+            buff_text_batch.submit(1).expect("Batch error");
         }
 
         // --- Battle log: up to MAX_LOG_LINES most-recent lines, in a
@@ -933,12 +1116,11 @@ impl State {
         // clear the enemies instead.
         //
         // The real PixelLab panel border (item 10 in docs/ideas.md),
-        // Battle theme - converted 2026-09-14, the last of the original
-        // 13 draw_ascii_box sites. draw_filled_pixel_box_scaled (and
-        // every panel-border helper) works in HUD_CONSOLE cell units,
-        // not FINE_TEXT_CONSOLE's own finer 160x100 grid this box used
-        // to be positioned in - MSG_BOX_X/Y convert via the real pixel
-        // ratio between the two consoles (both span the same 1280x800
+        // Battle theme. draw_filled_pixel_box_scaled (and every panel-
+        // border helper) works in HUD_CONSOLE cell units, not
+        // FINE_TEXT_CONSOLE's own finer 160x100 grid this box used to be
+        // positioned in - MSG_BOX_X/Y convert via the real pixel ratio
+        // between the two consoles (both span the same 1280x800
         // window). WIDTH/HEIGHT are NOT converted the same way: a
         // straight pixel-ratio shrink of the OLD fine-grid width (24
         // characters) would leave a box too narrow to hold the same
@@ -951,12 +1133,24 @@ impl State {
         const MSG_BOX_X: i32 = 10;
         const MSG_BOX_Y: i32 = 21;
         const MSG_BOX_WIDTH: i32 = 30;
-        const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 3;
+        // +2, not +3 - shrunk 2026-09-15 to match the 1 row of top
+        // padding removed below (direct feedback: "get rid of the
+        // padding at the top of the battle log"). The bottom edge was
+        // already snug (zero blank rows before the border) before this
+        // change too, same as the Actions box's own equivalent fix.
+        const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 2;
 
-        let mut log_panel_batch = DrawBatch::new();
-        log_panel_batch.target(UI_PANEL_CONSOLE);
-        draw_filled_pixel_box_scaled(
-            &mut log_panel_batch,
+        // First real usage of render_helpers::PanelBox (2026-09-14) -
+        // the reusable panel/text-batch helper, converted here as the
+        // functional test for it before any wider rollout. Replaces the
+        // hand-rolled log_panel_batch/ctx.set_active_console dance this
+        // block used to need - PanelBox owns both the fill+border batch
+        // AND the text batch (already correctly targeting UI_PANEL_
+        // CONSOLE/PANEL_TEXT_CONSOLE, see that struct's own doc comment
+        // for why), auto-assigns a collision-free z_order on submit, and
+        // needed no `ctx.set_active_console(FINE_TEXT_CONSOLE)` restore
+        // afterward since it never touches ctx's active console at all.
+        let mut log_box = PanelBox::new(
             MSG_BOX_X,
             MSG_BOX_Y,
             MSG_BOX_WIDTH,
@@ -964,22 +1158,16 @@ impl State {
             UiPanelTheme::Battle,
             PIXEL_BOX_TILE_SCALE_COMPACT,
         );
-        log_panel_batch.submit(0).expect("Batch error");
-
-        // Text moves onto PANEL_TEXT_CONSOLE (shares HUD_CONSOLE's own
-        // grid) rather than staying on FINE_TEXT_CONSOLE or printing
-        // straight onto HUD_CONSOLE - same reason every other converted
-        // box needs it: text printed on the SAME console as the fill
-        // would overwrite the fill's own cells (SimpleConsole::set
-        // replaces, it doesn't layer) rather than sitting on top of it.
-        // "Battle Log" title added - every other converted box already
-        // has one; this was the one box on the whole screen that didn't.
-        ctx.set_active_console(PANEL_TEXT_CONSOLE);
-        ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y, YELLOW, BLACK, "Battle Log");
+        log_box.text_color_raw(2, -1, YELLOW, BLACK, "Battle Log");
+        // dx=2/dy=1+i, RAW not the standard inset - direct feedback
+        // 2026-09-15 ("get rid of the padding at the top") - dy=1 is the
+        // box's own genuine first interior row, immediately below the
+        // border, same "no padding" convention the Actions box and the
+        // ability/item hover-description box already use.
         for (i, line) in battle.log.iter().enumerate() {
-            ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 2 + i as i32, WHITE, BLACK, line);
+            log_box.text_color_raw(2, 1 + i as i32, WHITE, BLACK, line);
         }
-        ctx.set_active_console(FINE_TEXT_CONSOLE);
+        log_box.submit();
 
         // --- Floating damage numbers: bigger (32px cells, same "big
         // text" font used for title/class-select screens), and centered
@@ -1245,52 +1433,79 @@ impl State {
             other_actions.get(battle.menu_cursor.row)
         };
 
-        const BOX_X: i32 = 44;
-        // Anchored to the player's own portrait top edge (see the doc
-        // comment below) for a single enemy, but pushed down further
-        // for 2+ - a zigzag formation's own front row (see
-        // MapTheme::enemy_formation_rows) puts an enemy's own name/HP
-        // text as low as row 67 of the 100-row FINE_TEXT_CONSOLE (67%
-        // down the screen) for Forest specifically - its own front row
-        // (2.3) is the LOWEST any theme currently uses, so 47 is
-        // calibrated to that worst case and stays a safe margin for
-        // Dungeon/Sewer's higher-up front row (1.9) too, without needing
-        // to vary by theme itself. Applies regardless of whether the
-        // fight has 2, 3, or 4 enemies, since any of them can put an
-        // enemy on the front row (only single-enemy fights never use the
-        // zigzag at all, so they alone keep the higher/earlier value).
-        let box_y_base = if battle.enemies.len() <= 1 { 40 } else { 47 };
+        // 44 -> 47 (2026-09-15) to make real room for the player buff
+        // column (see PLAYER_BUFF_ICON_COL above) without moving IT,
+        // which put it behind the player sprite instead. Verified with
+        // real numbers, not the "1 or 2 columns" first guess: at +1 or
+        // +2, a worst-case 2-digit buff count's own real right edge
+        // still lands PAST this box's own left edge (-1.6px / +10.4px
+        // margin respectively) - +3 is the smallest shift that clears
+        // it by a real margin (~22px).
+        const BOX_X: i32 = 47;
+        // Anchored to the BOTTOM now, not the top - direct feedback
+        // 2026-09-15 ("I would like the battle abilities lower border
+        // to be even with the bottom of the players foot... I think it
+        // would fit not matter which formation we get"), replacing the
+        // old top-anchored `box_y_base` that varied by enemy count (45
+        // for a single enemy, 52 for 2+, to clear a zigzag formation's
+        // own front-row name/HP text at its worst case - see the now-
+        // removed comment's own reasoning, still in git history if this
+        // needs revisiting).
+        //
+        // BOX_BOTTOM_ROW: the player's own portrait is drawn at a fixed
+        // cell (`draw_portrait(&mut still_portrait, 1, 3, ...)`, console
+        // 4's 5x5 grid - see that call's own site below) regardless of
+        // enemy count or formation, so anchoring to IT instead is
+        // formation-proof by construction. That cell's real pixel
+        // bottom edge is (3+1) * (800/5) = 640px = HUD_CONSOLE row 53.6
+        // (800/HUD_ROWS per row) - rounded to 54. This is the drawing
+        // CELL's own bottom edge, not a measured pixel position of the
+        // character art's actual feet within it (sprite cells typically
+        // have some empty margin) - a close approximation pending a
+        // screenshot, not an exact measurement.
+        const BOX_BOTTOM_ROW: i32 = 54;
         const BOX_COL_WIDTH: i32 = 20;
         let box_width = BOX_COL_WIDTH * 2 + 3;
         let box_content_rows = main_actions.len().max(other_actions.len()) as i32;
-        let box_height = box_content_rows + 4;
-        // Clamp so a tall action list (more techniques than fit below row
-        // 40) never runs off the bottom of the console.
-        let box_y = box_y_base.min(HUD_ROWS - box_height);
+        // +2, not +4 - shrunk 2026-09-15 once the "Actions" title moved
+        // OUTSIDE the box (see menu_box.text_color_raw below) and the
+        // list itself lost its own top padding, freeing 2 interior rows
+        // this box no longer needs to reserve. The bottom edge was
+        // already snug (zero blank rows before the border) even before
+        // this change, so only the top shrinks.
+        let box_height = box_content_rows + 2;
+        // The box grows UPWARD from the fixed bottom anchor as more
+        // actions add rows, rather than a fixed top position - the
+        // bottom border always lands on BOX_BOTTOM_ROW regardless of
+        // how tall the list is.
+        let box_y = BOX_BOTTOM_ROW - box_height + 1;
 
         // The real PixelLab panel border (item 10 in docs/ideas.md),
-        // Battle theme - converted 2026-09-14, the last of the original
-        // 13 draw_ascii_box sites besides the battle log just below.
-        // panel_batch (UI_PANEL_CONSOLE) draws fill+border; every print
-        // in this box moves onto PANEL_TEXT_CONSOLE below (not
-        // HUD_CONSOLE) for the same reason every other converted box
-        // needs it - see PANEL_TEXT_CONSOLE's own doc comment in
-        // main.rs. PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale -
-        // this box's width (BOX_COL_WIDTH*2+3 = 43 HUD columns) is
-        // narrow enough, and its height short enough, to hit the same
-        // "border eats too much of the box" problem the dungeon HUD
-        // bars did at the default scale.
+        // Battle theme. Converted to render_helpers::PanelBox 2026-09-14
+        // alongside its wider rollout - `PanelBox` targets the right two
+        // consoles internally (UI_PANEL_CONSOLE for fill+border,
+        // PANEL_TEXT_CONSOLE for text) so the title alone moves onto its
+        // own `text_color` call; the menu rows below stay on direct
+        // `ctx.print_color` calls via `print_menu_row_left` (still
+        // targeting PANEL_TEXT_CONSOLE through `ctx.set_active_console`)
+        // rather than folding into `PanelBox` too - that helper handles
+        // the selection-cursor/highlight styling `PanelBox.text_color`
+        // has no equivalent for, and mixing a submitted `DrawBatch` with
+        // direct `ctx` calls onto the SAME console already works fine
+        // (this exact mixed pattern predates this conversion). PIXEL_
+        // BOX_TILE_SCALE_COMPACT, not the default scale - this box's
+        // width (BOX_COL_WIDTH*2+3 = 43 HUD columns) is narrow enough,
+        // and its height short enough, to hit the same "border eats too
+        // much of the box" problem the dungeon HUD bars did at the
+        // default scale.
         //
         // The border no longer switches color with player_can_act (was
         // yellow/green) - `draw_pixel_box` always tints WHITE regardless
         // of category color (see its own doc comment for why a tint
         // crushes this shaded material), same as every other converted
         // box. The signal moved to the "Actions" title's own color
-        // instead - see the print_color call below.
-        let mut menu_panel_batch = DrawBatch::new();
-        menu_panel_batch.target(UI_PANEL_CONSOLE);
-        draw_filled_pixel_box_scaled(
-            &mut menu_panel_batch,
+        // instead - see the title_color line below.
+        let mut menu_box = PanelBox::new(
             BOX_X,
             box_y,
             box_width,
@@ -1298,23 +1513,34 @@ impl State {
             UiPanelTheme::Battle,
             PIXEL_BOX_TILE_SCALE_COMPACT,
         );
-        menu_panel_batch.submit(0).expect("Batch error");
-
-        ctx.set_active_console(PANEL_TEXT_CONSOLE);
         // "You can act" indicator moved here from the border's own tint
         // (yellow/green) - draw_pixel_box always tints WHITE now (see
-        // menu_panel_batch's own comment above), so the title's color is
-        // where this signal lives instead, same as every other converted
-        // box's category color.
+        // menu_box's own comment above), so the title's color is where
+        // this signal lives instead, same as every other converted box's
+        // category color.
+        //
+        // Title moved OUTSIDE the box (`text_color_raw`, `dy = -1`,
+        // same convention the Battle Log/Item Menu titles already use)
+        // 2026-09-15, direct feedback ("get rid of the Actions within
+        // the border... I think I want to see it above for now") -
+        // confirmed NOT wanted deleted outright, just moved off the
+        // border's own interior, so this stays a real title rather than
+        // being removed.
         let title_color = if player_can_act { YELLOW } else { GREEN };
-        ctx.print_color(BOX_X + 1, box_y + 1, title_color, BLACK, "Actions");
+        menu_box.text_color_raw(2, -1, title_color, BLACK, "Actions");
+        menu_box.submit();
+
+        ctx.set_active_console(PANEL_TEXT_CONSOLE);
+        // box_y + 1, not + 3 - direct feedback 2026-09-15 ("I don't want
+        // any padding on the top"), now that the title moved outside and
+        // no longer needs 2 rows of interior clearance above the list.
         for (row, (i, entry)) in main_actions.iter().enumerate() {
             let (label, color) = menu_row_label(*i, entry);
             let selected = battle.menu_cursor.col == 0 && battle.menu_cursor.row == row;
             print_menu_row_left(
                 ctx,
                 BOX_X + 1,
-                box_y + 3 + row as i32,
+                box_y + 1 + row as i32,
                 color,
                 &label,
                 selected,
@@ -1326,7 +1552,7 @@ impl State {
             print_menu_row_left(
                 ctx,
                 BOX_X + 1 + BOX_COL_WIDTH + 1,
-                box_y + 3 + row as i32,
+                box_y + 1 + row as i32,
                 color,
                 &label,
                 selected,
