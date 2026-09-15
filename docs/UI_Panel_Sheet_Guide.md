@@ -10,34 +10,42 @@ generating a new panel material.
 **Status as of 2026-09-14: all four materials generated and composited,
 every border on the dungeon-exploration screen AND the Paused screen's
 Hints box now converted (12 of 13 real sites); the Hints box confirmed
-"Perfect" live, the dungeon HUD bars and shop tooltip still getting
-their geometry corrected across rounds - see "Using it" below** -
-across fourteen-plus rounds of live feedback, most recently: the
-Ability Bar's icons reading as clipped/overlapped by its own border
-(traced to a top-clearance formula that was numerically identical to
-the unlabeled bars' despite needing to also clear the number label -
-fixed), noticeably excess dead space below the bar icons (the bottom
-edge's extra clearance row, sized for a much thicker pre-compact-scale
-border, trimmed off), and the shop tooltip's text sitting too close to
-its top edge (moved down into a taller box). Earlier rounds: a
-saturated tint crushing the stone's own shading, the border swallowing
-box text at native scale, a real no_bg-console fill bug, the fill not
-quite nesting inside the border, a title-on-border attempt that hid
-every title outright, a blank description panel when nothing's
-selected, a real detour where a `has_title` flag briefly excluded the
-title row from the fill (reverted on direct correction), a
+"Perfect" live, the dungeon HUD bars and shop tooltip fixed at the real
+root cause after two rounds of treating symptoms - see "Using it"
+below** - across fifteen-plus rounds of live feedback, most recently: a
+genuine positional bug in `pixel_box_tiles` (`set_fancy` scales a tile
+around a FIXED center, not around its own nominal position, so a tile
+never actually renders where its `(base_col, base_row)` says it should
+at any scale below 1.0 - solved directly from the real vertex shader,
+not guessed, and confirmed with a throwaway test) that was quietly
+shifting every box's real rendered position toward its own interior on
+one side and away from it on the other, small enough to miss at the
+default scale but large enough at `PIXEL_BOX_TILE_SCALE_COMPACT` to
+read as the border crowding an icon on one edge with too much empty
+space on the opposite edge - the actual cause of two straight rounds of
+"still not right" that padding/clearance tuning alone couldn't fix.
+Also this round: the Ability Bar's own top-clearance formula (found to
+be numerically identical to the unlabeled bars' despite needing extra
+room for its number label - fixed), the bars' excess bottom clearance
+(trimmed), and the shop tooltip's text moved down into a taller box.
+Earlier rounds: a saturated tint crushing the stone's own shading, the
+border swallowing box text at native scale, a real no_bg-console fill
+bug, the fill not quite nesting inside the border, a title-on-border
+attempt that hid every title outright, a blank description panel when
+nothing's selected, a real detour where a `has_title` flag briefly
+excluded the title row from the fill (reverted on direct correction), a
 same-console text/fill overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a
 fill/border sub-pixel alignment fix, a border-scale round-trip (0.375
--> 0.5 -> 0.3) that turned out to be masking a deeper issue, the
-pixel-perfect fill's own regression hiding every bar icon (fixed with
-`ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_BADGE_CONSOLE`), every
-dungeon-screen panel (Item/Ability/Battle Bars, the shop tooltip) plus
-the Pause Hints box converging on the Swamp material, and a genuine
-second border scale, `PIXEL_BOX_TILE_SCALE_COMPACT`, for boxes small in
-either dimension (see "Using it" below for the last few). `draw_filled_
-pixel_box` fills every box's full nominal area unconditionally, no
-exceptions; the Item Menu alone stays Dungeon/stone. The remaining 2 of
-13 sites (the battle log and the in-combat Battle Actions box - see
+-> 0.5 -> 0.3), the pixel-perfect fill's own regression hiding every
+bar icon (fixed with `ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_
+BADGE_CONSOLE`), every dungeon-screen panel (Item/Ability/Battle Bars,
+the shop tooltip) plus the Pause Hints box converging on the Swamp
+material, and a genuine second border scale, `PIXEL_BOX_TILE_SCALE_
+COMPACT`, for boxes small in either dimension (see "Using it" below for
+the last few). `draw_filled_pixel_box` fills every box's full nominal
+area unconditionally, no exceptions; the Item Menu alone stays Dungeon/
+stone. The remaining 2 of 13 sites (the battle log and the in-combat
+Battle Actions box - see
 `docs/ideas.md` item 10 for the full list) are battle-only and still on
 `draw_ascii_box`.
 
@@ -224,6 +232,46 @@ the Item Menu and Hints. The 3 dungeon HUD bars and the shop tooltip -
 the sites that actually have this problem - now call `_scaled` with
 `PIXEL_BOX_TILE_SCALE_COMPACT` directly.
 
+**`set_fancy` scales a tile around a FIXED CENTER, not around its own
+nominal position - `pixel_box_tiles` corrects for this, or a box's real
+rendered position silently drifts away from what the caller asked for**
+- the real root cause (2026-09-14) behind two full rounds of "still not
+right" that scale/padding tuning alone couldn't fix: "the border is
+overlapping the icons," "too much space on the right hand side of the
+item bar." Solved directly from the real vertex shader (`base_pos =
+(aPos - center) * scale + center`, `center = position + 0.5` native
+cell - confirmed against bracket-terminal's actual GLSL source): a
+tile's TRUE rendered edge is at `position + (1-scale)/2`, not
+`position` itself, unless `scale == 1.0`. Every tile in a box shifts by
+this SAME amount (a translation, not a resize), so the fill and border
+stay perfectly aligned with EACH OTHER (which is why the alignment
+itself was already confirmed "the right size") - but the whole box's
+real position drifts relative to content on a DIFFERENT, independent
+coordinate system (the bar icons, on `ABILITY_BAR_COLS`/`ROWS`), which
+has no way to know about this drift at all. The shift is small at the
+default scale (~11px at 0.3x, easy to miss against a thicker border)
+but large at the compact one (~13.6px at 0.15x) - big enough, relative
+to a now-thin border, to visibly crowd an icon on the low-coordinate
+edges (left/top - reads as overlap) while leaving obvious extra space
+on the high-coordinate edges (right/bottom). `pixel_box_tiles` now
+subtracts `(1-scale)/2` back out of `base_col`/`base_row` before any
+tile position is derived from them, canceling the shift. Verified with
+a throwaway test (zero shift at scale 1.0; the shift matches the
+derived formula at compact scale; feeding the correction back through
+the real edge formula lands exactly at the intended position) - removed
+after confirming, per this project's own testing convention.
+**Confidence note**: the X-axis derivation is exact math with no
+assumptions; the Y-axis (`base_row`) applies the identical correction,
+but `FlexiConsole::set_fancy` flips `position.y` before this transform
+runs (the same flip `WIGGLE_CONSOLE_Y_ANCHOR_OFFSET` already corrects
+for separately), which makes an independent by-hand Y derivation
+genuinely error-prone - the row correction's SIGN was chosen to match
+the already-confirmed live symptom (border crowding down into an icon
+at the top, excess room at the bottom), not re-derived from the flip in
+isolation. If a fresh screenshot shows vertical alignment got WORSE,
+flip that one sign first (`- center_shift` -> `+ center_shift` for
+`base_row` only) before looking anywhere else.
+
 **Use `render_helpers::draw_filled_pixel_box` (border + fill together),
 not `draw_pixel_box` alone** - every real call site needs a deliberate
 solid interior fill or whatever's on the console(s) underneath (for the
@@ -332,17 +380,17 @@ border-embedded look for now.
 
 ## Still open
 
-- A fresh screenshot confirming this round's geometry fixes together:
-  the Ability Bar's own top-clearance bump (`label_row - 1` ->
-  `label_row - 2`, meant to stop the border from reading as clipping
-  into the icons), the trimmed bottom clearance on all 3 bars (`+ 1`
-  dropped), and the shop tooltip's text moved down into a taller box
-  (`SHOP_TOOLTIP_HEIGHT` 3 -> 4, text row `box_y + 1` -> `box_y + 2`).
-  None of this confirmed live yet - reasoned through by comparing the
-  Ability Bar's formula against the (working) Item/Battle Bar formula
-  and finding it numerically identical despite needing extra clearance
-  for the number label, not by tracing the exact rendering-level cause
-  of the reported overlap.
+- A fresh screenshot confirming the real fix: the `pixel_box_tiles`
+  center-shift correction (see "set_fancy scales a tile around a FIXED
+  CENTER" above) plus this round's geometry tweaks (Ability Bar top
+  clearance, trimmed bottom clearance, shop tooltip text position) -
+  none of this confirmed live yet. Watch specifically for whether the
+  VERTICAL alignment (top/bottom) actually improved or got worse - the
+  center-shift fix's Y-axis sign was chosen by matching the already-
+  reported symptom pattern, not independently re-derived through
+  `FlexiConsole`'s own Y-flip, so it's the one part of this fix with a
+  real, flagged chance of being backwards (see that section's own
+  "Confidence note").
 - The remaining 2 of 13 sites: the battle log and the in-combat Battle
   Actions box (its border color already switches live between yellow/
   green - moot now that `draw_pixel_box` calls use WHITE regardless of
