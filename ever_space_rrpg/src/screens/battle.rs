@@ -811,15 +811,16 @@ impl State {
         // version (see docs/journal.md's 2026-09-14 entry for why - a
         // deliberate scope choice, not an oversight). draw_pixel_bar
         // works in HUD_CONSOLE cell units, not this block's own
-        // FINE_TEXT_CONSOLE column - PLAYER_BAR_HUD_X converts via the
-        // real pixel ratio between the two consoles (both span the same
-        // 1280x800 window), same conversion the battle log box above
-        // uses. Row positions and the bar's own width are NOT converted
-        // from the old text layout the same way - the bars are taller
-        // graphics than a single text row ever was, so they need more
-        // vertical room between them than the old cramped 1-2-row text
-        // gaps allowed. First-pass values, like every other bracket-lib
-        // pixel value in this project - pending a screenshot.
+        // FINE_TEXT_CONSOLE column - PLAYER_ATB_BAR_HUD_X converts via
+        // the real pixel ratio between the two consoles (both span the
+        // same 1280x800 window), same conversion the battle log box
+        // above uses. Row positions and the bar's own width are NOT
+        // converted from the old text layout the same way - the bars
+        // are taller graphics than a single text row ever was, so they
+        // need more vertical room between them than the old cramped
+        // 1-2-row text gaps allowed. First-pass values, like every
+        // other bracket-lib pixel value in this project - pending a
+        // screenshot.
         //
         // The "You" label was dropped entirely (direct request
         // 2026-09-14) - the bars themselves read as "this is the
@@ -835,16 +836,26 @@ impl State {
         // bottom strips), not a second, separate box drawn around the
         // whole bar. See draw_pixel_bar's own doc comment for how the
         // fill's bounds are kept inside that existing frame.
-        const PLAYER_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
+        // Closer together, and staggered rather than left-aligned with
+        // each other (direct request 2026-09-14: "I also would like the
+        // bars to be closer together and slightly off center of each
+        // other") - the ATB bar keeps the original X, the HP bar sits a
+        // few columns to its right; the vertical gap dropped from 4 rows
+        // to 3 (the bar's own rendered height at PIXEL_BAR_TILE_SCALE
+        // grew from the scale bump just above, so 3 rows is close
+        // without touching/overlapping - not measured, a first-pass
+        // guess like every other value here).
+        const PLAYER_ATB_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
+        const PLAYER_HP_BAR_HUD_X: i32 = PLAYER_ATB_BAR_HUD_X + 3;
         const PLAYER_ATB_BAR_HUD_Y: i32 = 36;
-        const PLAYER_HP_BAR_HUD_Y: i32 = 40;
+        const PLAYER_HP_BAR_HUD_Y: i32 = PLAYER_ATB_BAR_HUD_Y + 3;
         const PLAYER_BAR_WIDTH: i32 = 20;
 
         let mut player_bar_batch = DrawBatch::new();
         player_bar_batch.target(BATTLE_BAR_CONSOLE);
         draw_pixel_bar(
             &mut player_bar_batch,
-            PLAYER_BAR_HUD_X,
+            PLAYER_ATB_BAR_HUD_X,
             PLAYER_ATB_BAR_HUD_Y,
             PLAYER_BAR_WIDTH,
             battle.player_gauge as i32,
@@ -857,7 +868,7 @@ impl State {
         );
         draw_pixel_bar(
             &mut player_bar_batch,
-            PLAYER_BAR_HUD_X,
+            PLAYER_HP_BAR_HUD_X,
             PLAYER_HP_BAR_HUD_Y,
             PLAYER_BAR_WIDTH,
             player_hp,
@@ -876,7 +887,7 @@ impl State {
         let mut player_bar_text_batch = DrawBatch::new();
         player_bar_text_batch.target(BATTLE_BAR_TEXT_CONSOLE);
         player_bar_text_batch.print_color(
-            Point::new(PLAYER_BAR_HUD_X + 2, PLAYER_HP_BAR_HUD_Y),
+            Point::new(PLAYER_HP_BAR_HUD_X + 2, PLAYER_HP_BAR_HUD_Y),
             format!("{}/{}", player_hp.max(0), player_max),
             ColorPair::new(WHITE, BLACK),
         );

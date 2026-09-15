@@ -630,12 +630,18 @@ pub fn draw_filled_pixel_box_scaled(
 }
 
 /// Every tile draws at this fraction of `battle_bar_frame.png`'s native
-/// 32px - same reasoning as `PIXEL_BOX_TILE_SCALE`/`_COMPACT`, a
-/// first-pass guess (16px tiles) pending a screenshot. Deliberately its
-/// own constant, not reused from the panel-box scales - a status bar and
-/// a box border are different enough visual elements that there's no
-/// reason to assume the same number looks right for both.
-const PIXEL_BAR_TILE_SCALE: f32 = 0.5;
+/// 32px - same reasoning as `PIXEL_BOX_TILE_SCALE`/`_COMPACT`. Deliberately
+/// its own constant, not reused from the panel-box scales - a status bar
+/// and a box border are different enough visual elements that there's no
+/// reason to assume the same number looks right for both. Bumped 0.5 ->
+/// 0.75 (16px -> 24px tiles) 2026-09-14 on direct feedback that the HP
+/// number "not really fitting inside the bar" - the fill's own real
+/// height (`BAR_FILL_HEIGHT_FRACTION` of the tile) is fixed at ~44% of
+/// this scale, so at 0.5 the fill rendered only ~7px tall against an
+/// ~12px text row (the overlaid text was taller than the strip it sat
+/// on); growing the whole bar grows the fill's absolute height too,
+/// closing that gap without touching the fill's own proportions.
+const PIXEL_BAR_TILE_SCALE: f32 = 0.75;
 
 /// How much of a bar tile's native 32px height the colored fill uses,
 /// and how far down from the tile's own top edge that fill starts -
