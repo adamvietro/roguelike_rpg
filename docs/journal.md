@@ -4785,3 +4785,10 @@ Flagged the real lesson in `docs/UI_Panel_Sheet_Guide.md` directly: "within the 
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game again too - no panic, though this run left an actual child process behind that `timeout` didn't clean up (caught via `pgrep`, killed manually) - same thing that happened once before; worth just checking for a leftover process every time from now on, not only when something seems off. `docs/UI_Panel_Sheet_Guide.md` updated to correct the now-wrong panel documentation from last round rather than just leaving it stale. Next: a screenshot to confirm the revert actually landed right and the log's new position works.
+
+## Battle log nudged lower; "within the borders" raised again, unresolved
+
+Before a screenshot came back: "I think I want the battle log a little lower and we still need the colored bars within th borders." The log nudge was simple (`MSG_BOX_Y` 17 -> 21). The bars comment is more interesting - the SAME phrase that caused last round's misread, said again, AFTER the panel was already reverted. Re-checked the fill's own containment math before touching anything this time (scale-proportional, `s * BAR_FILL_HEIGHT_FRACTION`/`s * BAR_FILL_TOP_FRACTION`, mathematically consistent with how the frame itself scales) rather than guess a third interpretation blindly - found nothing obviously wrong in the numbers. Decided NOT to touch the bars' code again without a fresh screenshot of the actual current (reverted) state first, since the last two rounds on this exact request both went in without one and both needed correcting. Explained this reasoning back plainly rather than silently picking a third guess.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, verified by running the game again (clean this time, no leftover process). Next: a screenshot - needed now more than at almost any other point this session, since the bars question genuinely can't be resolved by more code-reading alone.
