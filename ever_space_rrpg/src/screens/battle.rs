@@ -805,8 +805,6 @@ impl State {
             }
         }
 
-        ctx.print_color(32, 58, WHITE, BLACK, "You");
-
         // The player's own real pixel-art HP/ATB bars (item 10 in
         // docs/ideas.md) - replaces hp_bar_string's ASCII `[####----]`
         // rendering for the player specifically; enemies keep the ASCII
@@ -822,10 +820,43 @@ impl State {
         // vertical room between them than the old cramped 1-2-row text
         // gaps allowed. First-pass values, like every other bracket-lib
         // pixel value in this project - pending a screenshot.
+        //
+        // The "You" label was dropped entirely (direct request
+        // 2026-09-14) - the bars themselves, now enclosed in their own
+        // bordered panel below, read as "this is the player's status"
+        // without needing a name label the way a numbered enemy does.
         const PLAYER_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
         const PLAYER_ATB_BAR_HUD_Y: i32 = 36;
         const PLAYER_HP_BAR_HUD_Y: i32 = 40;
         const PLAYER_BAR_WIDTH: i32 = 20;
+
+        // Both bars now sit inside a real bordered panel (direct
+        // request 2026-09-14: "the colored bars need to be within the
+        // borders") instead of floating bare over the live background -
+        // same Battle theme, same draw_filled_pixel_box_scaled pipeline
+        // every other converted box uses. Padding chosen to clear the
+        // bars' own left/top edges without touching the panel's own
+        // border. Drawn on panel_batch (UI_PANEL_CONSOLE, 46) -
+        // registered BEFORE BATTLE_BAR_CONSOLE (50), so the bars
+        // correctly paint over this panel's own fill rather than the
+        // other way around.
+        const PLAYER_PANEL_X: i32 = PLAYER_BAR_HUD_X - 2;
+        const PLAYER_PANEL_Y: i32 = PLAYER_ATB_BAR_HUD_Y - 2;
+        const PLAYER_PANEL_WIDTH: i32 = PLAYER_BAR_WIDTH + 4;
+        const PLAYER_PANEL_HEIGHT: i32 = (PLAYER_HP_BAR_HUD_Y - PLAYER_ATB_BAR_HUD_Y) + 5;
+
+        let mut player_panel_batch = DrawBatch::new();
+        player_panel_batch.target(UI_PANEL_CONSOLE);
+        draw_filled_pixel_box_scaled(
+            &mut player_panel_batch,
+            PLAYER_PANEL_X,
+            PLAYER_PANEL_Y,
+            PLAYER_PANEL_WIDTH,
+            PLAYER_PANEL_HEIGHT,
+            UiPanelTheme::Battle,
+            PIXEL_BOX_TILE_SCALE_COMPACT,
+        );
+        player_panel_batch.submit(0).expect("Batch error");
 
         let mut player_bar_batch = DrawBatch::new();
         player_bar_batch.target(BATTLE_BAR_CONSOLE);
@@ -853,19 +884,21 @@ impl State {
         );
         player_bar_batch.submit(0).expect("Batch error");
 
-        // The HP bar's own "current/max" number - stays plain text on
-        // FINE_TEXT_CONSOLE (this block's own console), printed a few
-        // rows below the bar rather than converted through HUD_CONSOLE
-        // units the way the bar itself needs to be; a single text line
-        // has no reason to fight that conversion when it can just sit
-        // at a fine-grid row chosen to visually clear the bar above it.
-        ctx.print_color(
-            32,
-            62,
-            WHITE,
-            BLACK,
-            &format!("{}/{}", player_hp.max(0), player_max),
+        // The HP bar's own "current/max" number - overlaid directly ON
+        // TOP of the health bar itself now (direct request 2026-09-14),
+        // not printed below it. Needs BATTLE_BAR_TEXT_CONSOLE
+        // specifically (registered AFTER BATTLE_BAR_CONSOLE) - printing
+        // this on FINE_TEXT_CONSOLE or even PANEL_TEXT_CONSOLE (both
+        // registered BEFORE the bar) would put the text UNDER the bar's
+        // own opaque fill/frame, not on top of it.
+        let mut player_bar_text_batch = DrawBatch::new();
+        player_bar_text_batch.target(BATTLE_BAR_TEXT_CONSOLE);
+        player_bar_text_batch.print_color(
+            Point::new(PLAYER_BAR_HUD_X + 2, PLAYER_HP_BAR_HUD_Y),
+            format!("{}/{}", player_hp.max(0), player_max),
+            ColorPair::new(WHITE, BLACK),
         );
+        player_bar_text_batch.submit(0).expect("Batch error");
 
         // --- Active-status line for the player: previously Defending,
         // Ice Armor, and an active counter all existed as real state with
@@ -897,11 +930,12 @@ impl State {
         }
 
         // --- Battle log: up to MAX_LOG_LINES most-recent lines, in a
-        // bordered box centered above the player (not the whole screen) -
-        // the player portrait spans console-2 columns 32-64, centered on
-        // column 48, so the box is centered there too. Sits in the gap
-        // between the enemy panel and the player's status/name/HP block
-        // (starts row 57), with a line of padding on both sides.
+        // bordered box - moved up and to the left (direct request
+        // 2026-09-14) from its original "centered above the player"
+        // position, which crowded into the enemy formation on the
+        // right. No longer derived from the player-portrait-centering
+        // math the original ASCII version used - a fresh position
+        // chosen to clear the enemies instead.
         //
         // The real PixelLab panel border (item 10 in docs/ideas.md),
         // Battle theme - converted 2026-09-14, the last of the original
@@ -919,8 +953,8 @@ impl State {
         // pixels did the old box occupy." Chosen empirically, like every
         // other first-pass box size in this project - pending a
         // screenshot.
-        const MSG_BOX_X: i32 = 36 * HUD_COLS / 160;
-        const MSG_BOX_Y: i32 = 45 * HUD_ROWS / 100;
+        const MSG_BOX_X: i32 = 4;
+        const MSG_BOX_Y: i32 = 12;
         const MSG_BOX_WIDTH: i32 = 30;
         const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 3;
 

@@ -413,6 +413,15 @@ mod prelude {
     /// let one glyph become a precisely-sized colored fill quad, the
     /// same trick `render_helpers::draw_panel_fill` already uses.
     pub const BATTLE_BAR_CONSOLE: usize = 50;
+    /// Console 51, battle-only: plain (no_bg), same HUD_COLS x HUD_ROWS
+    /// grid as HUD_CONSOLE/PANEL_TEXT_CONSOLE, terminal8x8.png - the
+    /// player's HP number, overlaid directly ON TOP of the health bar
+    /// itself (direct request 2026-09-14). Registered LAST of all -
+    /// even PANEL_TEXT_CONSOLE (47) is registered before BATTLE_BAR_
+    /// CONSOLE (50), so text meant to sit ON TOP of a bar drawn there
+    /// needs a console later than BOTH, not just later than the fill/
+    /// border the way every other converted box's own text only needed.
+    pub const BATTLE_BAR_TEXT_CONSOLE: usize = 51;
 
     /// Every registered console, in the same order `main()`'s builder
     /// chain registers them - `State::tick`'s own per-frame `cls()` sweep
@@ -474,6 +483,7 @@ mod prelude {
         ABILITY_BAR_ICON_CONSOLE,
         ABILITY_BAR_ICON_BADGE_CONSOLE,
         BATTLE_BAR_CONSOLE,
+        BATTLE_BAR_TEXT_CONSOLE,
     ];
 
     pub use crate::arena::*;
@@ -1714,6 +1724,10 @@ fn main() -> BError {
         // sourced from battle_bar_frame.png - see its own doc comment
         // above.
         .with_fancy_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "battle_bar_frame.png")
+        // Console 51 (BATTLE_BAR_TEXT_CONSOLE): plain (no_bg), same grid
+        // as HUD_CONSOLE, terminal8x8.png - see its own doc comment
+        // above.
+        .with_simple_console_no_bg(HUD_COLS, HUD_ROWS, "terminal8x8.png")
         .with_vsync(false)
         .build()?;
 
