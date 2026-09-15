@@ -260,6 +260,20 @@ You have direct file access and a real terminal here, so use them:
   by running the game for real (`timeout 8 cargo run`, check for a
   panic in the output and confirm no process is left running) — `cargo
   check`/`build` alone can't catch this, it's a runtime-only failure.
+- **`to_cp437('█')` (CP437 index 219) as a "solid fill" glyph only works
+  by coincidence on a font sheet large/opaque enough that wherever
+  index 219 lands is still opaque** — `render_helpers::draw_panel_fill`
+  gets away with it on `ui_panels.png` (a real 45-cell sheet, always
+  tinted BLACK, so the multiply zeroes out whatever garbage color got
+  sampled regardless). A small custom font (e.g. `battle_bar_frame.png`,
+  originally 3 cells) has no cell anywhere near index 219 — the same
+  call silently sampled into an intentionally-transparent part of the
+  sheet, and a REAL (non-BLACK) fill color multiplied by near-zero
+  alpha there rendered as nothing (confirmed live 2026-09-14 — the
+  frame drew fine, the fill never appeared at all). Fix used: add a
+  dedicated solid-opaque cell to the small font itself and reference
+  its own real (small, in-range) glyph index instead of reusing a
+  CP437 constant meant for a full character set.
 
 ## Journal (`docs/journal.md`) — also a source for blog posts
 
