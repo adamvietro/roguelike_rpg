@@ -4792,3 +4792,19 @@ Before a screenshot came back: "I think I want the battle log a little lower and
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, verified by running the game again (clean this time, no leftover process). Next: a screenshot - needed now more than at almost any other point this session, since the bars question genuinely can't be resolved by more code-reading alone.
+
+## The real bug, finally - a tightly-cropped screenshot settled it
+
+The requested screenshot came back cropped tight on just the two bars, with a direct question: "See how the colored bars are not within the borders?" And there it was, completely unambiguous this time - a thin dashed frame line floating above, a solid colored stripe floating below it, not touching at all. Not a subtle alignment nudge; two disconnected pieces.
+<br />
+
+Went straight to the math rather than guess a value. `draw_pixel_bar`'s fill-centering code treated `base_col`/`base_row` as if they were the frame's own true rendered edge - but they're not; `pixel_bar_tiles`' center-shift correction (the same fix that made the border-overlap bug go away two rounds ago) deliberately shifts them `(1-scale)/2` cell-units BEFORE that true edge, so that the FRAME lands correctly. The fill math never accounted for that same offset - it measured its own position relative to `base_row` directly, as if `base_row` already equalled the frame's top edge. At `PIXEL_BAR_TILE_SCALE` (0.5), that missing term is 0.25 cell-units - HALF the bar's entire rendered size. Not a rounding error; a wrong reference point entirely.
+<br />
+
+Given how costly it's been this session to re-derive Y-axis set_fancy math by hand and get a sign wrong (the earlier "Confidence note" flagged exactly this risk), solved the correct formula symbolically first, then verified it with a real Python script BEFORE writing any Rust - computed both the frame's true rendered span and the fill's true rendered center from the actual `set_fancy` transform, across four different scale values, confirmed the derived formula matched to the ninth decimal place every time. Only then implemented it in Rust, and verified THAT with a throwaway test mirroring the identical math, removed after both cases passed clean.
+<br />
+
+Also logged, not yet started: a follow-up request for a staggered look between the two bars, explicitly sequenced by the user to come AFTER this fix is confirmed working ("once we get the colored bars within the border I would like to see..."). Noted in `docs/UI_Panel_Sheet_Guide.md`'s "Still open" rather than attempted in the same pass - it's a distinct, separate change and the base fix itself isn't confirmed live yet.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game again - no panic, no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated with the corrected formulas and the queued staggered-bars follow-up. **Worth remembering**: when hand-derived set_fancy math is involved and the stakes of a wrong guess are "another round," verify with a real numeric script against the actual transform BEFORE writing the Rust fix, not after - this is the second time this session that discipline caught something a plausible-looking derivation alone might have gotten subtly wrong. Next: a screenshot to confirm the fill genuinely sits inside the frame now.

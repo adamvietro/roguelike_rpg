@@ -510,6 +510,31 @@ different enough visual elements that there's no reason to assume the
 same number looks right for both. First-pass value, like literally
 every other pixel value in this project - pending a screenshot.
 
+**The fill's own centering math needs the SAME center-shift correction
+the frame gets from `pixel_bar_tiles` - `base_col`/`base_row` are NOT
+the frame's true rendered edge** - a real, confirmed bug (2026-09-14),
+not the "fill stays inside the frame" request finally being acted on
+for the first time (that request was already understood; the MATH
+implementing it was simply wrong). `pixel_bar_tiles` shifts `base_col`/
+`base_row` by `(1-scale)/2` cell-units BEFORE the frame's own true
+rendered edge (see "set_fancy scales a tile around a FIXED CENTER"
+above for the derivation) - the FRAME'S OWN tiles account for this
+correctly (they're drawn directly at `base_col`/`base_row`, and the
+correction is baked in upstream), but the ORIGINAL fill-centering code
+computed the fill's position AS IF `base_col`/`base_row` already were
+the true edge, missing that same `(1-s)/2` term entirely. At `PIXEL_
+BAR_TILE_SCALE` (0.5) that's a 0.25 cell-unit error - HALF the bar's
+own total rendered size - confirmed live as the fill rendering as a
+completely separate stripe below the frame, not a subtle overlap
+issue. Solved the correct formula symbolically from the real
+`set_fancy` math and verified it numerically (a real script, 4
+different scale values) before writing any Rust, then verified the
+Rust itself with a throwaway test mirroring the same formula - removed
+after confirming. Correct formulas now: `fill_center_col = base_col +
+s * (fill_tiles_w - 1.0) / 2.0` (was missing `- 1.0`), `fill_center_row
+= base_row + s * (TOP_FRACTION + HEIGHT_FRACTION / 2.0 - 0.5)` (was
+missing `- 0.5`).
+
 **The bars are NOT wrapped in a separate bordered panel - they sit
 directly on the live background, just their own frame + fill** - a
 real detour, tried and reverted the same day (2026-09-14). "The
@@ -546,6 +571,17 @@ register something even later still.
 
 ## Still open
 
+- **Queued, not started**: a staggered/offset look between the ATB and
+  HP bars ("one a few units to the left of the lower border") - direct
+  request 2026-09-14, explicitly sequenced AFTER the fill-centering fix
+  above ("once we get the colored bars within the border I would
+  like..."). Needs its own `PLAYER_BAR_HUD_X`-equivalent offset for
+  just the HP bar (or just the ATB bar, whichever ends up "lower" -
+  confirm which one before implementing) once the base fill fix is
+  confirmed live.
+- A fresh screenshot confirming the fill-centering fix - verified
+  numerically and by a throwaway test, but (like every fix in this
+  file) not yet confirmed against the real, running game.
 - **The Item Menu's title labels print ON the border instead of above
   it** - a real, confirmed-live, not-yet-fixed regression from the
   center-shift fix (see "Box titles print at..." above for the full
