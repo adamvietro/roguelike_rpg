@@ -7,21 +7,25 @@ icons) and `Map_Tile_Theme_Guide.md` (floor/wall tiles). Read this first
 before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
-**Status as of 2026-09-14: all four materials generated and composited,
-12 of 13 real `draw_ascii_box` sites converted.** Confirmed working
-live: the Item Menu, the Paused screen's Hints box, and (as of this
-round) the dungeon HUD bars' border/icon overlap. Still being tuned:
-per-bar box width (Ability/Battle Bar deliberately wider than the Item
-Bar, see "Using it" below), and a real side effect discovered this
-round - the Item Menu's title labels now print ON the border instead of
-above it, a direct consequence of the center-shift fix (below) moving
-every box's border to its true position, including at the Item Menu's
-own default scale - not yet fixed. `draw_filled_pixel_box` fills every
-box's full nominal area unconditionally; the Item Menu stays Dungeon/
-stone, everything else on the dungeon screen plus the Hints box is
-Swamp. The remaining 2 of 13 sites (the battle log and the in-combat
-Battle Actions box - see `docs/ideas.md` item 10 for the full list) are
-battle-only and still on `draw_ascii_box`.
+**Status as of 2026-09-14: ALL 13 of the original real `draw_ascii_box`
+sites are now converted - `draw_ascii_box` itself is dead code, removed
+entirely.** Five materials now: the original Dungeon/Forest/Sewer/Swamp
+(mirroring `map_builder::dungeon_theme_pool()`) plus a new `Battle`
+theme (ornate wood + gold star-medallion corners) for the battle
+screen's last two sites (the ability-selection box, the battle log).
+Also new this round: a genuinely different UI element, a real pixel-art
+bar (`render_helpers::draw_pixel_bar`, a separate asset - `resources/
+battle_bar_frame.png`, a 3-cell frame not a 9-slice box) replacing the
+old ASCII `[####----]` rendering for the PLAYER's own HP/ATB display in
+battle (enemies keep the ASCII version, a deliberate scope choice - see
+"Using it" below). Confirmed working live: the Item Menu, the Paused
+screen's Hints box, and the dungeon HUD bars' border/icon overlap. Still
+unconfirmed: the new Battle theme's 2 sites, the new bar, and this
+round's per-bar box width. One known, understood-but-not-yet-fixed
+regression: the Item Menu's title labels print ON the border instead of
+above it, a side effect of the center-shift fix (see "Using it" below)
+moving every box's border to its true position, including at the Item
+Menu's own default scale.
 
 This file's own "Using it" section below covers the CURRENT architecture
 in full; **`docs/journal.md`'s 2026-09-14 entries are the place to look
@@ -29,12 +33,14 @@ for the blow-by-blow history of how each round's feedback led here** -
 this doc doesn't try to re-narrate that here anymore (it did for a
 while and became a changelog rather than a reference).
 
-## The 4-theme, 3x3 layout
+## The 5-theme, 3x3 layout
 
-`ui_panels.png` is 3 columns x 12 rows of 32x32px cells (96x384px total,
-native resolution, no upscale). Each of the game's 4 map themes owns a
-3-row band, in the same order `map_builder::dungeon_theme_pool()` already
-uses:
+`ui_panels.png` is 3 columns x 15 rows of 32x32px cells (96x480px total,
+native resolution, no upscale). The first 4 rows-bands mirror the game's
+4 map themes, in the same order `map_builder::dungeon_theme_pool()`
+already uses; the 5th (`Battle`, added 2026-09-14) is the first theme
+NOT tied to a map theme - it's for the battle screen specifically (see
+`UiPanelTheme::base_row`'s own doc comment):
 
 | Rows | Theme | Material |
 | --- | --- | --- |
@@ -42,6 +48,7 @@ uses:
 | 3-5 | Forest | Weathered wood, carved sunburst corners |
 | 6-8 | Sewer | Rusted iron + stone, riveted corners (v3 - see "Sewer needed two redo rounds" below) |
 | 9-11 | Swamp | Waterlogged wood + moss, mossy corner growth |
+| 12-14 | Battle | Ornate carved honey-amber wood, gold star-flower medallion corners (matched to a direct reference image) |
 
 Within a theme's own 3-row band, the 3x3 nine-slice grid is laid out the
 standard way:
@@ -74,13 +81,22 @@ deferred, just no longer blocked on that.
 
 ## Generation recipe
 
-All four generated via PixelLab's `create-image-pixflux`
+All five generated via PixelLab's `create-image-pixflux`
 (`https://api.pixellab.ai/v2/create-image-pixflux`), 96x96px, with:
 
 - `color_image` - a crop of that theme's own rows in
   `resources/map_tiles.png` (Dungeon: rows 4-7, Forest: 0-3, Sewer: 9-12,
   Swamp: 13-16 - see `map_builder/themes.rs`'s `tile_row()`), so the panel
   matches the existing tile art's real palette rather than guessing one.
+  **`Battle` is the one exception** - it isn't a map theme, so there's no
+  existing `map_tiles.png` band to crop from. Generated from a detailed
+  TEXT description of the palette/style (warm honey-amber wood, gold
+  star-flower medallions) instead, matched against a reference image the
+  user provided directly rather than any `color_image` - no image file
+  for that reference ended up locally accessible (a pasted-in image, not
+  a saved file), so the match is prompt-driven, not palette-sampled.
+  Landed close to the reference on the first generation anyway (compare
+  `docs/journal.md`'s 2026-09-14 entry if a second pass is ever needed).
 - `outline: "single color black outline"`, matching this project's
   existing pixel-art convention.
 - `shading`/`detail`: `"medium shading"`/`"medium detail"` for Dungeon/
@@ -129,14 +145,17 @@ the one being fixed.
 
 ## Verification done so far (per-material, before compositing)
 
-Every one of the 4 final source images passed, checked with a real script
+Every one of the 5 final source images passed, checked with a real script
 (not eyeballed):
 
 - **Watermark scan**: all 4 corners, upscaled 8x, visually clean.
 - **Near-black opaque pixel floor**: 0 pixels below the 30/channel safe
-  floor CLAUDE.md's own PixelLab gotcha requires (every source image
-  landed exactly at or above it without needing a manual floor pass -
-  unusual, but confirmed by direct pixel scan, not assumed).
+  floor CLAUDE.md's own PixelLab gotcha requires for 4 of the 5 (every
+  source image landed exactly at or above it without needing a manual
+  floor pass - unusual, but confirmed by direct pixel scan, not
+  assumed); `Battle` needed a real floor pass - 412 pixels below the
+  floor (its outline/shadow areas), floored to 30+/channel before
+  compositing.
 - **Transparency**: fully opaque, 0 stray transparent pixels - these are
   meant to render as solid filled panels, not sprites with a transparent
   background.
@@ -146,9 +165,35 @@ Every one of the 4 final source images passed, checked with a real script
   beyond what the source alone could prove.
 
 The final composited `resources/ui_panels.png` got the same near-black/
-transparency scan run again across the whole 96x384 sheet after
-compositing, confirming the paste operations didn't introduce anything
-new.
+transparency scan run again across the whole sheet after compositing,
+confirming the paste operations didn't introduce anything new.
+
+**`resources/battle_bar_frame.png` (a separate file, not part of
+`ui_panels.png`)** got its own verification, adapted for its different
+shape (a 3-cell horizontal row, not a 3x3 grid): near-black floor check
+(clean, 0 pixels needed flooring), a PIXEL-LEVEL transparency check
+across its middle channel specifically (not just a visual glance -
+sampled `alpha` at multiple x-positions along the vertical center row,
+confirmed genuinely 0 everywhere, since the first generation attempt
+LOOKED like a hollow frame in the prompt but actually came back with an
+opaque wood-grain fill in the "channel" - see "The bar frame needed a
+second, more explicit prompt" below), and the same left+middle+right
+retiling stress test the box materials get.
+
+### The bar frame needed a second, more explicit prompt
+
+First attempt asked for a frame with a "carved recessed channel" that's
+"fully transparent" - came back as a solid wooden scroll/banner, fully
+opaque, no transparency anywhere in the middle. The model read "recessed
+channel" as a carved DETAIL to draw, not literal see-through space.
+Second attempt dropped that framing entirely and described it as a
+literal "empty picture frame... like an empty window frame... the
+inside opening is EMPTY SPACE... NOT wood, NOT a plaque, NOT a scroll" -
+landed a genuine hollow frame on the first retry. **Worth remembering**:
+when asking a PixelLab prompt for a transparent/hollow region, describe
+it as an empty frame/window (a shape everyone recognizes as having
+nothing in the middle), not as a "carved" or "recessed" detail, which
+reads as decorative content rather than absence of content.
 
 ## Using it: `render_helpers::draw_pixel_box`
 
@@ -381,6 +426,70 @@ concerns separate if retuning either one. Every call site (there are
 two per bar - hover-detection and box-drawing) must pass the SAME
 value, or the hover boundary and the drawn box disagree.
 
+**Converting a box positioned on a console OTHER than HUD_CONSOLE needs
+a unit conversion first** - `draw_filled_pixel_box`/`_scaled` and every
+helper underneath only understand HUD_CONSOLE cell units. The battle
+log box used to be positioned in `FINE_TEXT_CONSOLE`'s own finer 160x100
+grid; converting its POSITION was a straight pixel-ratio conversion
+(`old_x * HUD_COLS / 160`, since both consoles span the same 1280x800
+window), but its WIDTH/HEIGHT were NOT converted the same way - see
+`screens/battle.rs`'s own comment on `MSG_BOX_WIDTH` for why a straight
+ratio shrink would have left too narrow a box once the box's own text
+ALSO moved onto the coarser `PANEL_TEXT_CONSOLE` grid. Width/height for
+a cross-console box are a fresh "how much do I actually need" judgment
+call, not a mechanical conversion of the old console's numbers.
+
+## Using it: `render_helpers::draw_pixel_bar`
+
+```rust
+draw_pixel_bar(batch, x, y, width, current, max, fill_color);
+```
+
+A genuinely different rendering mechanism from every other panel-border
+helper above - not a 9-slice box, a horizontal status bar (colored
+proportional fill + a wood-and-gold frame drawn over it), added
+2026-09-14 to replace `battle::hp_bar_string`'s ASCII `[####----]`
+rendering for the player's own HP/ATB display specifically (enemies
+keep the ASCII version - a deliberate scope decision: "I think we
+shouldn't be able to see the enemies health and atb bar in the end," so
+upgrading them now would be wasted work ahead of a later change to hide
+them outright).
+
+**Its own asset, not part of `ui_panels.png`**: `resources/
+battle_bar_frame.png`, a plain 3-cell horizontal row (left cap /
+tileable middle / right cap, glyph indices 0/1/2 directly) rather than
+a `UiPanelTheme`-style 3x3 block, since a bar has no top/bottom edges to
+tile the way a box does. Drawn on its own new console,
+`BATTLE_BAR_CONSOLE` (50, fancy, same `DISPLAY_WIDTH x DISPLAY_HEIGHT`
+grid as `UI_PANEL_CONSOLE`) - `batch` must target it.
+
+**Reuses `draw_panel_tile` directly** for the frame (no new tile-drawing
+primitive needed - the exact same `set_fancy` mechanism applies, just 1
+row of 3 tiles instead of a 3x3 grid) and shares `pixel_box_tiles`'
+exact center-shift correction via a parallel `pixel_bar_tiles` (same
+formula, same derivation - this uses the identical `set_fancy`
+scale-around-a-fixed-center behavior, so the same positional drift bug
+would have applied here too without correcting for it).
+
+**The fill is one stretched `set_fancy` quad, drawn BEFORE the frame**
+(same z-order reasoning as the panel boxes' own fill - `BATTLE_BAR_
+CONSOLE` is a sparse `FlexiConsole` too, so the frame's own opaque wood
+always paints over the fill wherever they coincide). Its width is
+`current/max` of the bar's own total tile width, clamped like `hp_bar_
+string`'s own ratio math; `max <= 0` renders a fully empty bar rather
+than panicking. Its HEIGHT and vertical position (`BAR_FILL_HEIGHT_
+FRACTION` 0.45, `BAR_FILL_TOP_FRACTION` 0.3) came from directly
+measuring the real generated frame's pixel data (its opaque channel
+walls sit at roughly rows 6-9 and 25-28 of each 32px tile) rather than
+guessing a centered default - see `PIXEL_BAR_TILE_SCALE`'s own doc
+comment for the exact numbers.
+
+`PIXEL_BAR_TILE_SCALE` (0.5) is its own constant, deliberately not
+reused from either panel-box scale - a status bar and a box border are
+different enough visual elements that there's no reason to assume the
+same number looks right for both. First-pass value, like literally
+every other pixel value in this project - pending a screenshot.
+
 ## Still open
 
 - **The Item Menu's title labels print ON the border instead of above
@@ -406,15 +515,19 @@ value, or the hover boundary and the drawn box disagree.
   differently relative to a box's nominal size at different total
   widths, in a way that reads as inconsistent spacing between a
   2-icon and a 5-icon box even with identical bounds math.
-- The remaining 2 of 13 sites: the battle log and the in-combat Battle
-  Actions box (its border color already switches live between yellow/
-  green - moot now that `draw_pixel_box` calls use WHITE regardless of
-  category color, so this just needs wiring, not any special-casing for
-  the color switch) - both battle-only, the only screen with any
-  `draw_ascii_box` left in the whole project. Given how narrow/short
-  some of THEIR boxes might be too (the Battle Actions box in
-  particular), check whether they need `PIXEL_BOX_TILE_SCALE_COMPACT`
-  from the start rather than the default, once converted.
+- A fresh screenshot confirming the two newly-converted battle sites
+  (the ability-selection box and the battle log, both `UiPanelTheme::
+  Battle` at `PIXEL_BOX_TILE_SCALE_COMPACT`) and the new player HP/ATB
+  bars (`draw_pixel_bar`) - none of this has been seen live. The battle
+  log's own width/height (30 HUD columns, `MAX_LOG_LINES + 3` rows) and
+  the bars' position/width/row-spacing are all first-pass judgment
+  calls, not measured against anything - the single most likely things
+  to need retuning once seen.
+- Whether `player_can_act`'s "you can act now" signal (now the
+  "Actions" title's color, yellow/green) reads as clearly as the old
+  border-color version did - a real behavior change (signal moved from
+  the whole border to one word of text), not yet confirmed to still
+  work as a usable at-a-glance cue.
 - A real textured filled interior (see "The center tile exists..."
   above) - no longer blocked on console reordering, just not built yet.
 - Per-tile fractional stretching for genuinely pixel-perfect SIZING to
