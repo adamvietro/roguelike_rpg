@@ -678,12 +678,15 @@ fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
 /// enemies keep the ASCII version - see docs/journal.md's 2026-09-14
 /// entry for why). `batch` must target `BATTLE_BAR_CONSOLE`.
 ///
-/// `battle_bar_frame.png` is a plain 3-cell row (left cap, tileable
-/// middle, right cap - glyph indices 0/1/2 directly, no `UiPanelTheme`-
-/// style 3x3 block since a bar has no top/bottom edges to tile), unlike
-/// the 9-slice panel boxes - the same `draw_panel_tile`/`pixel_bar_
-/// tiles` machinery still applies since it's the exact same `set_fancy`
-/// tiling mechanism, just laid out in one row instead of three.
+/// `battle_bar_frame.png` is a plain 4-cell row (left cap, tileable
+/// middle, right cap, then a dedicated solid-white fill cell - glyph
+/// indices 0/1/2/3 directly, no `UiPanelTheme`-style 3x3 block since a
+/// bar has no top/bottom edges to tile), unlike the 9-slice panel boxes
+/// - the same `draw_panel_tile`/`pixel_bar_tiles` machinery still
+/// applies since it's the exact same `set_fancy` tiling mechanism, just
+/// laid out in one row instead of three. See the fill's own comment
+/// below for why cell 3 exists as a dedicated glyph rather than reusing
+/// a CP437 index the way the panel boxes' own fill does.
 ///
 /// Fill drawn BEFORE the frame (same z-order reasoning as
 /// `draw_filled_pixel_box_scaled` - `BATTLE_BAR_CONSOLE` is a sparse
@@ -694,6 +697,20 @@ fn pixel_bar_tiles(x: i32, y: i32, width: i32, scale: f32) -> (f32, f32, i32) {
 /// `battle::hp_bar_string`'s own ratio math; a `max <= 0` bar (a dead
 /// enemy, or a divide-by-zero guard) renders fully empty rather than
 /// panicking.
+///
+/// The fill's glyph is `battle_bar_frame.png`'s own dedicated 4th cell
+/// (raw index 3, a plain solid opaque white square) - NOT `to_cp437('█')`
+/// (CP437 219), confirmed live 2026-09-14 to render as no fill at all.
+/// `draw_panel_fill` gets away with 219 on `ui_panels.png` only by
+/// coincidence (that sheet is large enough, and always tinted BLACK, that
+/// whatever garbage texture region 219 happens to sample lands somewhere
+/// opaque and the color multiply zeroes it out regardless) - `battle_bar_
+/// frame.png` is a MUCH smaller custom font (originally 3 cells, 96x32px)
+/// where the exact same out-of-range index instead sampled into the
+/// frame's own intentionally-transparent channel area, so a real (non-
+/// BLACK) fill color multiplied by near-zero alpha there rendered as
+/// nothing. Added the 4th cell specifically so this fill never depends on
+/// where a CP437 index happens to land in an unrelated, wrong-sized font.
 pub fn draw_pixel_bar(
     batch: &mut DrawBatch,
     x: i32,
@@ -723,7 +740,7 @@ pub fn draw_pixel_bar(
             Degrees::new(0.0),
             PointF::new(s * fill_tiles_w, s * BAR_FILL_HEIGHT_FRACTION),
             ColorPair::new(fill_color, bg_transparent),
-            to_cp437('█'),
+            3,
         );
     }
 
