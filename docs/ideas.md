@@ -243,6 +243,13 @@ Roughly in the order they've come up:
     boosts, something else) both need a real design conversation before
     any code gets written, per CLAUDE.md's own convention for
     architectural-sized changes.
+13. **Townsfolk characters for the shop/town area** (added 2026-09-14) -
+    new character art already made by the user (not yet integrated).
+    Not scoped: how many, where they'd actually appear (idle background
+    NPCs around the shop, similar to `shopkeeper_idle.png`?), whether
+    they're purely decorative or interactive, and what asset format the
+    new art is in all need a real look before any integration work
+    starts.
 
 ## Future Class Ability Ideas (brainstorm only)
 
