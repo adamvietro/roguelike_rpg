@@ -510,6 +510,32 @@ different enough visual elements that there's no reason to assume the
 same number looks right for both. First-pass value, like literally
 every other pixel value in this project - pending a screenshot.
 
+**The bars live inside their own bordered panel now, not floating bare
+over the live background** - direct request 2026-09-14 ("the colored
+bars need to be within the borders"): `screens/battle.rs` draws a
+`draw_filled_pixel_box_scaled` (`UiPanelTheme::Battle`,
+`PIXEL_BOX_TILE_SCALE_COMPACT`) sized to enclose both the ATB and HP
+bars, on `panel_batch`/`UI_PANEL_CONSOLE` - registered BEFORE
+`BATTLE_BAR_CONSOLE`, so the bars correctly paint over the panel's own
+fill rather than getting hidden under it.
+
+**Text meant to sit ON TOP of a bar needs a console later than BOTH
+the fill/border AND the bar console** - a real wrinkle beyond every
+other converted box's own text rule. The HP number now overlays
+directly on the health bar (direct request 2026-09-14, was previously
+printed on a separate line below it) via a new `BATTLE_BAR_TEXT_
+CONSOLE` (51, plain no_bg, `HUD_COLS x HUD_ROWS` grid, terminal8x8.png)
+- registered LAST of every console in the game. Even `PANEL_TEXT_
+CONSOLE` (47), which is late enough to sit on top of any panel box's
+own fill/border, is registered BEFORE `BATTLE_BAR_CONSOLE` (50) - text
+on `PANEL_TEXT_CONSOLE` would render UNDER the bar's own opaque fill/
+frame, not on top of it, since `BATTLE_BAR_CONSOLE` itself is
+registered later. Appending yet another console (no renumbering) is
+the same pattern used for `ABILITY_BAR_ICON_CONSOLE`/`PANEL_TEXT_
+CONSOLE` earlier - whenever new content needs to render on top of
+something ALREADY the latest-registered console, the only way is to
+register something even later still.
+
 ## Still open
 
 - **The Item Menu's title labels print ON the border instead of above
@@ -535,16 +561,18 @@ every other pixel value in this project - pending a screenshot.
   differently relative to a box's nominal size at different total
   widths, in a way that reads as inconsistent spacing between a
   2-icon and a 5-icon box even with identical bounds math.
-- **CONFIRMED live**: the ability-selection box and battle log
-  (`UiPanelTheme::Battle` at `PIXEL_BOX_TILE_SCALE_COMPACT`) - title
-  placement, border, and content all read correctly. The bars'
-  FRAME also confirmed live; their FILL did not (see the glyph-index
-  bug above, now fixed) - **still needs a fresh screenshot to confirm
-  the fix actually shows color now**. The battle log's own width/
-  height (30 HUD columns, `MAX_LOG_LINES + 3` rows) and the bars'
-  position/width/row-spacing remain first-pass judgment calls, not
-  measured against anything - still the most likely things to need
-  retuning once the fill itself is confirmed working.
+- **CONFIRMED live**: the ability-selection box, battle log border/
+  content, and (as of the fill fix) real color in both bars. Still
+  unconfirmed - a fresh round of layout changes landed the same day
+  the fill was confirmed, none seen live yet: the "You" label removal,
+  the new bordered panel around both bars, the HP number now overlaid
+  on the bar instead of printed below it, and the battle log's new
+  position (moved up and left, no longer centered above the player).
+  The panel's own padding (`PLAYER_PANEL_X/Y/WIDTH/HEIGHT`, derived
+  from the bars' own position/width with a flat +2/+4/+5 padding) and
+  the battle log's new `MSG_BOX_X`/`MSG_BOX_Y` (4, 12) are first-pass
+  judgment calls, not measured against anything - the most likely
+  things to need retuning once seen.
 - Whether `player_can_act`'s "you can act now" signal (now the
   "Actions" title's color, yellow/green) reads as clearly as the old
   border-color version did - a real behavior change (signal moved from

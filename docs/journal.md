@@ -4762,3 +4762,13 @@ Added a second `CLAUDE.md` gotcha for this - `to_cp437('█')` as a "safe" solid
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated - the border/box conversions are now marked CONFIRMED live; the bar fill fix is not yet confirmed, just landed. Next: one more screenshot to see actual color in the bars.
+
+## The fill fix worked - straight into a real layout pass
+
+Confirmed: real cyan and red color in both bars, first time either has shown anything but ASCII brackets. Immediately followed by four concrete layout requests in one message - drop the "You" label, wrap both bars in a real bordered panel, move the battle log up and left, and overlay the HP number directly on the bar instead of printing it below. Described all four back before touching anything (direct instruction: "does this make sense?"), including one real technical wrinkle worth flagging up front rather than discovering mid-implementation: text overlaid on the bar needs a console registered LATER than the bar's own console, and the bar's own console is already the last-registered one in the entire game - meaning the overlay text needs a genuinely new console, not just a later batch on an existing one.
+<br />
+
+Implementation was mostly straightforward reuse of established patterns - the panel around the bars is just another `draw_filled_pixel_box_scaled` call with the Battle theme, same as every other converted box this whole effort has built. The one new piece was `BATTLE_BAR_TEXT_CONSOLE` (51), appended at the very end for exactly the reason described in the confirmation message: even `PANEL_TEXT_CONSOLE` - already the go-to "always renders on top" console for every other box's own text - is registered BEFORE `BATTLE_BAR_CONSOLE`, so text on it would still end up UNDER the bar's own opaque fill. This is the third time this session a "needs to render on top of the current latest console" situation has come up (`PANEL_TEXT_CONSOLE` itself, `ABILITY_BAR_ICON_CONSOLE`, now this) - each time solved the same way, appending one more console rather than trying to reorder anything.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game for real again too, per the standing habit from the crash-fix round - no panic, confirmed no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated with the new panel/overlay-console sections. Next: a screenshot of this whole layout pass - nothing in it has been seen live yet.
