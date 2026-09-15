@@ -4736,3 +4736,13 @@ Built `draw_pixel_bar` for the new HP/ATB bars - a genuinely different rendering
 <br />
 
 `cargo check`/`build`/`test` clean after every chunk (border conversion, then the bar mechanism, committed separately), brace balance confirmed, full diffs reviewed before each commit. `docs/UI_Panel_Sheet_Guide.md` updated substantially - new "5-theme" section, a new "Using it: draw_pixel_bar" section, the bar-frame's own two-attempt generation story. Next: a screenshot of the battle screen - none of this round has been seen live, and it's the deepest new-territory work (a genuinely new rendering mechanism, not a refinement of an existing one) this whole effort has done yet.
+
+## A real launch-time crash, caught by actually running the game
+
+"It seems to be just opening and then closing" - a crash report, not a rendering complaint. Rather than guess, ran the game directly with a timeout to capture the real panic output instead of asking the user to reproduce it: `no entry found for key` in bracket-terminal's own initializer, within about a second of launch.
+<br />
+
+Compared `BATTLE_BAR_CONSOLE`'s registration against every other custom console in the builder chain and found the real, simple cause: every custom sprite sheet in this project needs its own `.with_font("name.png", w, h)` call, registered up front, before ANY console can reference that filename - `battle_bar_frame.png` had a console registered for it (`.with_fancy_console(..., "battle_bar_frame.png")`) but was never added to the `.with_font(...)` list every other sheet already has a line in. One missing line, `cargo check`/`build` both clean (this is a pure runtime failure, invisible to the compiler), confirmed fixed the same way it was found - actually running the game again (`timeout 8 cargo run`) and confirming no panic and no leftover process, not just re-reading the code and assuming it was right.
+<br />
+
+Added a new standing gotcha to `CLAUDE.md` for this specific failure mode - it's cheap to hit again for any future custom sheet, and the fix (one line) is easy to forget precisely because it doesn't show up until the game is actually launched.
