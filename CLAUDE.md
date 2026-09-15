@@ -248,6 +248,18 @@ You have direct file access and a real terminal here, so use them:
   computes for THAT sheet's own column count — never reuse another
   sheet's mapping, and re-check the division fresh for a new sheet's
   column count even if an existing mapping looks safe.
+- **A new custom sprite sheet needs its own `.with_font("name.png", w,
+  h)` call, separate from and BEFORE registering any console that uses
+  it** — registering the console alone (`.with_simple_console_no_bg`/
+  `.with_fancy_console(..., "name.png")`) compiles fine but panics at
+  launch (`no entry found for key` in bracket-terminal's initializer,
+  confirmed 2026-09-14 — the game would open and immediately close) if
+  the matching `.with_font(...)` line was never added to the font list
+  near the top of the builder chain, where every other custom sheet in
+  this project already has one. Verify a new font asset actually works
+  by running the game for real (`timeout 8 cargo run`, check for a
+  panic in the output and confirm no process is left running) — `cargo
+  check`/`build` alone can't catch this, it's a runtime-only failure.
 
 ## Journal (`docs/journal.md`) — also a source for blog posts
 
