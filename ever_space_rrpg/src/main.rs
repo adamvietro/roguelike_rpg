@@ -1433,6 +1433,7 @@ fn main() -> BError {
         .with_font("map_tiles.png", 32, 32)
         .with_font("battle_backgrounds.png", 1280, 800)
         .with_font("ui_panels.png", 32, 32)
+        .with_font("battle_bar_frame.png", 32, 32)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
         // Console 1 (BATTLE_BACKDROP_CONSOLE): see its own doc comment
         // above for the full reasoning. Registered right after console 0
