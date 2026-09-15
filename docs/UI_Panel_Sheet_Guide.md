@@ -504,11 +504,23 @@ character set happens to land in an unrelated, much smaller font - see
 `CLAUDE.md`'s own standing gotcha for the general version of this
 lesson.
 
-`PIXEL_BAR_TILE_SCALE` (0.5) is its own constant, deliberately not
-reused from either panel-box scale - a status bar and a box border are
-different enough visual elements that there's no reason to assume the
-same number looks right for both. First-pass value, like literally
+`PIXEL_BAR_TILE_SCALE` (0.75, bumped from 0.5 2026-09-14 - "the health
+numbers not really fitting inside the bar") is its own constant,
+deliberately not reused from either panel-box scale - a status bar and
+a box border are different enough visual elements that there's no
+reason to assume the same number looks right for both. The fill's OWN
+height is a fixed fraction of this scale, so growing the scale grows
+the fill's absolute pixel height right along with it - at 0.5 the fill
+rendered only ~7px tall against an ~12px overlaid text row, visibly
+smaller than the text sitting on it. First-pass value, like literally
 every other pixel value in this project - pending a screenshot.
+
+**The two player bars are no longer left-aligned with each other** -
+direct request 2026-09-14 ("closer together and slightly off center of
+each other"): `screens/battle.rs` now has separate `PLAYER_ATB_BAR_
+HUD_X`/`PLAYER_HP_BAR_HUD_X` (the HP bar sits a few columns right of
+the ATB bar) instead of one shared X, and the vertical gap between
+them dropped from 4 rows to 3.
 
 **The fill's own centering math needs the SAME center-shift correction
 the frame gets from `pixel_bar_tiles` - `base_col`/`base_row` are NOT
@@ -571,17 +583,17 @@ register something even later still.
 
 ## Still open
 
-- **Queued, not started**: a staggered/offset look between the ATB and
-  HP bars ("one a few units to the left of the lower border") - direct
-  request 2026-09-14, explicitly sequenced AFTER the fill-centering fix
-  above ("once we get the colored bars within the border I would
-  like..."). Needs its own `PLAYER_BAR_HUD_X`-equivalent offset for
-  just the HP bar (or just the ATB bar, whichever ends up "lower" -
-  confirm which one before implementing) once the base fill fix is
-  confirmed live.
-- A fresh screenshot confirming the fill-centering fix - verified
-  numerically and by a throwaway test, but (like every fix in this
-  file) not yet confirmed against the real, running game.
+- A fresh screenshot confirming this round together: the fill-centering
+  fix (verified numerically and by a throwaway test, but not yet
+  confirmed against the real running game), the `PIXEL_BAR_TILE_SCALE`
+  bump (0.5 -> 0.75), the tighter vertical gap, and the new X stagger
+  between the two bars - none of it seen live yet.
+- Whether a helper reducing the repeated `panel_batch`/`text_batch`
+  setup boilerplate across every converted site is worth building -
+  raised directly 2026-09-14 ("Is there a helper that we can make to
+  make using these a lot easier?"), proposed but not yet built or
+  confirmed as wanted; see `docs/journal.md`'s same-day entry for the
+  concrete proposal.
 - **The Item Menu's title labels print ON the border instead of above
   it** - a real, confirmed-live, not-yet-fixed regression from the
   center-shift fix (see "Box titles print at..." above for the full
