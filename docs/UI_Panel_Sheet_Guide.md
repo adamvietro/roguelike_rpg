@@ -510,14 +510,22 @@ different enough visual elements that there's no reason to assume the
 same number looks right for both. First-pass value, like literally
 every other pixel value in this project - pending a screenshot.
 
-**The bars live inside their own bordered panel now, not floating bare
-over the live background** - direct request 2026-09-14 ("the colored
-bars need to be within the borders"): `screens/battle.rs` draws a
-`draw_filled_pixel_box_scaled` (`UiPanelTheme::Battle`,
-`PIXEL_BOX_TILE_SCALE_COMPACT`) sized to enclose both the ATB and HP
-bars, on `panel_batch`/`UI_PANEL_CONSOLE` - registered BEFORE
-`BATTLE_BAR_CONSOLE`, so the bars correctly paint over the panel's own
-fill rather than getting hidden under it.
+**The bars are NOT wrapped in a separate bordered panel - they sit
+directly on the live background, just their own frame + fill** - a
+real detour, tried and reverted the same day (2026-09-14). "The
+colored bars need to be within the borders" first read as "wrap both
+bars in a new box" (a `draw_filled_pixel_box_scaled` enclosing them,
+same pipeline as every other converted box) - built, then directly
+corrected: "I didn't want a border around the health and ATB borders I
+just wanted to have the colored bars within the borders." The actual
+ask was always about the FILL staying inside the bar's OWN existing
+frame (`battle_bar_frame.png`'s own end caps and top/bottom strips),
+which `draw_pixel_bar`'s fill positioning already handles (see
+`BAR_FILL_HEIGHT_FRACTION`/`BAR_FILL_TOP_FRACTION` above) - not a
+second, separate enclosing box. **Worth remembering**: "within the
+borders" is genuinely ambiguous between "inside THIS element's own
+border" and "inside A border drawn around it" - worth confirming which
+one before building, now that it's cost a real detour once.
 
 **Text meant to sit ON TOP of a bar needs a console later than BOTH
 the fill/border AND the bar console** - a real wrinkle beyond every
@@ -562,17 +570,14 @@ register something even later still.
   widths, in a way that reads as inconsistent spacing between a
   2-icon and a 5-icon box even with identical bounds math.
 - **CONFIRMED live**: the ability-selection box, battle log border/
-  content, and (as of the fill fix) real color in both bars. Still
-  unconfirmed - a fresh round of layout changes landed the same day
-  the fill was confirmed, none seen live yet: the "You" label removal,
-  the new bordered panel around both bars, the HP number now overlaid
-  on the bar instead of printed below it, and the battle log's new
-  position (moved up and left, no longer centered above the player).
-  The panel's own padding (`PLAYER_PANEL_X/Y/WIDTH/HEIGHT`, derived
-  from the bars' own position/width with a flat +2/+4/+5 padding) and
-  the battle log's new `MSG_BOX_X`/`MSG_BOX_Y` (4, 12) are first-pass
-  judgment calls, not measured against anything - the most likely
-  things to need retuning once seen.
+  content, and real color in both bars. Still unconfirmed, none seen
+  live yet: the "You" label removal, the HP number now overlaid on the
+  bar instead of printed below it, and the battle log's current
+  position (`MSG_BOX_X`/`MSG_BOX_Y` = 10, 17 - already corrected once
+  from an overcorrected 4, 12). The bordered-panel-around-both-bars
+  idea was tried and reverted the same day (see "The bars are NOT
+  wrapped..." above) - not something to re-attempt without the user
+  explicitly asking for it again.
 - Whether `player_can_act`'s "you can act now" signal (now the
   "Actions" title's color, yellow/green) reads as clearly as the old
   border-color version did - a real behavior change (signal moved from

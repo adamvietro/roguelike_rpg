@@ -4772,3 +4772,16 @@ Implementation was mostly straightforward reuse of established patterns - the pa
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game for real again too, per the standing habit from the crash-fix round - no panic, confirmed no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated with the new panel/overlay-console sections. Next: a screenshot of this whole layout pass - nothing in it has been seen live yet.
+
+## A genuine ambiguity in "within the borders" - caught and reverted same-day
+
+Before any screenshot came back, a direct correction: "I didn't want a border around the health and ATB borders I just wanted to have the colored bars within the borders." The exact phrase from the earlier "does this make sense?" round - "the colored bars need to be within the borders" - had two real readings, and the wrong one got built: wrapping BOTH bars in a brand new bordered box, when the actual ask was for the FILL to stay inside the bar's OWN existing frame (its end caps and top/bottom strips), which `draw_pixel_bar` was already handling via its own fill-bounds math from the earlier glyph-index fix.
+<br />
+
+Reverted the panel cleanly - removed the whole `player_panel_batch`/`PLAYER_PANEL_*` block, left everything else (the bar mechanism itself, the dropped "You" label, the overlay-text console) untouched, since none of that was actually in question. Also nudged the battle log's position again mid-turn, on a second direct correction that arrived while the panel revert was still being checked: the previous round's "move up and left" had overshot ("too high and to the left now"), so it moved back toward center (X 4→10, Y 12→17) rather than all the way back to its original position, which had its own documented problem (crowded the enemy formation).
+<br />
+
+Flagged the real lesson in `docs/UI_Panel_Sheet_Guide.md` directly: "within the borders" is genuinely ambiguous between "inside THIS element's own border" and "inside A border drawn around it," and it's worth explicitly confirming which one before building rather than picking one and finding out later - which is exactly what happened here, just caught same-day instead of costing another round.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game again too - no panic, though this run left an actual child process behind that `timeout` didn't clean up (caught via `pgrep`, killed manually) - same thing that happened once before; worth just checking for a leftover process every time from now on, not only when something seems off. `docs/UI_Panel_Sheet_Guide.md` updated to correct the now-wrong panel documentation from last round rather than just leaving it stale. Next: a screenshot to confirm the revert actually landed right and the log's new position works.
