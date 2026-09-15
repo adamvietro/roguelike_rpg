@@ -210,65 +210,27 @@ pub fn print_menu_row_left(
     }
 }
 
-/// Draws a hollow rectangular border - plain '-'/'|'/'+' characters, built
-/// from the same DrawBatch::set + to_cp437 primitives already proven
-/// throughout this file (map/portrait/arena rendering), rather than
-/// reaching for a higher-level box-drawing API this project hasn't used
-/// anywhere else. Used to frame the battle-menu action list - see
-/// BattleTurn::PlayerMenu in battle_tick.
-///
-/// Named draw_ascii_box, not draw_hollow_box: bracket_lib::prelude already
-/// exports its own draw_hollow_box (a different function entirely - takes
-/// a &mut dyn Console and two separate RGBA fg/bg args, not a DrawBatch +
-/// ColorPair). Before this project's screens/ split, this function lived
-/// directly in main.rs, where a local definition silently wins over any
-/// same-named glob import - so the collision was invisible. Once this
-/// moved into render_helpers.rs and got glob-imported into the shared
-/// prelude module alongside bracket_lib::prelude::*, both became equally
-/// "just a glob import" and Rust could no longer prefer one over the
-/// other, surfacing as an ambiguous-name error at every call site. Renaming
-/// is the permanent fix - two same-named functions can't collide if
-/// they're not actually the same name.
-pub fn draw_ascii_box(
-    batch: &mut DrawBatch,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    color: ColorPair,
-) {
-    let dash = to_cp437('-');
-    let pipe = to_cp437('|');
-    let corner = to_cp437('+');
-    for dx in 0..width {
-        batch.set(Point::new(x + dx, y), color, dash);
-        batch.set(Point::new(x + dx, y + height - 1), color, dash);
-    }
-    for dy in 0..height {
-        batch.set(Point::new(x, y + dy), color, pipe);
-        batch.set(Point::new(x + width - 1, y + dy), color, pipe);
-    }
-    batch.set(Point::new(x, y), color, corner);
-    batch.set(Point::new(x + width - 1, y), color, corner);
-    batch.set(Point::new(x, y + height - 1), color, corner);
-    batch.set(Point::new(x + width - 1, y + height - 1), color, corner);
-}
-
-/// Which of `resources/ui_panels.png`'s four theme bands `draw_pixel_box`
+/// Which of `resources/ui_panels.png`'s five theme bands `draw_pixel_box`
 /// should draw from - see that sheet's own row-mapping doc
-/// (`docs/UI_Panel_Sheet_Guide.md`). Each theme owns 3 of the sheet's 12
-/// rows (a 3x3 nine-slice grid, 32px cells), in the same order
-/// `map_builder::dungeon_theme_pool()` already uses.
+/// (`docs/UI_Panel_Sheet_Guide.md`). Each theme owns 3 of the sheet's 15
+/// rows (a 3x3 nine-slice grid, 32px cells). Dungeon/Forest/Sewer/Swamp
+/// are in the same order `map_builder::dungeon_theme_pool()` already
+/// uses; `Battle` (added 2026-09-14) is the first theme NOT tied to a
+/// map theme - it's for the battle screen specifically (the ability-
+/// selection box, the battle log), an ornate carved wood-and-gold
+/// material generated separately, appended as the sheet's 5th band
+/// rather than reusing any of the map-theme rows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiPanelTheme {
     Dungeon,
     Forest,
     Sewer,
     Swamp,
+    Battle,
 }
 
 impl UiPanelTheme {
-    /// The first of this theme's 3 rows on the 3-col x 12-row
+    /// The first of this theme's 3 rows on the 3-col x 15-row
     /// `ui_panels.png` atlas.
     fn base_row(self) -> i32 {
         match self {
@@ -276,6 +238,7 @@ impl UiPanelTheme {
             UiPanelTheme::Forest => 1,
             UiPanelTheme::Sewer => 2,
             UiPanelTheme::Swamp => 3,
+            UiPanelTheme::Battle => 4,
         }
     }
 

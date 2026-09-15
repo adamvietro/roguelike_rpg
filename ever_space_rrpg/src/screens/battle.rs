@@ -865,26 +865,55 @@ impl State {
         // column 48, so the box is centered there too. Sits in the gap
         // between the enemy panel and the player's status/name/HP block
         // (starts row 57), with a line of padding on both sides.
-        const MSG_BOX_X: i32 = 36;
-        const MSG_BOX_Y: i32 = 45;
-        const MSG_BOX_WIDTH: i32 = 24;
-        const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 2;
+        //
+        // The real PixelLab panel border (item 10 in docs/ideas.md),
+        // Battle theme - converted 2026-09-14, the last of the original
+        // 13 draw_ascii_box sites. draw_filled_pixel_box_scaled (and
+        // every panel-border helper) works in HUD_CONSOLE cell units,
+        // not FINE_TEXT_CONSOLE's own finer 160x100 grid this box used
+        // to be positioned in - MSG_BOX_X/Y convert via the real pixel
+        // ratio between the two consoles (both span the same 1280x800
+        // window). WIDTH/HEIGHT are NOT converted the same way: a
+        // straight pixel-ratio shrink of the OLD fine-grid width (24
+        // characters) would leave a box too narrow to hold the same
+        // battle-log text once that text ALSO moves onto this coarser
+        // grid (see below) - width here means "how many HUD_CONSOLE
+        // characters fit," a different question from "how many physical
+        // pixels did the old box occupy." Chosen empirically, like every
+        // other first-pass box size in this project - pending a
+        // screenshot.
+        const MSG_BOX_X: i32 = 36 * HUD_COLS / 160;
+        const MSG_BOX_Y: i32 = 45 * HUD_ROWS / 100;
+        const MSG_BOX_WIDTH: i32 = 30;
+        const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 3;
 
-        let mut log_batch = DrawBatch::new();
-        log_batch.target(FINE_TEXT_CONSOLE);
-        draw_ascii_box(
-            &mut log_batch,
+        let mut log_panel_batch = DrawBatch::new();
+        log_panel_batch.target(UI_PANEL_CONSOLE);
+        draw_filled_pixel_box_scaled(
+            &mut log_panel_batch,
             MSG_BOX_X,
             MSG_BOX_Y,
             MSG_BOX_WIDTH,
             MSG_BOX_HEIGHT,
-            ColorPair::new(WHITE, BLACK),
+            UiPanelTheme::Battle,
+            PIXEL_BOX_TILE_SCALE_COMPACT,
         );
-        log_batch.submit(0).expect("Batch error");
+        log_panel_batch.submit(0).expect("Batch error");
 
+        // Text moves onto PANEL_TEXT_CONSOLE (shares HUD_CONSOLE's own
+        // grid) rather than staying on FINE_TEXT_CONSOLE or printing
+        // straight onto HUD_CONSOLE - same reason every other converted
+        // box needs it: text printed on the SAME console as the fill
+        // would overwrite the fill's own cells (SimpleConsole::set
+        // replaces, it doesn't layer) rather than sitting on top of it.
+        // "Battle Log" title added - every other converted box already
+        // has one; this was the one box on the whole screen that didn't.
+        ctx.set_active_console(PANEL_TEXT_CONSOLE);
+        ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y, YELLOW, BLACK, "Battle Log");
         for (i, line) in battle.log.iter().enumerate() {
-            ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 1 + i as i32, WHITE, BLACK, line);
+            ctx.print_color(MSG_BOX_X + 2, MSG_BOX_Y + 2 + i as i32, WHITE, BLACK, line);
         }
+        ctx.set_active_console(FINE_TEXT_CONSOLE);
 
         // --- Floating damage numbers: bigger (32px cells, same "big
         // text" font used for title/class-select screens), and centered
@@ -971,18 +1000,22 @@ impl State {
         // action RIGHT NOW - either a normal open PlayerMenu, or (True
         // ATB only) the queuing window during some enemy's own
         // ActionResult (see Battle::queued_player_action's doc comment).
-        // Drives the Actions box border color below (green normally,
-        // yellow while this is true) rather than tinting the player's
-        // own portrait - a portrait tint turned out to read as a stray
-        // color change with no clear meaning, and worse, it silently
-        // went dark again the instant an enemy interrupted (turn moved
-        // off PlayerMenu) even though - under True ATB - the player
-        // could very much still act in that moment via queuing. The box
-        // color is checked here, once, against the SAME condition that
-        // actually gates input capture in both spots below (PlayerMenu's
-        // own key handling and ActionResult(Enemy(_))'s queuing capture),
-        // so it can never drift out of sync with what's actually
-        // interactive.
+        // Drives the Actions box's own "Actions" title color below
+        // (green normally, yellow while this is true) - originally the
+        // BORDER's color, moved to the title 2026-09-14 once the border
+        // switched to the real PixelLab panel art, which always tints
+        // WHITE regardless of category color (see draw_pixel_box's own
+        // doc comment for why a tint crushes that shaded material).
+        // Neither the border NOR the title tried tinting the player's
+        // own portrait for this - a portrait tint turned out to read as
+        // a stray color change with no clear meaning, and worse, it
+        // silently went dark again the instant an enemy interrupted
+        // (turn moved off PlayerMenu) even though - under True ATB - the
+        // player could very much still act in that moment via queuing.
+        // Checked here, once, against the SAME condition that actually
+        // gates input capture in both spots below (PlayerMenu's own key
+        // handling and ActionResult(Enemy(_))'s queuing capture), so it
+        // can never drift out of sync with what's actually interactive.
         let player_can_act = battle.turn == BattleTurn::PlayerMenu
             || (atb_mode == AtbMode::Active
                 && battle.queued_player_action.is_none()
@@ -1169,28 +1202,46 @@ impl State {
         // 40) never runs off the bottom of the console.
         let box_y = box_y_base.min(HUD_ROWS - box_height);
 
-        let mut menu_batch = DrawBatch::new();
-        menu_batch.target(HUD_CONSOLE);
-        // Border color reflects player_can_act (see its own doc comment
-        // above) - yellow whenever the player can issue an action right
-        // now, green otherwise. Replaces the earlier attempt at tinting
-        // the player's own portrait, which read as an unexplained color
-        // change and, worse, dropped out the instant the enemy
-        // interrupted even when queuing (True ATB) still meant the
-        // player could act.
-        let box_border_color = if player_can_act { YELLOW } else { GREEN };
-        draw_ascii_box(
-            &mut menu_batch,
+        // The real PixelLab panel border (item 10 in docs/ideas.md),
+        // Battle theme - converted 2026-09-14, the last of the original
+        // 13 draw_ascii_box sites besides the battle log just below.
+        // panel_batch (UI_PANEL_CONSOLE) draws fill+border; every print
+        // in this box moves onto PANEL_TEXT_CONSOLE below (not
+        // HUD_CONSOLE) for the same reason every other converted box
+        // needs it - see PANEL_TEXT_CONSOLE's own doc comment in
+        // main.rs. PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale -
+        // this box's width (BOX_COL_WIDTH*2+3 = 43 HUD columns) is
+        // narrow enough, and its height short enough, to hit the same
+        // "border eats too much of the box" problem the dungeon HUD
+        // bars did at the default scale.
+        //
+        // The border no longer switches color with player_can_act (was
+        // yellow/green) - `draw_pixel_box` always tints WHITE regardless
+        // of category color (see its own doc comment for why a tint
+        // crushes this shaded material), same as every other converted
+        // box. The signal moved to the "Actions" title's own color
+        // instead - see the print_color call below.
+        let mut menu_panel_batch = DrawBatch::new();
+        menu_panel_batch.target(UI_PANEL_CONSOLE);
+        draw_filled_pixel_box_scaled(
+            &mut menu_panel_batch,
             BOX_X,
             box_y,
             box_width,
             box_height,
-            ColorPair::new(box_border_color, BLACK),
+            UiPanelTheme::Battle,
+            PIXEL_BOX_TILE_SCALE_COMPACT,
         );
-        menu_batch.submit(0).expect("Batch error");
+        menu_panel_batch.submit(0).expect("Batch error");
 
-        ctx.set_active_console(HUD_CONSOLE);
-        ctx.print_color(BOX_X + 1, box_y + 1, YELLOW, BLACK, "Actions");
+        ctx.set_active_console(PANEL_TEXT_CONSOLE);
+        // "You can act" indicator moved here from the border's own tint
+        // (yellow/green) - draw_pixel_box always tints WHITE now (see
+        // menu_panel_batch's own comment above), so the title's color is
+        // where this signal lives instead, same as every other converted
+        // box's category color.
+        let title_color = if player_can_act { YELLOW } else { GREEN };
+        ctx.print_color(BOX_X + 1, box_y + 1, title_color, BLACK, "Actions");
         for (row, (i, entry)) in main_actions.iter().enumerate() {
             let (label, color) = menu_row_label(*i, entry);
             let selected = battle.menu_cursor.col == 0 && battle.menu_cursor.row == row;
