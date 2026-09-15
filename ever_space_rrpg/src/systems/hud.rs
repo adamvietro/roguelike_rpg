@@ -129,6 +129,17 @@ const SHOP_TOOLTIP_WIDTH: i32 = 40;
 // being pinned to the row right under the border's top edge.
 const SHOP_TOOLTIP_HEIGHT: i32 = 4;
 
+/// Extra HUD_CONSOLE columns of box width, each side, for the Ability
+/// Bar and Battle Bar specifically (both hold class abilities/
+/// techniques) - a deliberate WIDTH choice, not clearance-math
+/// compensation the way `ability_bar_box_bounds`'s own rounding is (see
+/// its doc comment). Direct request 2026-09-14: "wider ability boxes
+/// for the abilities and smaller for the items." The Item Bar passes 0
+/// (stays at its own tight, icon-fit width); first-pass value pending a
+/// screenshot, same as every other bracket-lib pixel value in this
+/// project.
+const ABILITY_BOX_EXTRA_PAD: i32 = 3;
+
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
 /// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
@@ -239,7 +250,12 @@ fn draw_stack_count_badge(batch: &mut DrawBatch, col: i32, bar_row: i32, count: 
 /// and left edges' plain truncating division already rounds down/away
 /// from the icon (safe on those sides, since the box is growing AWAY
 /// from the icon there), so they need no ceiling correction at all.
-fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32, i32, i32) {
+fn ability_bar_box_bounds(
+    start_col: i32,
+    n: i32,
+    has_labels: bool,
+    extra_side_pad: i32,
+) -> (i32, i32, i32, i32) {
     let bar_row = ability_bar_row();
 
     let icons_left_px = start_col * (1280 / ABILITY_BAR_COLS);
@@ -247,17 +263,20 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
     let icons_top_px = bar_row * (800 / ABILITY_BAR_ROWS);
     let icons_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
 
-    // No extra "- 1" beyond the plain floor division anymore - removed
-    // 2026-09-14 once `render_helpers::pixel_box_tiles`'s own center-
-    // shift fix (see its doc comment) was in place. That extra column
-    // used to double as an accidental compensation for the border's
-    // real rendered position silently drifting toward the icon on this
-    // exact edge - now that the drift itself is fixed at the source,
-    // the plain floor division alone (which already rounds AWAY from
-    // the icon, toward smaller columns) is real, sufficient clearance
-    // on its own; the extra column was reading as pure excess padding
-    // ("too much padding around the edges," confirmed live).
-    let left = icons_left_px * HUD_COLS / 1280;
+    // No extra "- 1" beyond the plain floor division and `extra_side_pad`
+    // anymore - removed 2026-09-14 once `render_helpers::pixel_box_tiles`'s
+    // own center-shift fix (see its doc comment) was in place. That extra
+    // column used to double as an accidental compensation for the
+    // border's real rendered position silently drifting toward the icon
+    // on this exact edge - now that the drift itself is fixed at the
+    // source, the plain floor division alone (which already rounds AWAY
+    // from the icon, toward smaller columns) is real, sufficient
+    // clearance on its own; the extra column was reading as pure excess
+    // padding ("too much padding around the edges," confirmed live).
+    // `extra_side_pad` (HUD_CONSOLE columns, each side) is a deliberate
+    // per-bar WIDTH choice on top of that minimum, not more clearance-
+    // math compensation - see ABILITY_BOX_EXTRA_PAD's own doc comment.
+    let left = icons_left_px * HUD_COLS / 1280 - extra_side_pad;
     // Ceiling division (the "+ 1279" trick) still needed - plain
     // truncating division here rounds the right edge DOWN, i.e. toward
     // the icon's own pixels rather than past them, which is genuinely
@@ -266,7 +285,7 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
     // removed for the same reason as the left edge's own extra column
     // above: it was compensating for the center-shift drift, which no
     // longer exists.
-    let right = (icons_right_px * HUD_COLS + 1279) / 1280;
+    let right = (icons_right_px * HUD_COLS + 1279) / 1280 + extra_side_pad;
     // Ceiling division (the "+ 799" trick) - see the right edge's own
     // doc comment for why ceiling, not truncating, division. No extra
     // buffer beyond that (removed for bottom clearance 2026-09-14, then
@@ -659,7 +678,7 @@ pub fn hud(
                 },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, item_n, false);
+                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, item_n, false, 0);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -667,7 +686,7 @@ pub fn hud(
             }
         }
         if item_n > 0 {
-            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false);
+            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, item_n, false, 0);
             // Swamp, not Dungeon - direct request 2026-09-14, so all 3
             // dungeon HUD bars match (the other two already were/are).
             // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale - this
@@ -701,7 +720,8 @@ pub fn hud(
                 },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) = ability_bar_box_bounds(ability_start_col, ability_n, true);
+                let (_, box_y, _, _) =
+                    ability_bar_box_bounds(ability_start_col, ability_n, true, ABILITY_BOX_EXTRA_PAD);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -717,7 +737,7 @@ pub fn hud(
         }
         if ability_n > 0 {
             let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(ability_start_col, ability_n, true);
+                ability_bar_box_bounds(ability_start_col, ability_n, true, ABILITY_BOX_EXTRA_PAD);
             // Swamp, not Dungeon - see the Item Bar's own comment above.
             // PIXEL_BOX_TILE_SCALE_COMPACT too - same reasoning.
             draw_filled_pixel_box_scaled(
@@ -756,7 +776,8 @@ pub fn hud(
                 },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) = ability_bar_box_bounds(battle_start_col, battle_n, false);
+                let (_, box_y, _, _) =
+                    ability_bar_box_bounds(battle_start_col, battle_n, false, ABILITY_BOX_EXTRA_PAD);
                 hovered = Some((slot.name.clone(), box_y));
             }
             if let Some((count, _)) = slot.owned {
@@ -765,7 +786,7 @@ pub fn hud(
         }
         if battle_n > 0 {
             let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(battle_start_col, battle_n, false);
+                ability_bar_box_bounds(battle_start_col, battle_n, false, ABILITY_BOX_EXTRA_PAD);
             // Swamp - the first of the 3 dungeon HUD bars to switch
             // (2026-09-14); the Item and Ability Bars above joined it
             // the same day once asked for all 3 to match.
