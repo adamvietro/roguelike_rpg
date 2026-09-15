@@ -4685,3 +4685,16 @@ Being honest about the one soft spot: the X-axis math is airtight (derived with 
 <br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated with the real math behind this. **Worth remembering**: two full rounds of geometry/padding tuning couldn't fix this because it was never a padding problem - it was a genuine coordinate bug hiding underneath, and the actual break came from a tightly-cropped, specific visual question ("do you see the border on the left hand side?") rather than another full-screen screenshot, plus going back to the real vertex shader math instead of another guess. Next: yet another fresh screenshot - this is the deepest fix yet, but still unconfirmed live.
+
+## Confirmed: no more overlap - and the predictable next problem
+
+The center-shift fix worked - "We no longer have the issue with the border being over lapped." Real, satisfying confirmation that the vertex-shader derivation was right, not just plausible. But the very next sentence named the predictable follow-on: "we now have too much padding around the edges." Predictable in hindsight - every "extra buffer" cell added across the last several rounds (`left`'s own `- 1`, `right`'s own `+ 1`, the top edge's `- 1`/`- 2` "breathing room") had been hand-tuned specifically to fight the center-shift drift, back when its real cause was still unknown. Fixing that drift at the source didn't remove those old patches - they just kept adding padding that nothing was crowding into anymore.
+<br />
+
+Went through `ability_bar_box_bounds` edge by edge and separated the STRUCTURALLY necessary rounding direction (left/top need floor division, which already rounds away from the icon on those edges with no correction needed; right/bottom need ceiling division, since floor would round toward the icon there) from the now-redundant extra buffer stacked on top of each. Stripped every one of those extras back to the bare rounding-based minimum - left and top lost their explicit `- 1`, right lost its explicit `+ 1` (keeping the still-necessary ceiling division itself), and the labeled Ability Bar's top clearance dropped from `label_row - 2` back to `label_row - 1` (the actual minimum that keeps the border off the label's own row without literally overlapping it).
+<br />
+
+Also updated the function's own top-level doc comment, which had explicitly documented the OLD "plus one for breathing room" reasoning by name - left uncorrected, that comment would have actively misled the next person (or session) into re-adding padding the current code no longer has, for a reason (the center-shift bug) that no longer applies.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated - the center-shift fix itself is now confirmed live (no more overlap), while this round's padding trim and the fix's own Y-axis sign both remain unconfirmed. Next: another fresh screenshot to see whether the trim landed right, and whether vertical alignment holds up.

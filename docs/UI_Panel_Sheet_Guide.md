@@ -10,25 +10,30 @@ generating a new panel material.
 **Status as of 2026-09-14: all four materials generated and composited,
 every border on the dungeon-exploration screen AND the Paused screen's
 Hints box now converted (12 of 13 real sites); the Hints box confirmed
-"Perfect" live, the dungeon HUD bars and shop tooltip fixed at the real
-root cause after two rounds of treating symptoms - see "Using it"
-below** - across fifteen-plus rounds of live feedback, most recently: a
-genuine positional bug in `pixel_box_tiles` (`set_fancy` scales a tile
-around a FIXED center, not around its own nominal position, so a tile
-never actually renders where its `(base_col, base_row)` says it should
-at any scale below 1.0 - solved directly from the real vertex shader,
-not guessed, and confirmed with a throwaway test) that was quietly
-shifting every box's real rendered position toward its own interior on
-one side and away from it on the other, small enough to miss at the
-default scale but large enough at `PIXEL_BOX_TILE_SCALE_COMPACT` to
-read as the border crowding an icon on one edge with too much empty
-space on the opposite edge - the actual cause of two straight rounds of
-"still not right" that padding/clearance tuning alone couldn't fix.
-Also this round: the Ability Bar's own top-clearance formula (found to
-be numerically identical to the unlabeled bars' despite needing extra
-room for its number label - fixed), the bars' excess bottom clearance
-(trimmed), and the shop tooltip's text moved down into a taller box.
-Earlier rounds: a saturated tint crushing the stone's own shading, the
+"Perfect" live, the dungeon HUD bars' overlap CONFIRMED FIXED (the
+`pixel_box_tiles` center-shift correction worked), now trimming the
+redundant padding that fix exposed - see "Using it" below** - across
+sixteen-plus rounds of live feedback, most recently: a genuine
+positional bug in `pixel_box_tiles` (`set_fancy` scales a tile around a
+FIXED center, not around its own nominal position, so a tile never
+actually renders where its `(base_col, base_row)` says it should at any
+scale below 1.0 - solved directly from the real vertex shader, not
+guessed, and confirmed with a throwaway test) that was quietly shifting
+every box's real rendered position toward its own interior on one side
+and away from it on the other - confirmed live as the actual cause of
+two straight rounds of "still not right" that padding/clearance tuning
+alone couldn't fix, and confirmed FIXED the round after (no more
+overlap) - followed immediately by a new, related finding: several
+edges' hand-tuned "extra buffer" cells (added across earlier rounds
+specifically to fight the center-shift drift, before its real cause was
+known) were now pure redundant padding once the drift itself was gone,
+read live as "too much padding around the edges" - trimmed back to each
+edge's own minimum real clearance. Also this round (before the
+center-shift fix landed): the Ability Bar's own top-clearance formula
+(found to be numerically identical to the unlabeled bars' despite
+needing extra room for its number label), the bars' excess bottom
+clearance, and the shop tooltip's text moved down into a taller box -
+all superseded/refined by the two fixes above. Earlier rounds: a saturated tint crushing the stone's own shading, the
 border swallowing box text at native scale, a real no_bg-console fill
 bug, the fill not quite nesting inside the border, a title-on-border
 attempt that hid every title outright, a blank description panel when
@@ -380,17 +385,15 @@ border-embedded look for now.
 
 ## Still open
 
-- A fresh screenshot confirming the real fix: the `pixel_box_tiles`
-  center-shift correction (see "set_fancy scales a tile around a FIXED
-  CENTER" above) plus this round's geometry tweaks (Ability Bar top
-  clearance, trimmed bottom clearance, shop tooltip text position) -
-  none of this confirmed live yet. Watch specifically for whether the
-  VERTICAL alignment (top/bottom) actually improved or got worse - the
-  center-shift fix's Y-axis sign was chosen by matching the already-
-  reported symptom pattern, not independently re-derived through
-  `FlexiConsole`'s own Y-flip, so it's the one part of this fix with a
-  real, flagged chance of being backwards (see that section's own
-  "Confidence note").
+- A fresh screenshot confirming this round's redundant-padding trim -
+  the center-shift fix's own overlap correction is CONFIRMED live (no
+  more crowding), but stripping the compensating "extra buffer" cells
+  back to bare minimum clearance (`ability_bar_box_bounds`'s left/top
+  edges especially) hasn't been seen live yet. The vertical (Y-axis)
+  sign of the center-shift fix itself is also still unconfirmed either
+  way - no report yet of it being visibly backwards, but no explicit
+  confirmation it's right either (see that section's own "Confidence
+  note" for what to check if it turns out wrong).
 - The remaining 2 of 13 sites: the battle log and the in-combat Battle
   Actions box (its border color already switches live between yellow/
   green - moot now that `draw_pixel_box` calls use WHITE regardless of
