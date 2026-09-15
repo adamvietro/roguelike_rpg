@@ -8,51 +8,26 @@ before touching `render_helpers::draw_pixel_box`/`UiPanelTheme` or
 generating a new panel material.
 
 **Status as of 2026-09-14: all four materials generated and composited,
-every border on the dungeon-exploration screen AND the Paused screen's
-Hints box now converted (12 of 13 real sites); the Hints box confirmed
-"Perfect" live, the dungeon HUD bars' overlap CONFIRMED FIXED (the
-`pixel_box_tiles` center-shift correction worked), now trimming the
-redundant padding that fix exposed - see "Using it" below** - across
-sixteen-plus rounds of live feedback, most recently: a genuine
-positional bug in `pixel_box_tiles` (`set_fancy` scales a tile around a
-FIXED center, not around its own nominal position, so a tile never
-actually renders where its `(base_col, base_row)` says it should at any
-scale below 1.0 - solved directly from the real vertex shader, not
-guessed, and confirmed with a throwaway test) that was quietly shifting
-every box's real rendered position toward its own interior on one side
-and away from it on the other - confirmed live as the actual cause of
-two straight rounds of "still not right" that padding/clearance tuning
-alone couldn't fix, and confirmed FIXED the round after (no more
-overlap) - followed immediately by a new, related finding: several
-edges' hand-tuned "extra buffer" cells (added across earlier rounds
-specifically to fight the center-shift drift, before its real cause was
-known) were now pure redundant padding once the drift itself was gone,
-read live as "too much padding around the edges" - trimmed back to each
-edge's own minimum real clearance. Also this round (before the
-center-shift fix landed): the Ability Bar's own top-clearance formula
-(found to be numerically identical to the unlabeled bars' despite
-needing extra room for its number label), the bars' excess bottom
-clearance, and the shop tooltip's text moved down into a taller box -
-all superseded/refined by the two fixes above. Earlier rounds: a saturated tint crushing the stone's own shading, the
-border swallowing box text at native scale, a real no_bg-console fill
-bug, the fill not quite nesting inside the border, a title-on-border
-attempt that hid every title outright, a blank description panel when
-nothing's selected, a real detour where a `has_title` flag briefly
-excluded the title row from the fill (reverted on direct correction), a
-same-console text/fill overwrite bug fixed with `PANEL_TEXT_CONSOLE`, a
-fill/border sub-pixel alignment fix, a border-scale round-trip (0.375
--> 0.5 -> 0.3), the pixel-perfect fill's own regression hiding every
-bar icon (fixed with `ABILITY_BAR_ICON_CONSOLE`/`ABILITY_BAR_ICON_
-BADGE_CONSOLE`), every dungeon-screen panel (Item/Ability/Battle Bars,
-the shop tooltip) plus the Pause Hints box converging on the Swamp
-material, and a genuine second border scale, `PIXEL_BOX_TILE_SCALE_
-COMPACT`, for boxes small in either dimension (see "Using it" below for
-the last few). `draw_filled_pixel_box` fills every box's full nominal
-area unconditionally, no exceptions; the Item Menu alone stays Dungeon/
-stone. The remaining 2 of 13 sites (the battle log and the in-combat
-Battle Actions box - see
-`docs/ideas.md` item 10 for the full list) are battle-only and still on
-`draw_ascii_box`.
+12 of 13 real `draw_ascii_box` sites converted.** Confirmed working
+live: the Item Menu, the Paused screen's Hints box, and (as of this
+round) the dungeon HUD bars' border/icon overlap. Still being tuned:
+per-bar box width (Ability/Battle Bar deliberately wider than the Item
+Bar, see "Using it" below), and a real side effect discovered this
+round - the Item Menu's title labels now print ON the border instead of
+above it, a direct consequence of the center-shift fix (below) moving
+every box's border to its true position, including at the Item Menu's
+own default scale - not yet fixed. `draw_filled_pixel_box` fills every
+box's full nominal area unconditionally; the Item Menu stays Dungeon/
+stone, everything else on the dungeon screen plus the Hints box is
+Swamp. The remaining 2 of 13 sites (the battle log and the in-combat
+Battle Actions box - see `docs/ideas.md` item 10 for the full list) are
+battle-only and still on `draw_ascii_box`.
+
+This file's own "Using it" section below covers the CURRENT architecture
+in full; **`docs/journal.md`'s 2026-09-14 entries are the place to look
+for the blow-by-blow history of how each round's feedback led here** -
+this doc doesn't try to re-narrate that here anymore (it did for a
+while and became a changelog rather than a reference).
 
 ## The 4-theme, 3x3 layout
 
@@ -369,31 +344,68 @@ above). The box's own top-left corner and overall footprint both now
 land pixel-exact (fill and border share identical math), so nothing
 about SIZE is approximated anymore, only the interior's TEXTURE.
 
-**Box titles print at the box's own nominal top row (`y`), NOT overlapping
-the border** - a `y + 1` nudge was tried 2026-09-14 to land the title
-literally "on" the border's own top edge, and turned out to be a real
-architectural dead end rather than a pixel-tuning miss: the border draws
-on `UI_PANEL_CONSOLE`, registered (and therefore z-ordered) AFTER
-`HUD_CONSOLE`, so wherever a title's row coincides with the border's own
-footprint, the border's fully opaque tile paints directly over the title
-and erases it completely - confirmed live (every title on the screen
-vanished, not just shifted). Reverted to row `y`, confirmed visible in
-every earlier screenshot. Getting a title to read as genuinely embedded
-in the border art would need a real new console layered even later than
-`UI_PANEL_CONSOLE` - not attempted here; readability won out over the
-border-embedded look for now.
+**Box titles print at the box's own nominal top row (`y`) - STILL true
+mechanically, but this row no longer reads as "above the border" the
+way it used to, at the Item Menu's own default scale** - a real,
+not-yet-fixed side effect of the center-shift fix (see "set_fancy
+scales a tile around a FIXED CENTER" above): that fix corrects the
+border's TRUE rendered position at every scale, including the Item
+Menu's default 0.3x, where the correction moves the border by ~11px -
+almost exactly one HUD_CONSOLE row. The Item Menu's title row was
+originally tuned (2026-09-14, several rounds before the center-shift
+fix existed) to sit "just above" the border - but tuned against the
+border's OLD, buggy position, which was rendering about one row further
+down than it should have. Now that the border renders at its correct
+position, it moved up into the exact row the title already occupies -
+confirmed live: "the label are ON THE SAME POSITION as the border and
+they used to be directly above." The fix (not yet applied): print
+titles at `y - 1` instead of `y`. This is safe now in a way an
+identical `y + 1` nudge WASN'T when first tried, back before
+`PANEL_TEXT_CONSOLE` existed: back then, text and border shared a
+console where the border (registered later) could paint over and erase
+the text outright (confirmed live - every title vanished, not just
+shifted). Text now lives on `PANEL_TEXT_CONSOLE`, registered AFTER
+`UI_PANEL_CONSOLE`, so it always renders on top regardless of row
+overlap - the old "erase" failure mode can't happen anymore, which is
+exactly what makes the `y - 1` move safe now where `y + 1` wasn't then.
+
+**The Ability Bar and Battle Bar are deliberately WIDER than a tight
+icon-fit; the Item Bar isn't** - `systems/hud.rs`'s `ability_bar_box_
+bounds` takes an `extra_side_pad` parameter (HUD_CONSOLE columns, each
+side), 0 for the Item Bar, `ABILITY_BOX_EXTRA_PAD` (3) for the Ability
+Bar and Battle Bar - direct request 2026-09-14 ("wider ability boxes
+for the abilities and smaller for the items"). This is a deliberate
+WIDTH choice layered on top of the function's own minimum real
+clearance, not more clearance-math compensation - keep those two
+concerns separate if retuning either one. Every call site (there are
+two per bar - hover-detection and box-drawing) must pass the SAME
+value, or the hover boundary and the drawn box disagree.
 
 ## Still open
 
-- A fresh screenshot confirming this round's redundant-padding trim -
-  the center-shift fix's own overlap correction is CONFIRMED live (no
-  more crowding), but stripping the compensating "extra buffer" cells
-  back to bare minimum clearance (`ability_bar_box_bounds`'s left/top
-  edges especially) hasn't been seen live yet. The vertical (Y-axis)
-  sign of the center-shift fix itself is also still unconfirmed either
-  way - no report yet of it being visibly backwards, but no explicit
-  confirmation it's right either (see that section's own "Confidence
-  note" for what to check if it turns out wrong).
+- **The Item Menu's title labels print ON the border instead of above
+  it** - a real, confirmed-live, not-yet-fixed regression from the
+  center-shift fix (see "Box titles print at..." above for the full
+  causal chain). The fix (`y - 1` instead of `y` for the title row in
+  `screens/item_menu.rs`'s `print_box` and its Stats/Description boxes)
+  is understood and safe to apply, just not done yet - pending explicit
+  go-ahead.
+- A fresh screenshot confirming this round's redundant-padding trim AND
+  the new `ABILITY_BOX_EXTRA_PAD` widening - the center-shift fix's own
+  overlap correction is CONFIRMED live (no more crowding), but neither
+  of these has been seen live yet. The vertical (Y-axis) sign of the
+  center-shift fix itself is also still unconfirmed either way - no
+  report yet of it being visibly backwards, but no explicit confirmation
+  it's right either (see that section's own "Confidence note" for what
+  to check if it turns out wrong).
+- Whether the Item Bar and Battle Bar's spacing is actually consistent
+  now - flagged live as looking different from each other despite
+  sharing the identical `ability_bar_box_bounds` formula (only `n` and
+  `start_col` differ); not yet root-caused. Possible lead: whether
+  `pixel_box_tiles`'s tile-count ROUNDING (`.round().max(2)`) lands
+  differently relative to a box's nominal size at different total
+  widths, in a way that reads as inconsistent spacing between a
+  2-icon and a 5-icon box even with identical bounds math.
 - The remaining 2 of 13 sites: the battle log and the in-combat Battle
   Actions box (its border color already switches live between yellow/
   green - moot now that `draw_pixel_box` calls use WHITE regardless of
