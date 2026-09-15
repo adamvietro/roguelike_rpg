@@ -583,24 +583,55 @@ register something even later still.
 
 ## Still open
 
-- A fresh screenshot confirming this round together: the fill-centering
-  fix (verified numerically and by a throwaway test, but not yet
-  confirmed against the real running game), the `PIXEL_BAR_TILE_SCALE`
-  bump (0.5 -> 0.75), the tighter vertical gap, and the new X stagger
-  between the two bars - none of it seen live yet.
-- Whether a helper reducing the repeated `panel_batch`/`text_batch`
-  setup boilerplate across every converted site is worth building -
-  raised directly 2026-09-14 ("Is there a helper that we can make to
-  make using these a lot easier?"), proposed but not yet built or
-  confirmed as wanted; see `docs/journal.md`'s same-day entry for the
-  concrete proposal.
-- **The Item Menu's title labels print ON the border instead of above
-  it** - a real, confirmed-live, not-yet-fixed regression from the
-  center-shift fix (see "Box titles print at..." above for the full
-  causal chain). The fix (`y - 1` instead of `y` for the title row in
-  `screens/item_menu.rs`'s `print_box` and its Stats/Description boxes)
-  is understood and safe to apply, just not done yet - pending explicit
-  go-ahead.
+- The fill-centering fix, the `PIXEL_BAR_TILE_SCALE` bump, the tighter
+  vertical gap, and the new X stagger between the two bars are all
+  CONFIRMED live now (screenshot 2026-09-14) - full bars sitting
+  correctly inside their frames, HP number fitting, staggered look
+  reads as intended. Only remaining ask from that round: the Battle Log
+  title needed nudging up one row (`dy = -1`), done and reconfirmed live
+  the same day.
+- `render_helpers::PanelBox` - built, unit-tested, and rolled out to
+  EVERY real call site (2026-09-14): every box on `screens/battle.rs`,
+  `screens/item_menu.rs` (6 boxes, also fixing the Item Menu's title-
+  on-the-border regression as part of the conversion), `screens/
+  pause.rs`'s Hints box, `systems/tooltips.rs`'s map-entity tooltip,
+  and `systems/hud.rs`'s shop tooltip, ability/item hover-description
+  box, dungeon-map portrait border, and 3 dungeon bar frames. The now-
+  dead unscaled `draw_filled_pixel_box` wrapper was removed once
+  nothing called it anymore.
+- Two real z-order bugs found via screenshot and fixed the same day:
+  (1) the dungeon-map portrait rendered EMPTY once it got a border -
+  its icon lived on a console registered before `UI_PANEL_CONSOLE`, so
+  the border's own opaque fill painted over it (same failure mode
+  `ABILITY_BAR_ICON_CONSOLE` already existed to dodge, just on
+  `character_portrait.png` instead of `dungeonfont.png` - fixed with
+  an analogous second, later-registered console, `CHARACTER_PORTRAIT_
+  HUD_ICON_CONSOLE`). (2) the Ability/Item Bar's own hover-description
+  text turned out to be the actual "HUD mouseover descriptions" the
+  user meant (not the map-entity tooltip, which was already right) -
+  converted from bare centered text to its own `PanelBox`.
+- `PanelBox`'s padding/centering was inconsistent across call sites
+  (`dx` values of 1, 2, and 4 all meant the same "don't sit on the
+  border" margin at different boxes) - direct feedback 2026-09-14.
+  Added `PANEL_CONTENT_INSET_X`/`_Y` (2, 2 - the value nearly every
+  existing box's content had already independently converged on) as
+  real constants on `PanelBox`: `text_color`/`text_color_centered`'s
+  `dx`/`dy` are now offsets from that standard inset, not the raw
+  border, so `dx = 0, dy = 0` is the correct first-content-row for
+  almost every box with no per-site tuning. Added `text_color_raw` as
+  the escape hatch for the few titles that print ABOVE the box
+  entirely (`dy = -1`), which are genuinely outside the padded area.
+  For every site that already used the de facto `2, 2` convention,
+  this is a pure API cleanup with the exact same resulting screen
+  position (verified by hand per site) - the one deliberate visual
+  change is the Actions box's title, standardized from its old one-off
+  `dx = 1, dy = 1` to the new `dx = 0, dy = 0`.
+- None of this round (the two z-order fixes, or the inset redesign) has
+  been confirmed live yet - still blocked from running the game
+  directly in this sandbox by the same intermittent, unrelated
+  `hal/scaler.rs` panic (`docs/journal.md`'s same-day entries have the
+  full trace and the design reasoning behind the inset choice) - needs
+  a real screenshot from the user next.
 - A fresh screenshot confirming this round's redundant-padding trim AND
   the new `ABILITY_BOX_EXTRA_PAD` widening - the center-shift fix's own
   overlap correction is CONFIRMED live (no more crowding), but neither

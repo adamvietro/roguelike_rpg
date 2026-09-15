@@ -141,73 +141,7 @@ Roughly in the order they've come up:
     of them. Needs a design pass (which panels, "transparent" vs. "hide
     entirely," how to detect the player's screen-space position is
     actually under a given panel's cells) before touching code.
-10. **Real PixelLab-generated UI art, replacing every hand-drawn ASCII
-    box border** (added 2026-09-13, real progress started 2026-09-14 on
-    branch `pixellab-ui-panels`) — every box border in the game was
-    (and mostly still is) the same plain `-`/`|`/`+` rectangle
-    (`render_helpers::draw_ascii_box`), reused everywhere via that one
-    shared helper. 13 real call sites, catalogued fresh 2026-09-14
-    (verified against the actual code, not assumed):
-    - Item Menu screen (`screens/item_menu.rs`): Items (blue) - **now
-      wired to real art, see below** - Battle Actions (green), Equipped
-      Items (white), Dungeon Actions (red), Stats (white, static),
-      shared description panel (yellow) - still on `draw_ascii_box`.
-    - Battle screen (`screens/battle.rs`): the battle log box (white,
-      fixed size), the in-combat Battle Actions box (color switches live
-      between yellow/green depending on whether the player can act right
-      now - `draw_pixel_box`'s own `tint` param already supports this
-      the same way, just needs wiring).
-    - Pause screen (`screens/pause.rs`): the Hints box (yellow).
-    - Dungeon HUD (`systems/hud.rs`): the shop-item tooltip (yellow), and
-      the Item Bar (blue)/Ability Bar (red)/Battle Bar (green) frames.
-    - Separately, HP/ATB gauges use a plain `[####----]` text string
-      (`battle::hp_bar_string`, now in `battle/menu.rs`, not `battle/
-      mod.rs` - that module moved since this was first noted), not this
-      box helper - a real health-bar graphic would replace that string
-      entirely rather than reuse draw_ascii_box/draw_pixel_box.
-    - No hand-drawn border exists yet on end.rs/options.rs/stats_view.rs/
-      title.rs/chest.rs (confirmed still true 2026-09-14) - plain text
-      only, no boxed frames.
-
-    **Real progress, 2026-09-14 (full detail + generation recipe in the
-    new `docs/UI_Panel_Sheet_Guide.md`):**
-    - **This item's own prior API research was wrong** - there is no
-      `/generate-ui-v2` or `/create-ui-asset` endpoint; pulling the live
-      `openapi.json`'s complete endpoint list directly (not a summarized
-      fetch, which got this wrong too on a first attempt) confirmed
-      neither exists. The real, usable path is the same general
-      pixel-art image endpoint (`create-image-pixflux`) already proven
-      for this project's tile atlases and battle backgrounds - no
-      dedicated "UI-aware" endpoint needed.
-    - **Four theme-matched materials generated and composited** into
-      `resources/ui_panels.png` (3x12 grid, 32px cells, one 3-row band
-      per theme) - Dungeon (carved stone, approved for the Menu),
-      Forest (weathered wood), Sewer (rusted iron + stone - needed two
-      redo rounds, see the sheet guide), Swamp (waterlogged wood +
-      moss). Each theme's palette sampled directly from that theme's own
-      rows in `resources/map_tiles.png` and fed to PixelLab as a
-      `color_image` reference, not guessed. Every source image passed a
-      real pixel-health pass (watermark scan, near-black floor,
-      transparency) and a tiling-seam stress test before compositing.
-    - **New `render_helpers::draw_pixel_box`/`UiPanelTheme`** - same call
-      shape as `draw_ascii_box` (same HUD_CONSOLE-cell x/y/width/height,
-      same tint param), swapping a call site is close to a one-line
-      change. Still a hollow border only (no filled interior yet - needs
-      `UI_PANEL_CONSOLE` reordered before whatever draws a box's own
-      text, deferred). Box position is pixel-precise; box SIZE rounds to
-      the nearest whole 32px tile (a documented, minor simplification -
-      real per-tile fractional stretching for exact sizing is a later
-      enhancement, see the sheet guide's "Still open").
-    - **First real wiring: the Item Menu's Items box only** - not yet
-      screenshot-verified live, so deliberately not touching the other
-      12 sites yet, per this feature's own "create them 1 by 1" plan.
-
-    Unlike the character-sheet workflow (generate on the PixelLab web
-    UI, zip, hand the zip to Claude), this is now a real scripted REST
-    pipeline (API token kept in `ever_space_rrpg/.env`, git-ignored,
-    never committed) - generate → verify → composite, no manual zip
-    round trip.
-11. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+10. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
     existing games/trademarks before deciding (see docs/journal.md's
@@ -233,7 +167,7 @@ Roughly in the order they've come up:
       worth deciding whether this tag gets renamed too or stays as-is
       (blog tags are shared across the user's other projects too, not
       exclusively this game's naming decision to make alone).
-12. **An infinite/endless mode**, with real player upgrades and stat
+11. **An infinite/endless mode**, with real player upgrades and stat
     upgrades offered after levels (added 2026-09-14) - not scoped, not
     designed, explicitly not something to start on yet - logged as a
     placeholder only. Whichever mode it attaches to (a new third
@@ -243,13 +177,30 @@ Roughly in the order they've come up:
     boosts, something else) both need a real design conversation before
     any code gets written, per CLAUDE.md's own convention for
     architectural-sized changes.
-13. **Townsfolk characters for the shop/town area** (added 2026-09-14) -
+12. **Townsfolk characters for the shop/town area** (added 2026-09-14) -
     new character art already made by the user (not yet integrated).
     Not scoped: how many, where they'd actually appear (idle background
     NPCs around the shop, similar to `shopkeeper_idle.png`?), whether
     they're purely decorative or interactive, and what asset format the
     new art is in all need a real look before any integration work
     starts.
+13. **Wire up the Options screen's Audio/Video rows** (added
+    2026-09-15, once the screen itself shipped - see Done below) - the
+    Volume/Music/Sound and Fullscreen/Window rows are real, navigable,
+    and permanently greyed out, with nothing functional behind them.
+    Audio needs item 6's own audio engine first (no crate picked yet).
+    Fullscreen has a real technical finding worth not re-deriving next
+    time: bracket-terminal 0.8.7 has no supported runtime fullscreen
+    API, but the live window handle IS reachable at runtime through an
+    internal, not-officially-public global
+    (`bracket_terminal::prelude::BACKEND`), which would also require
+    adding `glutin` as a new direct dependency just to name one type
+    (`glutin::window::Fullscreen`) for a value already pulled in
+    transitively. Deliberately not built on that internal API for a
+    cosmetic toggle - revisit if bracket-lib ever adds a real, supported
+    way to do this, or if the risk becomes worth it later. Window
+    (screen size) is entirely unscoped still - a fixed resolution list?
+    a scale factor?
 
 ## Future Class Ability Ideas (brainstorm only)
 
@@ -1373,8 +1324,9 @@ theme/mode, no randomization. Full technical detail in `docs/journal.md`.
   transparent-background trick already relies on) - technically
   correct, but the user disliked how it looked (a flat rectangle with
   hard edges, out of place against painted art) and asked for it
-  gone until real UI art exists to do this properly - see item 10
-  below. Reverted; the underlying legibility problem is untouched
+  gone until real UI art exists to do this properly - see "Real
+  PixelLab UI panel borders" below. Reverted; the underlying
+  legibility problem is untouched
   (still there on a bright-enough background) but accepted as a known
   gap for now rather than shipping a placeholder that reads as a bug.
 - **Every background is now clean - watermark-free (2026-09-13,
@@ -1387,3 +1339,74 @@ theme/mode, no randomization. Full technical detail in `docs/journal.md`.
   Victory/Defeat art. All 11 backgrounds (7 Victory + 4 Defeat) are
   composited into `resources/battle_backgrounds.png` and confirmed
   watermark-free - nothing left on this front for this branch.
+
+## Real PixelLab UI panel borders — every hand-drawn ASCII box replaced
+
+- **Every hand-drawn `draw_ascii_box` call site is gone** - the plain
+  `-`/`|`/`+` rectangle that used to border every menu/HUD box in the
+  game has been fully replaced with real pixel-art panel art across the
+  dungeon HUD, the Item Menu, the Pause screen, the battle screen, and
+  the Options screen. `render_helpers::draw_ascii_box` itself was
+  deleted outright once its last real caller converted, not left as
+  dead code.
+- **Six real PixelLab-generated themes** live in `resources/
+  ui_panels.png` (a 3x18-row, 32px-cell atlas, one 3x3 nine-slice band
+  per theme) - Dungeon (carved stone), Forest (weathered wood), Sewer
+  (rusted iron + stone), Swamp (waterlogged wood + moss), Battle
+  (ornate carved wood-and-gold, matching a user-supplied reference),
+  and Gears (brass/gunmetal steampunk-and-science, cog medallions at
+  the corners - generated from a text description alone, no reference
+  image). Every theme passed a real verification pass before use - a
+  watermark scan, a near-black-pixel floor, and a real 9-slice stress
+  test (sliced into its 9 tiles and retiled into a box far bigger than
+  the source, to catch seams a single static image can't reveal) - not
+  just eyeballed.
+- **`render_helpers::PanelBox`** - the reusable helper built partway
+  through this effort once the same boilerplate (which console for the
+  fill vs. the text, z-order collisions, hand-computed padding) kept
+  causing the same small bugs across roughly a dozen hand-rolled call
+  sites. Owns both the fill+border batch and the text batch, auto-
+  assigns a collision-free z-order so the caller never picks one, and
+  gives every box a standard content inset (`PANEL_CONTENT_INSET_X/Y`)
+  so `dx = 0, dy = 0` is the correct first-content-row for nearly every
+  box with no per-site padding guesswork - with `text_color_raw`/
+  `text_color_centered_raw` as the deliberate escape hatches for the
+  real exceptions (a title printed above the border, text that needs
+  to sit snug with no inset at all).
+- **`render_helpers::draw_pixel_bar`** - a real pixel-art HP/ATB bar
+  (colored proportional fill under a wood-and-gold frame,
+  `resources/battle_bar_frame.png`), replacing the old `[####----]`
+  ASCII gauge string (`battle::hp_bar_string`, deleted once its last
+  caller converted) for the player's own bars (dungeon HUD and battle
+  screen both) and, since 2026-09-15, each enemy's own ATB gauge too
+  (enemies don't have a real HP bar of their own yet - a deliberate
+  scope choice, with room already reserved in the positioning math to
+  add one back easily). Solved a real, non-obvious problem along the
+  way: a bar's own real rendered height and a HUD_CONSOLE text row's
+  real height don't divide evenly, so overlaid text can't be centered
+  by picking a different whole row - only by shifting the BAR itself by
+  a real fraction of a row (`BAR_TEXT_VERTICAL_CENTER_SHIFT`, derived
+  with an actual script against the real `set_fancy` transform, not
+  guessed).
+- **Every screen this pass touched**: the dungeon HUD (the player-
+  status portrait border, the real HP bar, the Item/Ability/Battle
+  bars with their own individually-tuned padding, the ability/item
+  hover-description box, the mouseover entity-name tooltip); the Item
+  Menu's all 6 boxes; the Pause screen's Hints box; the battle screen
+  (the Actions box - including a bottom-anchored position that tracks
+  the player's own portrait instead of a fixed row that had to vary by
+  enemy formation, the Battle Log, the player's HP/ATB bars, each
+  enemy's own ATB bar and a bigger/centered name, and a real icon+
+  number player buff column replacing an old unbounded text line); and
+  the Options screen, rebuilt from one flat numbered list into 4
+  categorized boxes (Audio, Video, Hotkeys, Gameplay) navigated the
+  same way the Item Menu already is.
+- **Not part of this pass**: `chest.rs`, `stats_view.rs`, `end.rs`
+  (Victory/Defeat), and `title.rs` still use plain text with no boxed
+  frames at all - never raised as in-scope for this effort, so left
+  untouched rather than assumed. A real follow-up if wanted, not a
+  leftover bug.
+- Full round-by-round detail (every bug found and fixed, every
+  measurement, every direct request that shaped a decision) lives in
+  `docs/journal.md`'s 2026-09-14/15 entries - this summary is the
+  condensed version.

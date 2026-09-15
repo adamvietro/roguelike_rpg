@@ -24,11 +24,9 @@ cd /gamefiles
 ./ever_space_rrpg
 ```
 
-<br />
 
 ---
 
-<br />
 
 # RPG Battles
 
@@ -46,11 +44,9 @@ All eight as separate files. Where each one goes and what to do with it:
 | `main.rs`         | `src/main.rs`                 | Replace          |
 
 One more thing to do manually that isn't a file to copy in: **delete `src/systems/combat.rs`** — it's dead code now that battles replace the old `WantsToAttack` path, and GitHub Desktop will flag it as removed once you delete it locally.
-<br />
 
 ---
 
-<br />
 
 # Better Looking Battles
 
@@ -657,7 +653,6 @@ One design note worth flagging: I grouped the right-side panel by *name* with a 
 ## Item Bug
 
 Right now we are dealing with an issue where the item we have equipped is on the left side and all the items that we have removed from the left side HUD are still being help in a position so when you try to use an item the buttons associated is not correct on screen.
-<br />
 
 Let's tackle these one at a time, starting with the numbering bug since it's an actual bug. Let me look at the item-use key handling:Let me also check `tooltips.rs`, since "all the text for the map" likely includes hover tooltips too:Let's tackle this in three passes: first the numbering bug (shared source-of-truth for the item list), then the weapon relocation, then the 1.5x HUD scale. Starting with the shared helper:Now fix `player_input.rs` — the actual bug (the query was including `BattleItem` entities, which shifts every subsequent number's mapping):Now let's move weapons to the right side and switch the left list to the shared helper. I'll do this together with the 1.5× text-size change since both touch `hud.rs` heavily — let's set up the new console first.Now let's find the `BTermBuilder` chain and console-clearing logic in `main()`/`tick()`:Now clear console 4 each tick:Now the full `hud.rs` rewrite — target console 4, use `HUD_COLS`, use the shared `usable_carried_items` helper, and add the weapons section on the right:Now `tooltips.rs` — this one needs care, since its `mouse_pos * 4` shortcut was specific to the old console2's exact 4× relationship to console0. I'll replace it with a proper ratio-based conversion that works for any console size:Let's do a final consistency check across all touched files:Everything is consistent — both consumers use the shared helper, both `hud.rs` and `tooltips.rs` target the new console 4, and `HUD_COLS`/`HUD_ROWS` are used uniformly. Let's ship the complete set.All five **modified**. Here's what fixed each of your three points:
 
@@ -3393,51 +3388,39 @@ Good, this is a clean addition to the pattern I've already got. Let me check the
 
 # 9/6/26
 
-<br />
 
 ---
 
-<br />
 
 ## Item Bar
 
 I want to now add in an item bar for items that can be used on the dungeon map. It will use a lot of the code that we use for the other bars. It will hold an icon for each item.
-<br />
 
 We want to be able to use the mouse to click on these items, so there will need to be some access to where the mouse is. I'll go over the general idea for all the bars below.
-<br />
 
 ### Dungeon Ability Bar
 
 This will hold all the abilities that a class can use within the dungeon map. It will have a *red* border around it and will have numbers above the icons so the player will know which button to press to activate the ability.
-<br />
 
 For feedback, the icon greys out if there is no ability available to use.
-<br />
 
 ### Battle Ability Bar
 
 This bar will hold all the abilities that the player can use within **Battle**. It's just there so a player can quickly see the abilities they'll have for the next battle. It will have a *green* border around the icons so it looks different from the other bars. There will be no button to press to use these abilities, since they're only meant to be activated in **battle.**
-<br />
 
 Same as the other bar, the icon greys out if there are no charges for that ability.
-<br />
 
 ### Item Ability Bar
 
 This is for any item that can be used on the map. This will have a *blue* border around the icons. There's no button associated with these items - they'll need to be used within the (M) menu or with the mouse.
-<br />
 
 Same as the other bars, the icons grey out if you don't have any items of that type to use.
-<br />
 
 #### Implementation
 
 For this we'll need to leverage the existing code we have for the other bars. We'll need to get all the components for each bar, filtering for *entities* that have a ```class: None```. That grabs all the items that need to be in the bar, then checks their quantities.
-<br />
 
 For the mouse-press, there'll need to be a left-click check and a mouse-position resource, to know where the mouse is and whether it's over an item you want to use.
-<br />
 
 Once you click or use any of the items, checks will happen for turn advancement and icon coloring.
 
@@ -3446,19 +3429,14 @@ Once you click or use any of the items, checks will happen for turn advancement 
 ## Better Health/Class Portrait Status
 
 Right now there's a single red bar across the top of the screen that holds the player's health information.
-<br />
 
 A better version of this would be to have a class portrait and a smaller health bar with values in the top left of the screen. I want to work on a few more icons for each class, but that will have to wait.
-<br />
 
 In order to do this we'll need another render for the player portrait, and another bar like the one at the top. There's already a function within _bracket-lib_ for drawing a horizontal bar.
-<br />
 
 The portrait will just use the same console as the ability bars, so it'll be rendered at the right scale, same as the rest of the ability icons.
-<br />
 
 Now the last bit that needs to be dealt with is the text at the top of the screen and the gold count. The gold count will need to be added to the menu screen. The text at the top of the screen will stay where it is for now, but would be better moved to the pause screen, since it just takes up space here.
-<br />
 
 ### Implementation
 
@@ -3469,10 +3447,8 @@ Since we already have access to the console for the abilities, it simply require
 ## Better Pause Screen
 
 The first thing that needs to be done is the size of the text - that's a simple fix, and it involves making the console responsible for that text have fewer blocks for height and width.
-<br />
 
 The other thing that needs to be done is to move the hints to the pause screen. That's another quick fix if you only want a single hint, but I want many hints that cycle through while you're on the pause screen.
-<br />
 
 Here are a few that I have so far:
 Use the arrow keys to move.
@@ -3481,17 +3457,14 @@ Potions and Maps can be clicked on the Item Bar.
 Dungeon Abilities can be clicked, or you can press the hotkey.
 If you need to heal in a battle, flee and then use a potion.
 Press 'Space' to wait a turn - if there is any enemy around, you will enter battle with them.
-<br />
 
 #### Implementation
 
 For this I'll need to add another set of variables and a helper function to store all the hints. When the 'Esc' key is pressed and the render for the pause menu is triggered, the helper will need to start a counter that swaps the hint every 4 seconds.
-<br />
 
 ### Better Feedback
 
 Okay, so the implementation is fine, but it could be better.
-<br />
 
 I want to move the hints to the lower third of the screen. It will follow the format of
 
@@ -3501,60 +3474,47 @@ Hint (centered)
 the hint (centred)
 ```
 
-<br />
 
 I also want to make the pause screen's own menu a cursor - arrow-key selection, then Enter to select.
-<br />
 
 #### Implementation
 
 Moving the hints is a pretty simple fix - just changing the render location to a new row on the screen.
-<br />
 
 The pause cursor is a bit more involved, but it'll follow the same logic as all the other screens: create a new variable to hold the cursor's position, then add the logic for arrow-key and Enter key presses.
-<br />
 
 There will also need to be a new option for Resume.
-<br />
 
 Once the basic framework is set, there need to be turn_state changes based on the button pressed and the cursor's current position.
-<br />
 ---
 
 ## Clickable Dungeon Abilities
 
 This one slipped my mind, so let's make sure it happens now. This is the same idea as the _Item Bar_. There is already a check on the *dungeon map* that looks for the mouse position and ability/item position on the map.
-<br />
 
 ### Implementation
 
 Extend the mouse-click system to also check for the abilities that can be used within the dungeon.
-<br />
 
 ---
 
 ## Store Feedback
 
 The implementation of the feedback for the items is a little off where I wanted it to be. Right now there is just a list of the items and their cost on the left side of the screen.
-<br />
 
 It would be far better if the item that you are in front of would show its price and name in a box when you are close.
-<br />
 
 ### Implementation
 
 For this we need the console that renders the costs to have some tests for the current items in the shop, the player's position, and then all the names and cost for items.
-<br />
 
 The render will leverage the players positions and then use a formula to figure out where each item is. Once the render has that information it will check if the player is in the position of an item - 1 cell in the y position. If so it will render the feedback for that item.
-<br />
 
 ---
 
 ## Item Menu
 
 This is a HUGE undertaking as I want to have a lot of new features.  I want to have a set of 5 boxes that will house all the needed information that a player would want to have.
-<br />
 
 ### Boxes
 
@@ -3596,77 +3556,59 @@ It will also hold the current gold for the game.
 ### Implementation
 
 So this will require the same thing as any other menu with a cursor and multiple columns. So that is not a real issue.
-<br />
 
 There is also many consoles that can be used to place all the writing. A smaller (more rows and columns) will be used for this, and there will be a few different boxes that need to be drawn. This will all be a set of standard text, many of the text will be populated by a query to get all the components that the class has.
-<br />
 
 The "hardest" part will be the description as it will need to pull the description and also know the currently highlighted ability or item.
-<br />
 
 ---
 
 ## Player Buff Icons for Portrait
 
 I want to show a small icon on the player's portrait whenever they have an active buff - specifically things like Ice Armor, Stealth, and Invisibility. Anything that lasts for multiple turns or attacks, not something that resolves instantly.
-<br />
 
 I want the icon to be smaller than the portrait itself, closer to the size of the health bar.
-<br />
 
 ### Implementation
 
 Ice Armor, Stealth, and Invisibility already exist as their own components on the player, so this doesn't need a new buff-tracking system - it's just checking whether the player currently has one of those three components and showing an icon if so.
-<br />
 
 For the icon I want to use the ability's own real icon art, not a placeholder. Getting real icon art smaller than the existing 40px portrait/ability icons means a new console with smaller cells - the only smaller dungeonfont console right now is the map view itself, and that gets redrawn every single frame, so it can't hold something persistent like a badge.
-<br />
 
 Multiple badges can show at once (queued left to right), in case more than one of these is ever active at the same time.
-<br />
 
 ---
 
 # 9/07/26
 
-<br />
 
 ---
 
 ## Dungeon Crawl Store and Chest Spawns
 
 There were way too many Potions and Maps just scattered around the dungeon floors - basically free loot. I want monsters to drop gold instead, and that gold to actually go somewhere: a shop between dungeon floors (mirroring the Battle Arena's own shop), plus a guaranteed chest per floor so there's still something to physically find.
-<br />
 
 ### Implementation
 
 `Gold` used to be a Battle Arena-only component - a Dungeon Crawl player never got one at all, and every gold codepath (traps, ranged strikes, the arena shop's buy handler) used that component's presence as the actual signal for "does this kill/purchase involve gold." Dungeon Crawl players now start with `Gold(0)` too, so those same codepaths started paying out for free on the Dungeon Crawl side - no per-mode branching needed.
-<br />
 
 Healing Potion and Dungeon Map are pulled out of the ambient floor-loot pool entirely - a new `shop_only` template flag, the same idea as the existing `prefab_only`/`boss_only` flags. They're still real, grantable items (a chest, and eventually the shop), just no longer something you stumble onto scattered across a floor.
-<br />
 
 In their place, every dungeon floor now always gets one guaranteed loot chest, guarded by 1-2 copies of that floor's single toughest non-boss enemy (Goblin/Orc/Ogre/Ettin's own natural per-level ordering, not a random pick). It's a new prefab room, always attempted rather than the random one-of-three Fortress/Turret/Bunker roll the other prefabs use. Walking onto it grants 30-50 gold, a Dungeon Map, and 1-3 Healing Potions in one lump, then shows a new full-screen loot overlay (`TurnState::ChestOpened`) styled exactly like the Paused screen - it reuses Paused's own scheduler outright (just redraws the map tiles, nothing else), so the frozen dungeon stays visible underneath while every enemy/item sprite drawn on it a frame ago simply isn't redrawn again.
-<br />
 
 Got a real icon drawn for the chest too (`c` glyph, row 6 col 3) from a reference image - the background got flood-filled to true transparency from its outer edge inward, rather than a flat color-distance threshold, so the interior white highlights on the chest survived instead of getting punched out along with the background.
-<br />
 
 ### A real bug, found by just asking
 
 Giving Dungeon Crawl players a `Gold` component broke something non-obvious: `record_enemy_kill`'s "roll random ability loot vs. grant Arena-only gold" branch, and the Victory screen's "show loot vs. show gold" branch, both used Gold's presence as their arena-check. Once Dungeon Crawl also had Gold, both silently started treating every Dungeon Crawl fight as if it were an Arena one - ability loot stopped dropping from real battles entirely, with no error or warning anywhere. Fixed by switching both checks to `Option<ArenaRun>`, which is actually Arena-exclusive; Battle Arena's own behavior didn't change at all, since Gold and ArenaRun were already perfectly correlated there. Also had to fix a startup panic from the same root cause - `movement_system` (which now reads the new chest-loot resource) is shared by the title screen's decorative background, so that resource needed inserting at `State::new()`/`return_to_title()` too, not just the two run-start functions - CLAUDE.md already had this exact gotcha documented from an earlier session, I just didn't check it at first.
-<br />
 
 ### The shop between floors
 
 Built as a follow-up in this same session. A dungeon floor's own stairs tile now leads into a shop room first, not straight to the next floor - reached via a new `TurnState::DungeonShopTransition`. `systems/end_turn.rs`'s Exit-tile check is a 3-way split now instead of two: Arena's own `ArenaTransition`, this new state, or - once `ShoppingActive` is already Some, meaning you're standing on the SHOP's own stairs, not the floor's - `NextLevel` again, which is what actually generates the next floor.
-<br />
 
 Reused `MapBuilder::new_arena_shop`/`arena_rebuild_keep_player`/`spawn_arena_shop_items`/`buy_nearby_item` completely unmodified - all four turned out to be exactly as mode-agnostic as they looked going in. The only genuinely new code is `State::dungeon_shop_transition` itself, which stocks a fixed Healing Potion (x5) + Dungeon Map (x2) pair instead of Arena's class-rolled weapon/ability list, since the dungeon shop doesn't vary by class or level.
-<br />
 
 One thing that would've been an easy miss: `advance_level` is now ALSO how leaving the shop actually happens, but it never touched `ShoppingActive`/`ShopMessage` at all before (never needed to, since dungeon crawl floors never used to reset those). Without clearing them there, a freshly generated floor would've silently inherited the shop's auto-pickup suppression and frozen field of view forever. Caught before it shipped, not after.
-<br />
 
 Also noticed the HUD's top-right corner only ever showed Gold during a whole Arena run (`arena_run.is_some()`), never for Dungeon Crawl - meaning there was no way to actually see your gold total while standing in the new shop deciding what to buy. Now shows Gold whenever `shopping.is_some()` too, on top of the existing Arena case.
 
@@ -3675,20 +3617,16 @@ Also noticed the HUD's top-right corner only ever showed Gold during a whole Are
 ## Chest reachability bug (found in playtesting)
 
 Walked into my own chest room in-game and couldn't get in - the wall template fully enclosed the interior on every side, unlike the existing Fortress/Turret/Bunker prefabs, which all have a deliberate gap somewhere in their wall pattern. Mine didn't. Opened a door on the chest's own row first, then moved it onto the guards' row instead, so the only way in is past the guards - not a straight shot to the chest that just happens to have a guard standing nearby. Verified both times with a real flood-fill from the player's start across 200 generated floors, not just eyeballing the ASCII.
-<br />
 
 ---
 
 ## Class survivability simulation
 
 Once potions stopped scattering across dungeon floors, finishing a run got noticeably harder - wanted real numbers before guessing at a fix. Built a headless simulation: a naive bot (always Attacks, never uses a Technique or Flees, only drinks a Healing Potion below half health) plays 10 runs per class, using the REAL game logic end to end - the actual schedulers, movement, item pickup, chest interaction, and shop transition, not a separate simplified model. Combat itself goes straight through the same `resolve_player_action`/`trigger_enemy_action`/`dismiss_action_result` functions `battle_tick` calls, just with turn order simplified to "player attacks, then every living enemy attacks back" instead of real-time ATB gauge filling (no real frame loop to drive that headlessly) - `battle_tick`/`chest_loot_tick`/`battle_victory_tick` themselves can't be called directly, since they make real `ctx.set_active_console`/`ctx.print_*` calls that need a live window's console registry, which doesn't exist in a plain test binary.
-<br />
 
 Result: 3 out of 50 runs (6%) reached the first shop at all. Mage died 10/10. Only Barbarian, Rogue, and Hunter managed even 1 successful run each. A real player using Techniques and fleeing bad fights would probably do somewhat better than this bot, but not enough to explain away a number that stark - the guaranteed chest sits behind combat you can't avoid (guarded by that floor's toughest enemy), and every class's starting kit is now the entire sustain budget until the chest or shop, since ambient floor potions are gone. That budget was much too thin.
-<br />
 
 Building the bot itself surfaced a genuinely reusable insight for future headless testing: `State::new()`'s title-background schedulers need `AbilityBarMousePos`, `MouseLeftJustPressed`, `FrameTime`, and a raw `Point` (mouse_pos) resource that main.rs's real `tick()` sets every frame from a live window - none of which `start_game` itself inserts, since they're a real-input concern, not a new-run one. Missing any of them panics the instant the relevant system runs.
-<br />
 
 ---
 
@@ -3701,27 +3639,22 @@ Every class's starting kit now carries 3 Healing Potions instead of 1 - Barbaria
 ## The survivability simulation is now a permanent tool
 
 Made the diagnostic a real fixture instead of a throwaway - `#[ignore]`d so it doesn't run as part of the normal `cargo test` (it takes real time even in release), rerun by hand after any balance change: `cargo test --release class_survivability_report -- --ignored --nocapture`. Pointer added to CLAUDE.md so a future session actually remembers it exists.
-<br />
 
 Also made the bot itself less naive per request - it now flees below a quarter health instead of always Attacking to the death, and spends an owned offensive Technique (one-time-use, so this tapers off to plain Attack once a run's kit is spent) before falling back to a plain Attack. `battle::available_actions` - the exact same function the real battle menu itself builds from - is what it picks a Technique out of.
-<br />
 
 ---
 
 ## A real shop bug (found by the user, not the simulation)
 
 Couldn't buy a Healing Potion in the new dungeon shop despite having enough gold and the tooltip clearly showing it in reach - no error, just nothing happened. Root cause: `buy_nearby_item`'s own player lookup (`<(Entity, &Point)>::query().iter(ecs).find_map(...)`) had no `Player` filter at all - it just grabbed whichever entity with a `Point` component legion's iteration happened to return first. A shop scene also has a Shopkeeper NPC and a `Point`-tagged `ShopStock` counter entity per item on sale, so this could just as easily be one of THOSE. It never visibly broke the Battle Arena shop (the player's archetype apparently iterates first there, by chance), but the new Dungeon Crawl shop's different entity-creation order (`arena_rebuild_keep_player` first, Shopkeeper/ShopStock pushed after) exposed it.
-<br />
 
 Fixed with a plain `.filter(component::<Player>())` - one line. Verified properly both directions: built a test reproducing the exact scenario (Shopkeeper + ShopStock + player, all with `Point`), confirmed it genuinely FAILS against the old code (gold unchanged - the bug reproduces on demand, not just in theory), then confirmed it passes with the fix, then removed the test.
-<br />
 
 ---
 
 ## Re-running the simulation after the potion/speed/bug fixes
 
 Deaths basically vanished - 2/50 across all five classes, down from 36/50 before the starting-kit changes. The potions and Mage's speed bump look like they genuinely fixed the survivability problem.
-<br />
 
 But almost everyone times out instead of finishing now (43/50) - and I think that's a bot-AI artifact, not a new real balance problem. The bot's new "flee below 25% HP" rule ends a losing fight, but its pathing always recomputes the literal shortest route to the same target - if the enemy it just fled from is still sitting on that route (usually true, since Flee doesn't reposition anyone), the very next action walks right back into it, fights again, flees again, and loops without ever making progress. A real player would obviously route around or retreat further first; this bot doesn't know how to yet. Left open rather than rushed - the flee-then-repath loop needs a real fix (e.g. avoid re-pathing onto the same enemy for a turn or two after fleeing it) before the "reached the shop" numbers can be trusted again.
 
@@ -3730,22 +3663,18 @@ But almost everyone times out instead of finishing now (43/50) - and I think tha
 ## Two Small Backlog Cleanups
 
 Cleaned up docs/ideas.md properly this time - moved everything actually finished (this session's work, plus a couple of already-done items that were sitting unmarked) out of the numbered Working list and into real categorized Done sections, instead of leaving `~~strikethrough~~` items mixed into the numbered list. Committed the whole night's work as one commit, then started a real feature branch (`cleanup-arena-shop-dedup-and-tooltip-offset`) for what came next, rather than continuing to commit straight to master.
-<br />
 
 ## Deduplicating the shop-building code
 
 Three functions - `start_arena` (the very first Arena shop), `arena_advance_to_next_shop` (later Arena shops), and this session's own `dungeon_shop_transition` (the new Dungeon Crawl shop) - had all accumulated their own copy of the exact same "build the room, reveal it with no fog of war, freeze the FOV, spawn the Shopkeeper, stock it, set the Exit tile" block. `arena_advance_to_next_shop`'s own doc comment already flagged this as a known cleanup, unfinished from an earlier session; adding my own third copy this session made it worse, not better.
-<br />
 
 Extracted a single `build_shop_room` helper. It deliberately does NOT touch TurnState/Battle/BattleVictory/ArenaRun/Gold/Stats - those differ too much between a fresh-world bootstrap (`start_arena`) and an in-run transition (the other two) for a shared helper to guess correctly, so every caller still sets those itself right after calling it. Verified all three callers still produce a correct shop world (right player entity kept, right resources set, real stock spawned) with a real test before removing it - net result was about 70 fewer lines in main.rs.
-<br />
 
 ---
 
 ## The tooltips.rs camera offset
 
 This one turned out more interesting than "swap one line for another." `tooltips.rs` computed which map tile the mouse was hovering using `Camera`'s own plain integer `left_x`/`top_y` - correct at rest, but during the ~150ms the camera is smoothly panning after a step, the actual on-screen position is a few pixels off from where that integer offset says it is (see `components::camera_render_offset`, which `map_render`/`entity_render` already use for the real drawing during a glide, for exactly this reason). Switched tooltips.rs to the same function, rounding the final fractional map position to the nearest tile.
-<br />
 
 `camera_render_offset` reads a `MovingAnimation` component internally, which tooltips_system hadn't declared access to - added `#[read_component(MovingAnimation)]` to be safe, matching `entity_render.rs`/`map_render.rs`'s own convention for this exact same call. Went to verify it the usual way (build a Schedule, force a real glide, confirm no AccessDenied panic without the declaration) - and it turns out this one genuinely doesn't panic without the declaration in this particular schedule. Single-entity `entry_ref().get_component()` lookups apparently aren't checked against the declared access list as strictly as bulk `::query()` calls are, and the one system that actually WRITES MovingAnimation (`tick_animations`) is already `.flush()`-separated from this whole read-only batch, so there's no live conflict to race against either. Kept the declaration anyway - it's still the correct, honest description of what this system reads, and matches its siblings - but worth remembering this isn't a universal safety net the way the hud.rs regression test's own bug was: query access is real access control, a lone `entry_ref` read apparently isn't enforced the same way.
 
@@ -3754,20 +3683,16 @@ This one turned out more interesting than "swap one line for another." `tooltips
 ## Sprite sheet architecture question - and a real finding
 
 Talked through whether per-class/per-enemy sprite sheets are possible, since I'm worried about running out of room in one shared atlas once battle animations, idle animations, more ability icons, and more dungeon tile variety all want space. Turns out this project is ALREADY running two sheets side by side (`dungeonfont.png` at 32x32 and `terminal8x8.png` at 8x8, both loaded via separate `.with_font` calls) - so multiple sheets are clearly possible, just not free: the current rendering pipeline draws every visible entity in ONE pass through ONE shared console, looking up glyphs as indices into ONE atlas. Per-class sheets would mean sorting entities by sheet every frame and drawing multiple batches into multiple consoles, plus a lot more console registrations to keep z-ordered correctly (already a documented gotcha here).
-<br />
 
 The actual useful discovery: checked bracket-lib's own source and the 256-cell ceiling isn't a real limit at all - `FontCharType` is a `u16` (up to 65,536), and `Font::load` computes the glyph grid straight from the image's own pixel dimensions divided by cell size, not a hardcoded 16x16. The 256 cap is purely this project's OWN convention (`to_cp437(char)`, which maps through CP437's 256-value codepage). So the actual fix for "not enough room" is just a bigger single PNG - 1024x1024 or 2048x2048 gets 1,024 or 4,096 cells respectively, comfortably covering every animation/icon/tile-variant need with zero rendering-architecture changes. The one real cost is authoring: a much bigger canvas is harder to navigate by hand, which is where "author each class/theme in its own file, composite into the one shipped sheet" earns its keep - not as a workaround for an engine limit, since there isn't one, but as a workflow choice once the canvas gets big.
-<br />
 
 ---
 
 ## AOE technique icons + Debug class glyphs
 
 Went looking for exactly what still needed icons before doing any actual art. Two things fell out:
-<br />
 
 **A real glyph collision, not just missing art.** Debug's own player-portrait glyph (`class_base_stats`'s `glyph: 'D'`) was the same codepoint as Deathblow's already-finalized icon (Barbarian) - playing Debug, the player's own map/portrait sprite rendered as Deathblow's icon instead of anything distinct. Fixed by moving Debug's portrait to `N`, and giving Victory/Defeat/Next Level (previously all three sharing the generic `?` placeholder) their own distinct `L`/`M`/`e`. Verified with a real test - loaded the RON, confirmed all four new glyphs are genuinely distinct from each other and from every other template - before removing it. No pixel art yet for any of these four; Debug is hidden/test-only so real art here is a nice-to-have, not a priority - the collision was the part worth fixing on its own.
-<br />
 
 **The five AOE techniques** (one per class - Whirlwind, Blizzard, Flurry, Javelin Volley, Arrow Volley) already had their own reserved codepoints from an earlier session, just never got real art. Got reference images for all five and finalized them the same session. These turned out much easier than the chest icon from earlier - all five references were soft glow/motion-blur art (swirls, ice shards, streaking blades), not crisp linework, so a direct high-quality resize straight to 32x32 held up well without needing a hand-redraw. Filled each cell edge-to-edge with the reference's own dark background (opaque, matching every other finalized ability icon), floored near-black pixels per the standing bracket-lib culling gotcha, and verified with a pixel diff that only those 5 cells changed on the whole sheet.
 
@@ -3776,16 +3701,12 @@ Went looking for exactly what still needed icons before doing any actual art. Tw
 ## Debug class icons - three references, three different outcomes
 
 Got three images for the Debug class's remaining glyphs, one per open slot, plus "use the staircase" for Next Level with no reference at all. Each one ended up needing something different.
-<br />
 
 **The trophy (Victory) had a watermark.** A tiled, repeated diagonal text pattern across the whole image - stock-marketplace style, the same class of problem this project's own docs already warned about from an earlier session (Invisible Cloak's reference got blocked the same way once). Declined it and told the user directly rather than trying to work around it or crop it out - `L` stays a reservation only.
-<br />
 
 **The robot (Debug portrait) was straightforward** - treated it exactly like the other class portraits: flood-filled the flat pale background to true transparency, cropped to the character's own bounding box, top-anchored onto a square canvas (the antenna touches the very top edge, same reasoning as the Shopkeeper's own top-anchor from an earlier session), floored near-black pixels. Reads clearly as a distinct robot at 32x32.
-<br />
 
 **The skull (Defeat) reference wasn't actually art** - it was a black-and-white graph-paper pixel-pattern chart, the kind of thing you'd use to plan a cross-stitch or bead pattern, not a rendered icon. Detected the grid spacing programmatically (found the periodic dark grid lines, computed cell size), sampled each cell to build a boolean mask, and rendered a REAL icon from that mask myself - dark red background, bone-white fill for the interior, black outline computed via simple erosion (filled cells with all 4 neighbors also filled = interior; everything else on the boundary = outline). The shape is faithful to the reference; the actual coloring was my own choice, since the source had none to copy.
-<br />
 
 **Next Level didn't need new art at all.** Drew a hand-made staircase first (dark blue background, 4 ascending stone steps with lighter tread highlights) since no reference was given - looked clean on its own, but the user caught something better: the dungeon already has an established stairs glyph. `TileType::Exit` itself renders as plain `>` (`map_builder/themes.rs`). Reverted my custom icon back out of the sheet entirely and just re-pointed `template.ron`'s Next Level entry at `>` directly - more consistent (the debug item now looks exactly like the real tile it simulates reaching) and one less custom icon to ever maintain. Worth remembering for next time: check for an already-established in-game symbol before inventing new art for something that's essentially a shortcut TO that exact thing.
 
@@ -3794,20 +3715,16 @@ Got three images for the Debug class's remaining glyphs, one per open slot, plus
 ## Victory, take two
 
 Got a clean second version of the same trophy art - no watermark this time. Square-cropped, resized straight to 32x32, floored the near-black outline pixels. Kept its own plain white background rather than inventing a themed fill (unlike Defeat, which had no color to copy from its source). All four Debug glyphs are finalized now - nothing left open on the icon backlog.
-<br />
 
 ---
 
 ## Idle animations - a second sprite sheet, and a real lesson in background removal
 
 Started the walk-in-place idle animation art (`IdleAnimation`'s cycling infrastructure has existed for a while with every frame pointing at the same placeholder glyph - see earlier sessions). This was always going to need a real design conversation first per this project's own convention for architecture-sized changes, and it turned into one: dungeonfont.png only had about 32 free cells left out of 256, and idle frames for 5 classes (plus enemies eventually) would burn through most of that. Decided on a **second, dedicated sprite sheet** (`resources/character_idle.png`) instead of cramming more into the shared one - a real architectural decision, not just an art one, since it means a new font, new consoles, and a render-path split still to come (see below).
-<br />
 
 **Sheet shape.** 128x128px per cell (4x dungeonfont's native 32px) so the renderer's own GPU-side downscale to the real 32px on-screen footprint does the final resize, not a lossy pre-shrink on my end. 5 columns (one per unique animation frame) rather than 6 - the reference art's own "Idle (Loop)" 6th frame is always identical to frame 1, so it's just there to show the loop closes, not a real 6th pose; dropping it matches `MAX_IDLE_FRAMES: usize = 5`, already reserved for exactly this, exactly. Rows are one per class in `CLASS_ROSTER`'s own order (Barbarian, Rogue, Amazon, Hunter, Mage), sized to grow downward later for enemies with no code changes needed - just a taller PNG.
-<br />
 
 **Classes without real art yet get their existing dungeon glyph, not a new placeholder scheme.** Barbarian and Mage (art still pending) each just have their current 32x32 portrait upscaled with nearest-neighbor (keeps the blocky pixel-art edges crisp instead of blurring) and repeated across all 5 slots. This was a deliberate simplification the user suggested - it means every class routes through the same one sheet/lookup, no separate "does this class have real art" branch needed in the eventual render code.
-<br />
 
 **Background removal turned into the real fight this session**, across three separate reference batches for Rogue/Amazon/Hunter:
 
@@ -3815,75 +3732,54 @@ Started the walk-in-place idle animation art (`IdleAnimation`'s cycling infrastr
 - **Root cause of the "why does frame 4 look different from frame 1" complaint**: partly genuine - the user confirmed each frame has small real differences beyond a shared few-pixel vertical bob - and partly my own bug, since early attempts cropped each frame to its *own independently-computed* bounding box, adding scale/position jitter on top of whatever the source art actually did. Fixed by computing one shared crop/scale from the union of all 5 frames and anchoring every frame to the same foot baseline, so only genuine pose differences show.
 - **The actual fix for Hunter**: asked the user to re-export on a flat background instead of fighting the glow. What came back had a *real alpha channel already* (their own tool had cut it out), which sidestepped the whole segmentation problem - just needed cropping, a caption-text cutoff (found via a precise pixel-row ruler rather than guessed fractions), and the same shared-scale/baseline treatment.
 - **Rogue and Amazon's white-background versions** hit two more distinct failure modes, both from the same root cause (a single global "is this white" threshold can't tell "background" apart from "a light-colored enclosed gap in the pose" or "a soft shadow blob touching the feet with no clean seam"): a solid white block trapped between Rogue's legs (background not connected to the image border through the flood fill, so it read as opaque "content") - fixed by also clearing near-white connected regions above a minimum size regardless of border-touching, while leaving small isolated highlights (Amazon's actual white armor/leg-wrap pixels) alone. Then a residual gray shadow smear under Amazon's feet, too close in *brightness* to her boots to threshold out safely - fixed by keying on saturation instead (a flat gray shadow reads very differently from her saturated brown/orange boots even at the same brightness).
-<br />
 
 **The throughline**: color-only background removal on real reference art is genuinely hard right up until the source has an actual alpha channel or a truly flat, uniform background - approximations (thresholds, gradients, graph-cut) each fail in their own particular way, and "keep every real pixel of the character" has to be the non-negotiable priority, with "how clean is the edge" a distant second. Going forward, new class/enemy art gets requested pre-cut (transparent PNG) or on a flat solid non-black background specifically because of this.
-<br />
 
 Master sheet locked in with Rogue, Amazon, Hunter (real art) and Barbarian, Mage (placeholder rows) - moved on to the actual code side same session: a new `CHARACTER_IDLE_CONSOLE`/`CHARACTER_IDLE_SCROLL_CONSOLE`/`CHARACTER_IDLE_GLIDE_CONSOLE` trio mirroring the dungeon view's existing static/scroll/glide consoles (inserted right after `ENTITY_SCROLL_CONSOLE`, renumbering every console from `HUD_CONSOLE` on by +3 - same "insert early, renumber everything after" move this project's own console history already documents twice), `entity_render.rs`'s three draw loops each split on a new `IdleAnimation::sheet` field (`IdleSpriteSheet::Dungeon` vs `CharacterIdle` - a field on the existing component, not a new one, specifically to avoid a new `#[read_component]` declaration and the legion access-panic class of bug that would risk), and a new `idle_frames_for_class(class, base_glyph)` that looks up a class's row on the new sheet, falling back to the old dungeonfont placeholder only for the hidden Debug class.
-<br />
 
 **A real bracket-lib panic caught by actually running the game, not by any type check**: `attempt to subtract with overflow` in `bracket-terminal`'s own `FontScaler::glyph_position`, on startup, before any real content ever drew. Traced it to the library source - every console's `cls()` fills all cells with glyph 32 by default, and the scaler computes that glyph's row with no bounds check against the font's actual grid size. `character_idle.png`'s grid was only 5 columns x 5 rows (25 valid glyphs) - nowhere near 32. Fixed by padding the sheet to 5x8 (40 valid glyphs, comfortably past index 32, with the 3 new rows also doubling as the reserved space for enemies later) rather than special-casing glyph 32 anywhere in this project's own code. Added to CLAUDE.md's standing gotchas since any future custom `with_font` sheet in this project would hit the exact same wall.
-<br />
 
 **A second real bracket-lib finding, this time caught by the user's own screenshot** (still-standing entities showed a solid dark box instead of a transparent background - walking ones looked fine): traced both shaders in `bracket-terminal`'s own GLSL source to the actual root cause. A plain (`with_simple_console_no_bg`) console's fragment shader discards a pixel only when ALL of its RGB channels read below 0.1 (25.5/255) - it never touches the alpha channel at all, so a real alpha channel does nothing there on its own. A fancy console's shader is different: it shows texture content only when at least one RGB channel clears that same 0.1 cutoff AND alpha clears it too, else falls back to the per-vertex background color - which is also the actual mechanism behind the already-documented "bracket-lib culls near-black opaque pixels" gotcha, now precisely explained rather than just observed. `character_idle.png`'s background pixels had a real alpha of 0 but non-black leftover RGB (whatever color was there before cutout), which a plain console's shader doesn't discard - exactly why the still-standing case (drawn on the new PLAIN `CHARACTER_IDLE_CONSOLE`) showed the box while gliding (a FANCY console) didn't. Fixed at the asset level: forced every alpha-0 pixel's RGB to true (0,0,0), and raised the "floor near-black content" convention from the previously-documented 10 to 30 (comfortably past the real 25.5 cutoff, with margin) so no part of a dark cloak/leather section risks the same discard. Corrected CLAUDE.md's existing gotcha with the exact numbers instead of leaving the earlier approximate one in place.
-<br />
 
 **That first fix wasn't actually enough for Hunter specifically** - the user caught a real gray box still showing on a second screenshot. Root cause: Hunter's reference PNG (the one with a genuine alpha channel from the user's own cutout tool) has a wide, continuous range of alpha values (confirmed earlier at 0-253, not a clean binary split) from a soft/feathered edge, not a hard cutout - my first pass only zeroed RGB where alpha was EXACTLY 0, leaving the whole semi-transparent fringe (non-black leftover RGB, alpha in the 1-127 range) fully opaque on the plain console, which - as the shader source confirms - ignores alpha entirely regardless of how close to 0 it is. Fixed by treating any pixel below a real alpha threshold (128, not just 0) as background for RGB-zeroing purposes - since a plain console can only ever show a pixel as fully-there or fully-gone anyway (no real alpha blending happens there), there was never a soft edge to preserve in the first place.
-<br />
 
 **Also fixed the same session: Amazon rendered visibly shorter than the other classes.** Traced to how each class's frames were scaled to fit their target cell - by whichever bounding-box dimension (height or width) was larger, to avoid ever overflowing the cell. Amazon's sword arm reaches out sideways far enough that her bounding box is WIDER than it is tall, which meant that safety scale was computed off her width, not her height - shrinking her actual standing height well below Rogue/Barbarian's to keep the sword-reach inside the box. Switched to scaling strictly by height (letting a wide prop extend toward the cell edge instead of shrinking the whole character to accommodate it) - the right general rule for any future class/enemy art too, not just an Amazon-specific patch. Re-verified numerically after the fix: Barbarian/Rogue/Amazon all land within a pixel of the same content height; Hunter's naturally a bit shorter from being crouched, not standing straight, which is correct, not a bug.
-<br />
 
 **One more Amazon-specific tweak after seeing it in-game**: even at the same measured height as the other classes, she still read as visually smaller - a plausible effect of her slimmer, more spread-out silhouette carrying less visual weight than Barbarian's bulky frame or Rogue's wide cloak at an identical bounding-box height. Bumped her scale up ~15% on top of the already-fixed cutout (no re-segmentation needed, just how much of the cell she fills) - new content height ~119px, close to the Mage placeholder's 120px. Confirmed no clipping at any of the 5 frames before locking it in. User's aware better Amazon reference art may come later and this is a good-enough stopgap either way.
-<br />
 
 **Current state**: `resources/character_idle.png` is done for this pass - Rogue, Amazon, Hunter with real art (transparent backgrounds confirmed correct on both plain and fancy consoles), Barbarian/Mage on placeholder rows, sized 5 cols x 8 rows (3 rows still reserved for enemies later). Code side (new console trio, `entity_render.rs` split, `idle_frames_for_class`) all in from earlier this session and confirmed working via the user's own in-game screenshots, not just a clean build.
-<br />
 
 **First real use of the new sheet outside the dungeon itself**: Class Select's highlighted class now plays its real idle-loop breathing animation instead of a static portrait, while every other row stays a plain still icon. New `CLASS_SELECT_IDLE_CONSOLE` (console 18, registered last so it always paints over console 3's static icons) shares console 3's coarse grid but sources from `character_idle.png`. No real ECS entity backs a class-select roster row, so this couldn't reuse the dungeon's own `IdleAnimation`/`tick_idle_animation` machinery - instead two plain `State` fields (`class_select_anim_frame`/`_elapsed_ms`) track it directly, the same "menu timing lives on State, not the ECS" convention `background_move_timer_ms` already established. Pulled the class-to-sheet-row mapping out of `idle_frames_for_class` into a shared `character_idle_row`/`character_idle_glyph` pair in components.rs specifically so this and the in-dungeon spawn path can never drift out of sync with each other.
-<br />
 
 ---
 
 ## PixelLab.ai - the first real batch, and rebuilding the idle sheet around it
 
 User settled on PixelLab.ai for future art generation (see the earlier "put a pin in it" conversation) and sent the first real batch: a Hunter export, delivered as a zip with a genuinely different, much richer shape than anything hand-supplied before - 8-directional static rotations, plus THREE separate named animations (`Breathing_Idle` 4 frames south-only, `Fight_Stance_Idle` 8 frames in south+east, `Walk` 6 frames south-only), all at native 32x32 with clean binary alpha and - unlike every earlier reference image this project processed - background pixels already baked to true (0,0,0) wherever transparent. No segmentation work needed at all this time; PixelLab's own export already matches this project's exact rendering requirements out of the box.
-<br />
 
 **Scoped the integration before touching anything**: Breathing_Idle set aside for now: Walk/south becomes the dungeon/Arena/Class-Select walk-in-place animation (replacing the older manual-pipeline breathing content for Hunter specifically), and Fight_Stance_Idle/east becomes a brand new battle-screen portrait animation - battle previously had NO portrait animation at all, always showing the player's static base glyph regardless of attacking/idle.
-<br />
 
 **A real "how do we scale this" architecture question came up along the way**: since every future class AND enemy AND NPC (even the Shopkeeper) will eventually get real PixelLab animations, would one full sprite sheet per character scale better than the current "one sheet per animation type, one row per character" approach? Reasoned through it from bracket-lib's actual constraints: a distinct sheet needs a distinct registered font AND its own set of consoles (plain + glide + scroll for the dungeon, plain + wiggle for battle) - the expensive, code-complexity-heavy resource is CONSOLES, not image rows. One sheet per character would multiply consoles per character; one sheet per render-context (growing rows for free) keeps console count bounded to the number of distinct contexts regardless of roster size. Kept the existing per-context-sheet approach on this reasoning.
-<br />
 
 **Bumped `character_idle.png` from 5 to 6 frame columns** (`MAX_IDLE_FRAMES`/`CHARACTER_IDLE_COLS`) to fit Hunter's real 6-frame Walk cycle - Rogue/Amazon's own older 5-frame content got a 6th column too (a duplicate of their own frame 1, the same "loop closes" convention the very first reference sheets used before being dropped for being redundant - genuinely useful again now that the column count needs to match across every row). Barbarian/Mage's placeholder rows just repeat across 6 columns same as before.
-<br />
 
 **New: a real battle-portrait animation, previously not a feature at all.** New `resources/character_battle.png` (one row per class, 8 columns matching Fight_Stance_Idle's real frame count, native 32x32 cells - no oversampling concern, this is the same resolution the EXISTING dungeonfont-sourced battle portraits already blow up to a big cell from) plus a new plain+fancy console pair (`CHARACTER_BATTLE_CONSOLE`/`CHARACTER_BATTLE_WIGGLE_CONSOLE`) mirroring console 3/`BATTLE_PORTRAIT_WIGGLE_CONSOLE`'s existing split exactly - `draw_wiggling_portrait`/`draw_portrait`/`draw_portrait_fancy` didn't need touching at all, they just draw whatever `Render`/console a caller already targeted, so the same helpers work unchanged against the new console. The animation itself lives on two new fields directly on `Battle` (`player_idle_frame`/`_elapsed_ms`, ticked in `battle_tick` right alongside the existing flash/damage-popup timers) rather than the ECS `IdleAnimation` component - a battle portrait isn't a dungeon-view entity, and `Battle` already persists for exactly the lifetime (fresh at 0 every new fight) this needed. Scope is player-only for now, matching what was actually asked - enemies keep their existing static dungeonfont portraits. Renamed `character_idle_row` to the more general `class_sheet_row` once a SECOND per-class sheet existed, so both `character_idle_glyph` and the new `character_battle_glyph` share one row-assignment source of truth instead of two copies that could drift.
-<br />
 
 **A real, reproducible bug shipped with that: the ENTIRE title screen filled with tiled Mage portraits, on every screen in the game, not just battle.** Root cause: `character_battle.png` has 8 columns, and bracket-terminal's `cls()` fills every never-drawn-this-frame cell with glyph 32 by default - `32 / 8 == 4` exactly, and row 4 was Mage's row under the shared `class_sheet_row` mapping. `character_idle.png` (6 columns, `32 / 6 == 5`) happened to dodge this purely by landing in an already-reserved blank row - luck, not a guarantee, and exactly why the same shared mapping broke the moment a second sheet with a DIFFERENT column count reused it. Fixed with a dedicated `character_battle_row` (Mage moved to row 5, row 4 deliberately left blank) instead of reusing the shared one, and wrote up the general form of this gotcha in CLAUDE.md: fixing the crash (enough total rows) doesn't fix this quieter failure mode (the specific row `32 / cols` lands on must actually BE blank) - two different bars to clear, not one.
-<br />
 
 **Then: replacing the old dungeonfont class icon everywhere it was still used outside the animation systems.** IdleAnimation/battle-idle already covered the dungeon-map tile and the battle portrait, but two more sites drew the player's raw `Render.glyph` (dungeonfont) directly, bypassing both: Class Select's non-highlighted row icon, and the dungeon HUD's player-status portrait (top-left corner). New `resources/character_portrait.png` (one still pose per class - PixelLab's own `rotations/south.png` for Hunter - column 0 only, reusing character_idle.png's already-proven-safe 6-column layout rather than inventing a new one) plus two more consoles (`CHARACTER_PORTRAIT_CLASS_SELECT_CONSOLE`, `CHARACTER_PORTRAIT_HUD_CONSOLE`) cover both remaining sites, each falling back to the old dungeonfont behavior for any class without a row there yet. That's every current use of a class's static identity now routed through per-class sheets except the base `Render.glyph`/`ClassBaseStats.glyph` fields themselves, which still need to exist as the fallback for classes without real art.
-<br />
 
 ---
 
 ## A Battle Arena balance pass, and a real Dijkstra library bug along the way
 
 Dungeon Crawl got a real data-driven balance pass earlier (the class-survivability simulation); Battle Arena never had one. Extended the same approach: a new `arena_class_survivability_report` test, sharing every helper the Dungeon Crawl one already had (`step_toward`, `use_potion`, `choose_battle_action`, `resolve_battle`) but with its own navigation policy, since Arena's structure is genuinely different - no ambient floor loot at all, so a bot needs to actually SHOP (new `shop_step`: walk to the Healing Potion stack, buy while affordable and in stock, then head for the exit - deliberately simple, ignoring weapons/abilities for now), and wave combat means walking toward whichever enemy is closest (new `wave_step`) rather than toward a fixed exit tile. Tracks a real `ArenaOutcome` (Won the full 3-level run / Died at a specific level+wave-or-boss / TimedOut) instead of the Dungeon Crawl one's simpler "reached the first shop" binary.
-<br />
 
 **First run: 0/10 won for every class, all 50 runs timed out, zero deaths at all.** That's not a balance signal, it's a stuck bot - nothing dies in a game with real combat unless something is fundamentally not happening. Added a temporary debug probe (removed once diagnosed, per this project's own "write a real test, then remove it" convention) printing player position/gold/TurnState every step of one real run, and found the bot endlessly oscillating one tile away from the shop's own exit tile, forever, having already correctly bought potions.
-<br />
 
 **Root cause traced all the way into `bracket-pathfinding`'s own source, not this project's code**: `DijkstraMap::build()` seeds its internal queue with the target at depth 0.0, but never actually writes that 0.0 into the target's own `dm.map[]` slot - only neighbors' own later relaxation passes overwrite it, landing at roughly the edge cost back to whichever neighbor got there first (~2.0 for one cardinal hop) instead of the true 0. A `step_toward` bot picking "whichever neighboring tile has the lowest reported distance" can therefore see the ACTUAL target report a WORSE number than a tile genuinely farther away, and get stuck in a stable back-and-forth right next to it - worst-cased exactly here, since the Arena shop's exit sits against a wall on one side with only 3 real approach directions instead of 4, making the specific tie/cycle far more likely to actually manifest than in a more open dungeon-floor exit's usual surroundings (which is very likely why this exact defect never surfaced during the Dungeon Crawl simulation's own development, despite `step_toward` being shared code that was always theoretically exposed to it). First fix was a special case ("this candidate IS the literal target, take it unconditionally") - held up for THAT specific cell, but a second real reproduction turned up a DIFFERENT stable 2-cycle a couple of tiles away (the library's open list is a plain FIFO queue, not a priority queue, so a wrong seed value can itself get used as a base by further relaxations and corrupt more than just its own cell). Patching individual symptomatic cells wasn't going to hold indefinitely, so `step_toward` now uses a small from-scratch BFS (`bfs_distance_field`) instead of the library function entirely - every step here costs exactly 1, so plain BFS is the textbook-correct algorithm anyway, not a workaround. Documented precisely in CLAUDE.md's standing gotchas, since any future Dijkstra-seeded navigation in this project would hit the identical wall.
-<br />
 
 **A third, unrelated bug surfaced once navigation itself was solid: the bot kept undoing its own progress toward the exit.** `try_buy_item` checked "am I standing next to this item" BEFORE checking "can I actually afford it" - so once gold ran out, an entity not currently adjacent to the (now unaffordable) Healing Potion stack would still blindly walk toward it every single tick, only bailing out once it happened to arrive next to it, fighting whatever the NEXT tick's real priority (heading for the exit) had just accomplished. A real ordering bug, not a pathfinding one - swapped the two checks so affordability is settled first, before ever deciding to navigate anywhere.
-<br />
 
 **With all three fixed, the simulation finally produced complete, trustworthy data - zero timeouts across all 50 runs** (10 per class), each one now resolving to a real win or a real death:
 
@@ -3896,88 +3792,69 @@ Hunter:    0/10 won - deaths: L3W2, L2W2, L3W3, L3W2, L3W2, L3W2, L3W2, L3W3, L3
 ```
 
 Zero clears for every class with this bot's policy (one weapon tier per level, potions with whatever's left, no ability purchases) - a real lower-middle-bound signal, same spirit as the Dungeon Crawl simulation's own documented caveat, not a verdict on real play. Mage is the clear outlier dying earliest and most often at Level 2's boss specifically, matching its already-known fragility (Defense -1, lowest HP). Barbarian and Hunter both consistently reach Level 3 before dying, Barbarian slightly deeper on average. Level 3 (especially its boss and late waves) is a real wall for every class as currently tuned - worth a closer look before any specific number changes, not acted on blind from this one data pass alone.
-<br />
 
 ---
 
 ## Closing out the still-icon migration, then the full 5-class PixelLab roster
 
 Two more sites were still drawing the player's raw dungeonfont `Render.glyph` directly, missed by the earlier "replace every old icon" pass: `screens/end.rs`'s `draw_end_screen_portrait` (the run-ending Victory screen's hero icon - distinct from `battle.rs`'s own per-fight Victory screen, already fixed) and `draw_end_screen_fallen_portrait` (the Game Over screen's rotated fallen-hero pose). Both now try `character_portrait_glyph` first, same as every other site. The rotated Game Over pose needed a genuinely new console - `END_SCREEN_FALLEN_PORTRAIT_CONSOLE` (23), a fancy console sourced from `character_portrait.png` at the same `DISPLAY_WIDTH x DISPLAY_HEIGHT`/32px-cell grid as `END_SCREEN_FALLEN_CONSOLE` - since `set_fancy`'s rotation only works against whatever font a given console is bound to, and the old console is permanently bound to `dungeonfont.png`. Also gave `draw_battle_arena` (the in-battle Victory screen) its intended middle tier: still-portrait fallback via `character_portrait_glyph`, slotted between the animated battle-idle tier and the raw-glyph last resort, on the console renamed to `CHARACTER_PORTRAIT_BIG_CONSOLE` since it's now shared by three call sites instead of one.
-<br />
 
 **Then the user sent real PixelLab exports for the remaining four classes - Mage, Rogue, Amazon, Barbarian - one zip per message, each in the exact same shape as Hunter's original.** Same integration recipe applied five-for-five, no new code needed for any of them (every class already had a reserved row from the earlier placeholder pass): `Walk/south`'s 6 frames into `character_idle.png` (upscaled 4x nearest-neighbor into that sheet's 128px cells), `Fight_Stance_Idle/east`'s 8 frames into `character_battle.png` at native 32x32, `rotations/south.png` into `character_portrait.png` column 0, `Breathing_Idle` set aside every time. Each class's opaque pixels got the same near-black floor (≥30 per channel) applied fresh, since the exact fraction needing it varied a lot by art (roughly half of Mage's dark-robe pixels qualified, a third of Rogue's) - confirmed via numpy rather than assumed, per class.
-<br />
 
 **Rogue and Amazon weren't blank placeholders like Mage/Barbarian were - they already held real, varying frames from an older hand-processed pipeline** (predating PixelLab, visible in scratch files like `rogue_final_*`/`amazon_v6_*` from earlier in the project). Confirmed which was which with a quick numpy pixel-diff between two frames of the same row (identical frames = untouched placeholder, real diff = actual content) before deciding to overwrite either one - "everything should follow the same paths for the classes" meant standardizing all five on the new pipeline, superseding the older hand-made Rogue/Amazon art rather than leaving it as a special case.
-<br />
 
 **Every row's own neighbors got a visual before/after check after each swap** (crop the row above and below, confirm no bleed) rather than trusting the paste-region math alone - cheap insurance against a copy-paste sizing mistake silently clobbering an adjacent class. All five classes are now on real PixelLab art across all three sheets (idle/battle/portrait); the old dungeonfont-glyph fallback in every lookup function still exists but has no current class left that actually falls through to it.
-<br />
 
 **A sixth zip arrived for "Debug"** - the hidden dev/test class (real base stats in `spawner::class_base_stats`, a real starting kit and template techniques, reachable only via a 'D' hotkey in `class_select` that isn't part of the visible `CLASS_ROSTER` list) - a Robot-themed character. Unlike the five visible classes, Debug had genuinely never been given a row on any sheet before, so this needed one real (tiny) code change alongside the asset work: `"Debug" => Some(5)` added to `class_sheet_row` (idle/portrait sheets) and `"Debug" => Some(6)` added to `character_battle_row` (row 6, since row 4 stays permanently blank and row 5 is Mage's on that sheet specifically). Both landed in rows that were already blank on the existing PNGs - no resize needed, confirming the "rows 5-7 reserved" headroom mentioned in earlier entries was exactly for cases like this. No other code changes were needed; `idle_frames_for_class` and every glyph-lookup function already key off these two row functions, so Debug's dungeon/battle/portrait rendering came online automatically once the row existed.
-<br />
 
 **That "Some(5)" on `class_sheet_row` was the bug, confirmed by a user screenshot minutes later: the Adventure Select screen tiled wall-to-wall with Robot portraits, same shape as the earlier Mage incident.** `class_sheet_row` was shared by BOTH `character_portrait_glyph` (portrait sheet) AND, at the time, `character_idle_glyph`/`idle_frames_for_class` (idle sheet) - safe for the portrait sheet (it only ever populates column 0 of a row, and glyph 32's column on a 6-col sheet is column 2, permanently blank there regardless of row), but NOT safe for the idle sheet, which fills every column of a class's row with a real walk-cycle frame. Row 5 is exactly where glyph 32 lands on a 6-column sheet (32 / 6 == 5) - the same "intentionally reserved, blank-so-far" row every earlier entry noted as safe purely because nothing had been assigned there yet. Debug's assignment was the first real content ever placed on that row, and the bug was immediate and total (`CHARACTER_IDLE_CONSOLE` spans the full display). Fix: split a dedicated `character_idle_row` off from `class_sheet_row` (mirroring `character_battle_row`'s existing pattern exactly) that permanently skips row 5 and puts Debug on row 6 instead; `class_sheet_row` now serves the portrait sheet only, where reuse is actually proven safe rather than merely lucky. Moved Debug's already-composited idle frames from row 5 to row 6 in the PNG itself and re-blanked row 5. Lesson written up directly in the new function's own doc comment rather than just CLAUDE.md, since this is the second confirmed real occurrence of the exact same failure class (first on `character_battle.png`/Mage, now on `character_idle.png`/Debug) - a strong signal that "reuse the shared per-class row mapping" is the actual anti-pattern here, not a one-off mistake, and any THIRD per-class sheet added later should get its own dedicated row function from the start rather than starting from the shared one and hoping.
-<br />
 
 ---
 
 ## Two real asset-pipeline bugs the user caught by eye, neither one code
 
 The user reported Mage's Class Select row "still has the original icon below the walking animation" - and immediately corrected an early guess that this was a title.rs logic bug: "It's the artwork, not the code." Right call - a numpy pixel-diff (compare the current sheet's Mage row against a fresh render of the same source frames) found ~3100 leftover opaque pixels per idle-sheet frame and ~230 per battle-sheet frame, all exactly matching the OLD placeholder's own RGB values. Root cause: Mage was the very first class composited this session, and that very first script pasted new frames straight onto the sheet with no "clear the cell first" step - later classes (Rogue onward) got that step added after Rogue/Amazon turned out to already hold real (not placeholder) older art that needed clearing, but Mage's own two sheets (idle, battle - portrait WAS blanked first, and came out clean) never got backfilled with the same fix once the pattern was established. Wherever the new frame's silhouette didn't fully cover the old placeholder's silhouette (different pose, different edges), the old pixels peeked through underneath - "below the walking animation" was literally accurate, not just a loose description. Fixed by re-running Mage's idle/battle composite with the now-standard blank-first step.
-<br />
 
 **While verifying no other class had the same leftover-pixel bug, a second, unrelated, and much bigger issue turned up**: the user separately asked "are you changing the size of any of the images" after noticing animations looking smaller than the still portraits. Checking every class's actual PNG dimensions (not just trusting `metadata.json`'s declared 32x32) found PixelLab does NOT export every animation state at a fixed 32x32 canvas - `rotations/south.png` and (for 5 of 6 classes) `Fight_Stance_Idle` are 32x32, but `Walk` varies per class: Hunter 48x48, Rogue/Barbarian/Debug 44x44, Amazon 40x40, only Mage's actually 32x32 (coincidentally, which is exactly why Mage never showed the scale bug). Comparing bounding boxes across differently-sized canvases for the same class showed the character's own absolute pixel size stays constant and roughly centered regardless of canvas size - PixelLab just gives some animations more padding to avoid clipping during a bigger range of motion (arm/leg swing), it doesn't actually render the character bigger or smaller. Since the idle-sheet compositing script resized "whatever canvas size" straight to the sheet's 128px cell, a padded 48x48 canvas got a smaller effective scale-up (128/48 ≈ 2.7x) than a tight 32x32 canvas (128/32 = 4x) - the exact "animations become smaller" the user noticed, present for every class except Mage. Separately, Debug's 44x44 `Fight_Stance_Idle` frames had been direct-pasted (no resize at all) into the battle sheet's 32x32-native cell slots, which doesn't crop or scale - it just draws the full 44x44 image starting at that position, bleeding 12px into each neighboring cell.
-<br />
 
 **Fix: normalize every frame to a true 32x32 canvas (center-crop when larger) before any further processing, not just resize-to-fit-cell.** Confirmed via the same bbox check that every affected class's character content fits comfortably inside a centered 32x32 crop of its larger canvas (closest call was Rogue/Barbarian/Debug's Fight/Walk bbox extending to y=36 against a crop boundary at 37 - real margin, not a coincidence). Re-composited: `character_idle.png` rows 0/1/2/3/6 (Barbarian/Rogue/Amazon/Hunter/Debug - Mage's row 4 was already correct scale, separately fixed for the leftover-pixel bug above) and `character_battle.png` row 6 (Debug only). Verified with the same leftover-pixel diff AND a fresh bbox-in-final-cell check (Hunter's walk frame went from an under-scaled ~40x80px footprint in its 128px cell to the correct ~60x120px matching a true 4x scale) that every class, every sheet is now clean - zero leftover pixels, zero cross-cell bleed. Lesson for every future PixelLab batch: never assume `metadata.json`'s declared size describes every exported frame's actual canvas - check each animation state's real PNG dimensions before compositing, and center-crop to 32x32 whenever it's larger.
-<br />
 
 ---
 
 # 9/8/26
 
-<br />
 
 ---
 
 ## Enemies get their own sprite sheets
 
 Moved on from classes to enemies today. First question worth settling before touching any art: do enemies go on the same `character_idle.png`/`character_battle.png` sheets the classes just finished, or somewhere else? Talked it through rather than just picking - those two sheets only had one free row left each, nowhere near enough for the enemy roster (Goblin, Orc, Ogre, Ettin, plus three bosses), and enemies are looked up by `Name`, a genuinely different key space from the class-keyed row functions. New sheets instead: `enemy_idle.png` and `enemy_battle.png`, same per-row-per-thing convention, own dedicated `enemy_idle_row`/`enemy_battle_row` functions in `components.rs`.
-<br />
 
 One deliberate difference from the class convention: the battle-idle stance uses PixelLab's `south-west` rotation for enemies, not `east` like every class. Not a mismatch - the battle screen puts the player bottom-left and enemies upper-center/right, facing off, so an enemy facing toward the player reads right where the player's own rightward `east` stance wouldn't.
-<br />
 
 ### Wiring it in touched more than a class sheet did
 
 Enemies are dungeon-view entities that also show up in multi-enemy battles - two things a single player never needs at once. `components.rs` needed a new `IdleSpriteSheet::EnemyIdle` variant (Rust's own exhaustiveness check then flagged every render match site that needed a matching arm). `main.rs` needed a third "insert early, renumber everything after" console move - same pattern `CHARACTER_IDLE_*` used twice before - since the new `ENEMY_IDLE_CONSOLE` trio has to sit below the HUD/Ability Bar layer like every other dungeon-view console; everything from `HUD_CONSOLE` on got bumped by 3. `ENEMY_BATTLE_CONSOLE`/`ENEMY_BATTLE_WIGGLE_CONSOLE` had no such constraint (no dungeon HUD during a battle) and just got appended at the end. `EnemyCombatant` (`battle/mod.rs`) picked up its own `battle_idle_frame`/`battle_idle_elapsed_ms` - each enemy in a fight needs its own independent animation counter, same reason gauge/flash/statuses already are per-enemy there.
-<br />
 
 ### First one through the pipeline: Goblin
 
 Built `enemy_idle.png`/`enemy_battle.png` from scratch with just Goblin's zip, verified with a real screenshot rather than trusting the build - no project skill existed yet for actually driving this bracket-lib GUI app, so put together a small ad hoc driver instead: `pip install --user python-xlib`, then XTEST (`fake_input`) for real keypresses and `get_image` for window screenshots. Worked cleanly on this WSLg/X11 setup. Walked a Goblin around the title-screen background and fought one in a live Battle Arena wave - both the walk animation and the new battle-idle portrait rendered cleanly, no bleed, no leftover placeholder art. Worth turning into a real skill (`/run-skill-generator`) next time this comes up instead of rebuilding the driver from scratch.
-<br />
 
 ---
 
 ## The rest of the roster, sent all at once
 
 Asked how many enemies could be sent at the same time - answer: all 6 remaining regular enemies/bosses fit exactly into the 6 free rows left on each sheet after Goblin, so sending all of them in one batch meant building both sheets once instead of six separate times. The zip list also included an "Ogre Boss" with no matching entry anywhere in `template.ron` - asked directly rather than guessing what that meant.
-<br />
 
 ### Ogre Warlord is a genuinely new enemy
 
 Turned out "Ogre Boss" wasn't a re-skin of anything - "Boss" was just the working label used while generating the art in PixelLab, and the actual ask was a new fourth boss following the game's existing Chieftain/Warlord/Overlord naming. That raised a real design question: the dungeon only has one boss slot per level today (Goblin Chieftain/level 0, Orc Warlord/level 1, Ettin Overlord/level 2) - where does a fourth one go? Turned out `Templates::spawn_boss` (`spawner/template.rs`) already picks randomly, weighted by `frequency`, among EVERY `boss_only` template matching the target level - it already supported more than one possible boss per level with zero code changes needed. Asked which level(s) Ogre Warlord should be eligible for; the answer was both 1 and 2, so it's now a second possible pick alongside Orc Warlord and Ettin Overlord respectively. Placeholder stats (13 HP / 3 dmg / 4 speed, same "not really balanced yet" status the original three bosses carry) sit deliberately between its two level-mates rather than favoring either slot.
-<br />
 
 Picking its glyph turned into its own small lesson. `F` looked free, wasn't - a `template.ron` grep caught that Fireball's technique icon already owns it. `e` (confirmed genuinely free in the glyph-map doc's own master table) is what it actually got. Worth remembering: a `template.ron` grep alone won't catch every claimed codepoint, since some glyphs (ability icons, UI elements) live outside Enemy/Item entries entirely - check the glyph-map doc's table too, not just the RON file.
-<br />
 
 ### Orc Warlord's own art: a real defect, caught before it shipped
 
 Building all 7 sheets at once and eyeballing every row before wiring anything in paid off immediately - Orc Warlord's row came out as a thin, ~9px-wide off-model sliver instead of a full character, on BOTH its `Walk` and `Fight_Stance_Idle` animations. Checked the raw, un-cropped source frames directly to rule out a cropping bug on this end first - genuinely broken at the source, not a processing mistake, confirmed further by its own static `rotations/south.png` pose looking completely correct (so whatever went wrong was specific to the animation generation, not the character design itself). Held it back rather than shipping it, the same call made for Amazon's Walk earlier this same day - rebuilt both sheets a second time straight from the raw zips with Orc Warlord left out, so the shipped files never contained the broken frames at all. It still renders on its old dungeonfont glyph (`K`) for now, no regression, just not upgraded yet - row 6 is reserved for it on both sheets once a redone batch comes back from PixelLab.
-<br />
 
 Verified two of the six new enemies live end-to-end (Orc's walk animation and battle portrait, same as Goblin's original check) - the rest use the identical code path with no new logic branches, so they were checked pixel-by-pixel on the sheets themselves (a checkerboard-background preview per row) rather than each individually fought in a live battle.
 
@@ -3986,48 +3863,38 @@ Verified two of the six new enemies live end-to-end (Orc's walk animation and ba
 ## Real map tiles - from colored ASCII to actual pixel-art themes
 
 New branch (`map-tile-themes`) for a genuinely different system: the dungeon map itself has only ever been a single colored glyph per `TileType` (`.`/`#` for Dungeon, `;`/`"` for Forest) - real per-tile textures, the same "give it real art" upgrade characters/enemies already got. Talked through the design before touching code, per the usual convention for something this size.
-<br />
 
 ### The 16-cell template and the numbering convention
 
 Landed on a fixed 4x4 grid per theme - row 1 floor, row 2 wall, row 3 "themed floor" (decorative variety), row 4 "special wall" (impassable features, placement deferred). Every theme's 16 ideas get communicated as one flat numbered list, 1-16, row-major - documented in a new `docs/Map_Tile_Theme_Guide.md`, the map-rendering counterpart to the glyph-map doc. One rule that turned out to matter a lot later: cell #1 (floor) and #5 (wall) have to be the theme's plainest, most generic look, since the whole map starts as 100% those two before anything else gets layered on.
-<br />
 
 ### Forest, the first real theme - and three generator lessons
 
 Built `resources/map_tiles.png` from the user's Forest tileset, discovering along the way that the generator bakes real 1-3px black grid-line borders INTO the image itself (not a preview artifact) - always crop those out before compositing, or every tile boundary bakes in a visible seam. Also confirmed something worth checking for every future tileset by actually tiling candidates 4x4 before shipping anything: noise/texture tiles (grass, a repeating tree canopy) read fine repeated in bulk, but a "single centered object" tile (one big boulder) produces an obvious clone-stamp grid instead - matters for rows 1-2 specifically, since those are the ones that actually repeat. Forest's own thicket/briar-patch cells also came back nearly indistinguishable from each other despite different prompts - not broken, just a reminder to push for more visual separation between similarly-themed cells next time.
-<br />
 
 ### Wiring it in - a new console pair, and a real crash from the classic glyph-32 gotcha
 
 One shared `map_tiles.png` atlas, one console pair (not one per theme - that would've repeated the "one sheet per character" mistake this project already learned from). Rendering only replaces Floor/Wall - Exit/Counter/Water still fall through to the old dungeonfont path, the same "no row yet" shape every other migrated sheet already uses. First real launch crashed immediately with "attempt to subtract with overflow" - the exact glyph-32 panic CLAUDE.md already documents, just newly relevant because a fresh 4-row tile sheet doesn't even contain index 32 at this column count. Padded the sheet and flagged row 8 as this sheet's own permanently-forbidden row.
-<br />
 
 ### The generation algorithm - patches vs. noise, then patches vs. scatter
 
 First pass rolled a fully independent random variant per tile - confirmed too noisy in real play, floor and wall became hard to tell apart at a glance. Replaced with: every tile starts on its plain default (cell #1/#5), then wall tiles get a scattered MINORITY of individual accent swaps (no blocks - a wall's too thin for a block to read differently from a scatter), and floor tiles get a handful of contiguous randomly-sized patches of ONE alternate variant each - actual "blocks of leaves, blocks of moss" instead of pixel noise.
-<br />
 
 That wasn't the end of it, though. Once Dungeon and Sewer were live, a real screenshot showed Dungeon's torchlight-glow cell patched as a whole region - a literal wall of individual torch-light pools, which no real dungeon would have. Turned out "every non-default variant gets the same treatment" was itself wrong: some cells (a torch, a grate, a bone pile) are discrete point fixtures that should scatter, not patch, while others (moss, a puddle, an algae bloom) genuinely are spreadable ground cover. Added `MapTheme::floor_variant_style(variant) -> Patch | Scatter`, defaulting to Patch, overridden per-theme only where a cell actually needs the other treatment - direct answer to "how easy is it to have special settings for each theme": very, since `MapTheme` was already the right per-theme (here, per-variant) extension point.
-<br />
 
 ### Dungeon and Sewer - and a real framework for "a few more themes"
 
 Two more full tilesets, both clean on the first try (no defects, no near-duplicate cells this time, both tileability-checked wall candidates held up). Since the user wants to keep adding themes, replaced the old `rng.range(0, 2)` + match theme picker with `dungeon_theme_pool()` - one vec literal every theme lives in - so adding number four is one line, not a hand-counted range bump. Sewer's own second row landed on this sheet's forbidden row 8 by the naive math (theme 3 = rows 8-11) - skipped to 9-12 instead, row 8 stays permanently blank.
-<br />
 
 ### Two real regressions, caught in actual play, not by the build
 
 The first: the Shopkeeper vanished on any Floor/Wall tile, and Orc Warlord visibly popped in and out of existence while walking around. Root cause was the same for both - `MAP_TILE_CONSOLE` sat at registration index 6, ABOVE the old, foundational, never-named "console 1" that any dungeon-view entity with no real idle-frame art renders on (the Shopkeeper, floor items, any not-yet-migrated enemy). Real tile textures were painting right over that whole entity layer. The "below the HUD" rule every earlier console addition cared about turned out necessary but not sufficient - this console also had to sit below literally the oldest, most foundational entity console, which had no room before it without moving something. Fixed by swapping `MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE` into slots 1/5 and finally promoting that unnamed literal "console 1" to a real constant, `ENTITY_CONSOLE`, moved to slot 6.
-<br />
 
 The second: Sewer's walls read as too visually flat - not enough inherent contrast between wall and floor art at the same brightness. Fixed with a flat darkening multiply on real-texture wall tiles specifically (`WALL_TEXTURE_SHADE`), a code-side fix that benefits every theme uniformly instead of needing new art or a per-theme special case.
-<br />
 
 ### A "bug" that wasn't
 
 A screenshot showed "Gold: [something unreadable]" looking cut off at the top of the shop screen. Audited the code first rather than guessing at a fix - both "Gold:" and "Dungeon Level:" use the literal same print call/position/console, and the format string can never produce a letter, so there was no code path that could produce what looked like a stray "W." Asked for a tighter screenshot instead of patching something that might not be broken; the follow-up showed "Gold: 25" rendering perfectly cleanly - just a compression artifact on an 8px font in the original image, not a real bug. Worth remembering as its own lesson: audit before you fix, especially when a report doesn't match anything the code could actually produce.
-<br />
 
 ### Input-automation notes for next time
 
@@ -4040,69 +3907,52 @@ The ad hoc python-xlib/XTEST driver from the enemy-art session got noticeably le
 ## Real painted battle-arena backgrounds - Forest/Dungeon/Sewer
 
 Picked up the "reconsider the arena's static background/scenery" item from the battle-screen-redesign backlog. Talked through the design first, per the usual convention: the battle background already tracked the correct dungeon theme (Forest/Dungeon/Sewer share the exact same `Box<dyn MapTheme>` resource the map renderer reads), but it was still rendering that theme with the pre-tile-art technique - a flat tinted CP437 glyph fill plus a vignette and one of two generic scenery overlays (`ScatteredTrees`/`RoomWalls`), unchanged since before the map ever got real pixel-art tiles.
-<br />
 
 Considered reusing the map's own tile art (`map_tiles.png`) to build the arena floor out of small repeating tiles, but the existing tile sets were never designed to read as a "stage" up close, and the user correctly called out that path would need a lot more themed tile variety to avoid looking stale fast. Landed instead on one full painted scene per theme - a proper JRPG-style battle backdrop (like classic Final Fantasy/Chrono Trigger, which paint the background and layer crisp sprite characters on top) rather than a tileable grid asset.
-<br />
 
 ### Getting the art right took real iteration, not one prompt
 
 Sourced the art externally rather than generating it in-house (PixelLab is built for character sprites, not full painted scenes) - the user tried Lucid Origin. First Forest attempt: nice mood, but symmetric/mirrored ("radial clearing" is a classic diffusion-model default) with the two center tree trunks sitting right where enemies needed to stand. Second attempt broke the symmetry but added little creature figures the prompt explicitly excluded, and still had a trunk reaching into the enemy zone. Third attempt fixed both - clean, asymmetric, correct zones - but read as an open woodland clearing rather than an enclosed "stage" the way Dungeon/Sewer's stone-walled rooms immediately did. A fourth, tightened prompt (thick fallen logs/root-wall along all four edges, mirroring Dungeon/Sewer's solid perimeter) finally landed a version that reads as a proper boxed arena while staying distinctly forest.
-<br />
 
 That version still had two small hidden creatures the model snuck in (an obvious one in the open clearing, a second, subtler one - just a mouth/eyes tucked in a tree hollow - found on a closer double-check afterward). Both were isolated on fairly uniform texture, so patched both out locally with a feathered clone-stamp (copy a similar nearby patch, blend the seam with a soft elliptical mask) instead of spending another generation on it. Dungeon and Sewer both worked on the first real attempt - the "enclosed room" framing the user's own prompt asked for came naturally to an indoor stone chamber in a way it didn't for an open forest clearing.
-<br />
 
 ### Wiring it in: one new console, and the deepest z-order insertion this project has needed yet
 
 Cropped/scaled all three (source images came back 1344x768, cropped to 1229px wide centered then scaled to exactly 1280x800 - the arena viewport's real pixel size) and added `MapTheme::battle_background_row` (mirrors `tile_row`'s existing `Option<u16>` shape/fallback exactly) so a theme without real art yet still falls back to the old procedural fill, unchanged.
-<br />
 
 Rendering the result needed a genuinely new console, not just new art - the backdrop has to sit below the battle screen's own text (FINE_TEXT_CONSOLE) and creature portraits (BATTLE_PORTRAIT_CONSOLE), both of which had been bare literals (`2` and `3`) since the very beginning, never touched by any of the four previous "insert early, renumber everything after" moves this project's console list has already been through - all of which only ever needed to go below the HUD, never this deep. Promoted both to real named constants as part of the insertion (the same reason HUD_CONSOLE/BIG_TEXT_CONSOLE were promoted once before) and bumped every console index in the file by one. A fully mechanical, grep-verified change - every literal `2`/`3` console call site across battle.rs/main.rs/end.rs/title.rs is enumerable by one search, so nothing could hide.
-<br />
 
 Hit the classic glyph-32 crash again, in a new shape: a single-column font sheet (one glyph = one full 1280x800 image, stacked 3 rows for the 3 themes) needs at least 33 rows just for `cls()`'s default fill (glyph 32) to land on a valid cell, which would have meant an absurd 1280x26400 texture. Fixed by widening the atlas to a 6-column x 6-row grid (7680x4800, glyph 32 lands safely on row 5 - still blank) instead of a tall single column - same underlying gotcha CLAUDE.md already documents, just a new failure shape (a crash from too few TOTAL cells, not the sneaky "wrong row" tiling bug from previous sessions).
-<br />
 
 ### Verification: source-confirmed, screenshot-partial
 
 Traced bracket-terminal's own `calc_step`/`rebuild_vertices` source directly (not just inferred from behavior) to confirm a console's grid always stretches to fill the entire window based purely on its own cols/rows, completely independent of its font's tile pixel size - confirming the "1x1 console = one glyph spanning the whole screen" design actually works the way BATTLE_PORTRAIT_COLS/ROWS's existing coarse-grid trick already relies on. Got a real screenshot of the title screen post-renumbering (via the same ad hoc python-xlib driver from prior sessions) confirming no crash and no regression to the console range below the insertion point. Could not get a screenshot of a live battle or Class Select specifically - the same WSLg synthetic-input unreliability documented in a prior session's own notes (screenshots work regardless of focus; synthetic keyboard/mouse input doesn't reliably reach the game window) - left the game running and asked the user to check those two screens directly with real input instead of sinking more time re-attempting the same xlib approach.
-<br />
 
 ### The white-crack bug - a shader I mis-modeled, not a new mystery
 
 The user's own live screenshots (all three themes, mid-battle) showed jagged white cracks tracing the darkest lines in every scene - mortar lines, canopy gaps, shadow edges. First instinct was to suspect the huge 7680x4800 texture or WSLg's virtualized GPU, but tracing bracket-terminal's actual `CONSOLE_WITH_BG_FS` shader source settled it directly: even a WITH-background console falls back to the flat per-vertex background color for any texture pixel whose RGB is all <=0.1 (~25/255) or whose alpha isn't fully opaque - the exact same rule CLAUDE.md already documents for a `_no_bg` console, which the "WITH bg avoids this" assumption in this session's own earlier design writeup turned out to be wrong about. The battle art was never floored the way every other sprite sheet in this project already is (`>=30/channel` on near-black pixels) - every shadow was tripping the shader's fallback and rendering as solid white (the fallback color chosen for the backdrop draw call).
-<br />
 
 Fixed by reprocessing all three images with every channel floored to `>=30` (imperceptible - verified against the patched Forest image, both clone-stamp fixes held up) and switching the fallback color from white to black as defense-in-depth, so any pixel that somehow still slips through blends into a dark scene instead of standing out. Added this as a documented third variant of the glyph-32-adjacent near-black-pixel gotcha in both CLAUDE.md and DEVLOG.md, since it's the same underlying rule biting a new asset type (a full-scene backdrop) that nobody had reason to think needed the same treatment as a character sprite sheet.
-<br />
 
 ## Title screen upgrades - a new branch, camera clamping, and the frozen background enemies
 
 Merged the battle-background work into `master` directly (no branch this time), then started a genuinely new branch for the next ask: "the enemies on the title screen should walk in place too" plus a related camera bug the user had separately noticed - visible black space around the map's edges, both on the title screen and, it turned out, during real dungeon-crawl play too.
-<br />
 
 ### Diagnosing both bugs before touching code
 
 Investigated first rather than guessing. The "frozen" enemies turned out to already have idle animation wired up correctly - the actual bug was a throttling mismatch: `tick_idle_animation_system` only ran once every `BACKGROUND_MOVE_INTERVAL_MS` (400ms, the enemy-wandering pace), and each time it ran it only added that single triggering frame's real elapsed time (a few ms), not the ~400ms that had actually passed - so an idle frame took roughly 9 real seconds to advance. The class-select portrait right next to these enemies looked alive because it ticks its own timer directly, every frame, with no such throttle.
-<br />
 
 The black-void bug traced back to `Camera` never having any bounds awareness at all - it's just a fixed `DISPLAY_WIDTH x DISPLAY_HEIGHT` window centered exactly on a target point, with no clamp against the map's own `SCREEN_WIDTH x SCREEN_HEIGHT`. The title screen's own one-shot camera placement made this obvious fast, since it centers on whatever random point a map architect happened to pick as "player start" (only one of three architects even picks something centered) and never updates afterward - but the exact same fixed-window-no-clamp math runs during real gameplay too, meaning walking close to any map edge shows the identical black void mid-run. Confirmed with the user that this was worth fixing centrally rather than patching the title screen alone: "the same logic should keep it within the dungeon map" for both.
-<br />
 
 ### The fix, and the wrinkle it exposed
 
 Added a shared `Camera::clamped_top_left` helper - the same clamp math used by both `Camera::new` (title screen's one-shot placement) and `on_player_move` (every real step). Wrote an exhaustive test (every possible target point on the map, not just a few samples) confirming the window never extends past bounds anywhere, then removed it per the usual "verify, then delete" convention - the math itself doesn't need a permanent test.
-<br />
 
 The clamp exposed a real wrinkle in `camera_render_offset` (the sub-pixel smoothing during a glide): its own doc comment already said it was written to "deliberately match Camera::new/on_player_move's own math exactly," which stopped being true the moment that math started clamping. Fixed by having it interpolate between the ALREADY-clamped camera position at both ends of a glide (the tile moved from, and the tile moved to) instead of interpolating the player's raw position and subtracting a constant half-window offset - the two only ever disagreed near a map edge, exactly where it would have mattered.
-<br />
 
 For the enemy animation, moved `tick_animations`/`tick_idle_animation` out of the title screen's throttled 400ms movement schedule and into the schedule that already runs every real rendered frame - decoupling "how often does this enemy decide to take a new step" (still 400ms) from "how smoothly does its animation progress" (every frame, matching real gameplay). Verified for real with a burst of screenshots 80ms apart: a stationary background goblin visibly cycled through several distinct walk-in-place poses within under half a second, then stepped to its next tile right on the 400ms schedule - both halves working independently, as intended.
-<br />
 
 Also ran the exact `hud_system_execution_tests`-style check (build a real Schedule, `.execute()` it against a real World, confirm no `AccessDenied` panic) against the newly-combined schedule, since this was the first time `tick_animations`/`tick_idle_animation` ever ran alongside `map_render`/`entity_render` in the same place - passed, removed afterward per the same non-permanent-test convention.
-<br />
 
 ### One more thing found along the way, deliberately not fixed here
 
@@ -4113,29 +3963,22 @@ A user screenshot of a real 2-enemy Forest fight showed the second enemy pushed 
 ## A real regression, then the enemy-position follow-up gets its own branch
 
 Merged the title-screen work into `master` directly, then a doc-restructuring pass on `docs/ideas.md` after realizing my own "what's on the todo" summary had missed whole sections - several already-finished items were still sitting in the numbered Working list with "(fixed)" notes instead of moving to Done, and two entire sections (Refactoring opportunities, Content/world) held real open work with no number at all. Folded both into the numbered list, moved finished work to Done, and wrote the fix into the doc's own header as a standing rule - every open item gets a number from now on, no exceptions.
-<br />
 
 ### A real bug found by tracing math, not by guessing
 
 Before touching the enemy-position follow-up, dug into a separate report: "we only see the counter and the stairs when the character is moving." Traced it to a genuine off-by-one in the camera-clamp work from the previous session - `Camera::bottom_y` was defined as `top_y + DISPLAY_HEIGHT`, matching `right_x`'s own formula, but the map-rendering loop consumes `top_y..=bottom_y` INCLUSIVELY while it consumes `left_x..right_x` EXCLUSIVELY - so `bottom_y` needed to be one less than the X-axis pattern, not the same. The old pre-clamp formula happened to give the right row count purely because `DISPLAY_HEIGHT` (25) is odd, which is exactly why nobody had ever noticed the Y-loop was inclusive at all until the clamp rework touched that formula. Confirmed the mechanism precisely before fixing anything: bracket-terminal's plain console silently drops an out-of-range `set()` call with no panic, so the whole bottom row of the viewport just never drew while standing still, and only reappeared for the ~220ms of a glide (a different, bounds-check-free render path). Fixed with a one-line `- 1`, verified with an exhaustive test, merged straight to `master` given how severe it was (every player was missing part of their own view during ordinary standing-still play) rather than waiting for a live check the way the more subjective art-positioning work gets.
-<br />
 
 ### The enemy-position fix, in four real rounds
 
 New branch, `enemy-portrait-positions`, for the backlog item the previous session had deliberately left alone. Every round was verified the same way: crop the actual theme art out of `resources/battle_backgrounds.png`, overlay the candidate grid with Python/PIL, look for real overlap - not guessed from memory of what the art looked like.
-<br />
 
 Round one replaced the old fixed 2-enemy/3-enemy/4-enemy coordinate table with a single evenly-spread row, verified clear of the fence/edges on all three themes. Shipped, then the user sent two live screenshots that didn't match my own math at all - turned out to be a stale game process still running the OLD code from before the fix (Rust doesn't hot-reload; a window launched before an edit keeps running the old binary no matter how much source changes afterward). Confirmed precisely by converting the screenshot's own text-label positions back into grid coordinates using the same formula the code uses, landing almost exactly on the old formula's numbers - not a guess, a re-derivation. Killed the stale process, rebuilt clean, got a real screenshot back.
-<br />
 
 Round two: "I dont like the line of enemies" - geometrically correct (nothing overlapping) but visually flat. Replaced the flat row with a shallow zigzag, alternating a back row and a front row by index parity, so a 3-enemy fight reads as a wedge and 2/4-enemy as a diagonal. Needed the Actions box's own vertical position adjusted too, since the front row pushes an enemy's name/HP text lower than the flat row did - simplified from a per-count special case (tuned for the old pyramid's specific shape) to just "single enemy vs. any zigzag," since the zigzag's lowest row is now the same regardless of count.
-<br />
 
 Round three: "move it up and to the right." Shifted the whole horizontal window right (closer to its safe ceiling before re-clipping the frame edge - confirmed there wasn't much room left there), but pushing the back row up further immediately re-clipped Forest's fence in a fresh screenshot check - a hard ceiling for that theme, not an arbitrary number, so flagged the trade-off back to the user rather than quietly refusing or quietly regressing Forest.
-<br />
 
 Round four: "we need to move them up" - the user wanted the up motion even knowing Forest was capped. Right call: gave each theme its own row values instead of one shared pair. Tested how far Dungeon/Sewer's much thinner top wall/pipe band could actually go (as high as row 0.9 clipped Dungeon's window sill/torch/crate; 1.5/1.9 landed clean on both, with Sewer having room to spare). New `MapTheme::enemy_formation_rows()`, same shape as `tile_row`/`battle_background_row` - defaults to Forest's own conservative ceiling so a future theme without this checked stays safe, Dungeon/Sewer override higher. Confirmed "that might be perfect" on the next real screenshot, across all three themes at once.
-<br />
 
 ### A debug shortcut so this never needs a real 4-enemy encounter again
 
@@ -4146,23 +3989,18 @@ Along the way: "trying to run an instance and finding 4 enemies and then trying 
 ## Full animation batch: Attack/Defend, every technique, enemy attacks
 
 New branch, `new-animation-batch`, for the big one: the user delivered 14 zip files (all 5 playable classes + Debug + all 8 enemies) with a much fuller PixelLab export per character - Attack, Defend, Death, Victory, Idle_Battle_Stance, 4-directional Walk, 8-way rotations, and a named animation for nearly every real battle Technique. Per standing instruction, looked everything over and reported back BEFORE writing any code: structure, the recurring "canvas size can't be trusted" gotcha (confirmed this batch that it can vary per-direction within one animation, not just per-character), 5 naming mismatches between art folders and real `template.ron` names, and 4 gaps (Barbarian missing Counter Attack, Hunter missing Shoot, Amazon missing Idle_Battle_Stance entirely, no enemy Death animations anywhere). Proposed splitting "ready now" (art swaps into systems that already exist) from "needs a design conversation" (out-of-combat Effect animations, directional facing) - confirmed understanding before starting, per the user's own request for a full list of gaps/naming issues first.
-<br />
 
 ### What shipped
 
 Two brand-new sheets, `character_attack.png`/`character_defend.png` (9 cols x 8 rows, same row layout as `character_battle.png`), give the plain Attack/Defend actions their own played-once animation instead of just holding the Idle_Battle_Stance loop the whole time. `character_technique.png` widened from 8 to 20 rows to fit a real animation for every remaining technique at once - 18 rows populated (up from 5), including every Barbarian/Rogue/Hunter/Mage/Amazon technique that had art. A new enemy-side sheet, `enemy_attack.png` (8 cols x 9 rows, mirrors `enemy_battle.png`'s layout), gives enemies a one-shot attack animation for the first time - `EnemyCombatant` previously had zero concept of anything beyond its looping battle-idle frame. `character_battle.png` also got a full art refresh for every class's Idle_Battle_Stance, including Amazon, whose export used a differently-named folder (`Idle_Battle_Animation` instead of `Idle_Battle_Stance` like everyone else) - caught and handled by folder name, not by adding a second row function.
-<br />
 
 Since Attack/Defend/Technique now live on three separate sheets/consoles instead of one, `Battle::player_technique_animation` got renamed to `player_action_animation` and is shared by all three (only one plays per turn, so no reason for parallel fields) - but `draw_battle_arena` still needs to know which of the three sheets a given glyph index resolves against, so a new sibling field, `player_action_kind` (`PlayerActionKind::{Attack,Defend,Technique}`), gets set and cleared in lockstep with the animation itself. The enemy side's new `ENEMY_ATTACK_CONSOLE` got registered as a fancy console (unlike the two new character consoles, which are plain, mirroring `CHARACTER_TECHNIQUE_CONSOLE`) specifically so a 2+ enemy fight's fractional zigzag position still lines up correctly during an enemy's own attack - drawn via `draw_portrait_fancy`, same trick `ENEMY_BATTLE_WIGGLE_CONSOLE` already relies on for its own multi-enemy case, even though nothing on the attack console ever actually applies a wiggle offset.
-<br />
 
 ### A v2 zip arrived mid-build, folded in rather than bolted on after
 
 Partway through the image-processing pass, the user sent a follow-up zip for exactly the 3 classes with gaps (Barbarian's Counter Attack, Hunter's Shoot, Amazon's missing battle stance), plus renamed Amazon's `Spear_Volley`/`War_Cry`/`Spear_Throw` folders to `Javelin_Volley`/`Battle_Cry`/`Throw_Spear` - matching the real names directly instead of needing the row-function's mismatch workaround. Rather than finish the build against the now-stale v1 data and redo it, extracted the new zips alongside the originals and added a small `character_dir()`/`V2_CHARACTERS` redirect to the build script so Barbarian/Hunter/Amazon sourced from the newer export while everyone else kept using the original. Every rebuilt sheet got the same visual-verification pass as before committing anything - a labeled, cropped, 3x-upscaled strip confirming each changed row showed the right class/technique before it ever touched `resources/`.
-<br />
 
 Verified with a temporary test module (four tests covering every new row function plus the Counter Attack follow-up gap and the forbidden-row invariant), removed once green per the project's usual "write it, verify, then remove" convention for logic a type-check alone can't confirm. `cargo build`/`cargo test` clean, and a real launch confirmed no glyph-32 panic across all three new consoles' first `cls()` sweep. Live in-fight verification still pending - no screenshot tooling available this session (`scrot`/`xdotool`/etc. all missing), so that's on the user to confirm visually.
-<br />
 
 Still open, per the original phasing: enemy Death animations (the user is assembling these separately, boss-only - the four basic enemies won't get one) and the out-of-combat Effect animations (Ice Armor, Invisible Cloak, Stealth, Throw Spear, Trap, Freeze Trap, Shoot) plus the directional-walking/8-way-facing architecture, both deferred to a design conversation after the ready-now work and the new zips are both in.
 
@@ -4171,25 +4009,20 @@ Still open, per the original phasing: enemy Death animations (the user is assemb
 ## The enemy-tiling bug, then out-of-combat and movement animations both ship
 
 The user tested and confirmed the full animation batch above looked good, then flagged something odd: a screenshot of the Adventure Select screen tiled with the exact same enemy sprite across the entire display. First guess was wrong - reasoned it was the intentional "fully-revealed decorative dungeon" title background (which genuinely can spawn up to 50 monsters via the automata/drunkard map builders) just looking unusually dense. The user pushed back with a second screenshot ("You are tiling an enemy across the entire screen this is NOT intentional"), and a third showing the exact same tiling inside a REAL dungeon-crawl level too - which ruled out the title-background theory outright and pointed straight at the classic glyph-32 gotcha instead.
-<br />
 
 Traced it to a real mistake in this session's own build script: `enemy_idle.png` (6 columns, forbidden row `32/6==5`) had reused the SAME row dict built for the 8-column `enemy_battle.png`/`enemy_attack.png` sheets, which correctly puts Goblin Chieftain on row 5 for those - but row 5 is exactly `enemy_idle.png`'s own forbidden row. Real Goblin Chieftain walk-frame content sitting there meant `cls()`'s default glyph-32 fill tiled it across every cell of `ENEMY_IDLE_CONSOLE` (which spans the full display) not otherwise redrawn that frame - both the title background AND every real level. Fixed with a dedicated row map for `enemy_idle.png` matching `components.rs`'s own (already-correct) `enemy_idle_row`, asset-only, no code change.
-<br />
 
 ### Out-of-combat effect animations
 
 With that fixed, moved on to the two remaining pieces from the earlier animation-batch conversation, out-of-combat first per the user's own ordering. Seven class Abilities (Ice Armor, Invisible Cloak, Stealth, Throw Spear, Trap, Freeze Trap, Shoot) had real art sitting unused since technique animations only ever covered in-battle Techniques. New sheet `character_effect.png` (one row per (class, ability) pair, keyed by the real item name since `RangedStrike` alone covers both Throw Spear and Shoot with different art), a new `EffectAnimation` component set the instant one of these effects applies (`use_items.rs`) and ticked/cleared by a new system, and a new `CHARACTER_EFFECT_CONSOLE` trio that needed a genuine mid-chain console renumbering (23 constants shifted by 3, done via a name-anchored Python script rather than by hand) to sit below the HUD/Ability Bar at the same z-order tier as the player's ordinary idle sprite. `entity_render.rs`'s `idle_glyph`/`idle_sheet` - the two functions every dungeon-view render path already funnels through - just needed one new check each, no per-render-path changes. Verified with a new permanent legion-access regression test, matching `hud_system_execution_tests`'s own precedent.
-<br />
 
 ### A real pixel-health bug, found by actually measuring instead of assuming
 
 The user flagged transparent pixels in Hunter's animations, then noted it looked like most classes had the same issue - worth a scan before touching more art. A full scan of all 1549 source frames (every class/enemy, every animation/direction, both original and v2 zips) found the alpha channel was genuinely clean everywhere (strictly binary, no anti-aliasing) - not the real problem. The real problem: 6-12% of every character's OPAQUE pixels were near-black, and this session's own build script had never actually applied the near-black floor CLAUDE.md's own PixelLab gotcha calls for, despite using it to build every sheet so far. Fixed by wiring `floor_pixels` into the one function every frame already passes through, then rebuilding and re-verifying all 10 affected sheets (zero near-black-opaque, zero non-black-transparent confirmed by re-scan). Also caught, by the same defensive floor: Ettin Overlord specifically had ~4700 transparent pixels with leftover non-black RGB - the OTHER real risk this gotcha describes, since a plain console's shader is a pure RGB colorkey that ignores alpha entirely. A separate check (enclosed transparent "holes" not connected to a frame's border) found real holes in ~39% of frames, but a look at the worst offenders showed most are legitimate negative space (the inside curve of a drawn bow, gaps between limbs) rather than defects - logged for a human visual pass instead of risking an automated fix that could destroy real linework.
-<br />
 
 ### Real movement, and the bug the user predicted it would fix
 
 Last piece: real walk-cycle animation synced to actual movement, using the 4-directional Walk art every class and enemy has had sitting unused since the first batch. The user correctly predicted this would also fix a related complaint - "the player and enemies become static again" while moving - and it did: `tick_idle_animation` had always deliberately paused during a glide, reasoning that movement already had its own animation, but `MovingAnimation` only ever tweened position, never a real pose. Removed the pause entirely (walk animation now just keeps advancing through a glide the same as while standing), and added a `Direction` enum (4-way only, no diagonal movement exists in this game) computed once per committed move in `movement.rs`, which rebuilds the mover's `IdleAnimation.frames` in place for its new facing - preserving `frame_index` so a walk cycle doesn't restart mid-stride on a turn. `character_idle.png`/`enemy_idle.png` both widened from 1 row per class/enemy to 4 (25/33 rows), each needing its own one-off forbidden-row exception (Rogue's North, Orc's North) - same shape as every other forbidden-row collision this project has hit. No changes needed in `entity_render.rs` at all - it already just reads whatever's in `IdleAnimation.frames`. Verified with a third permanent legion-access regression test.
-<br />
 
 Session ended with the user heading to bed and asking for the branch finished by morning - out-of-combat animations, the pixel-health floor fix, and real directional movement all shipped and verified (build, tests, and a live launch check each) without a further check-in.
 
@@ -4200,62 +4033,48 @@ Session ended with the user heading to bed and asking for the branch finished by
 ## Victory/Defeat screens redone, keyed to the actual dungeon theme
 
 New branch, `enemy-death-victory-backgrounds`. The starting ask was simple - real painted backgrounds for the Victory/Game Over screens, the same "sourced externally, one full painted scene" approach already proven for Battle Arena - but the design changed shape twice before any art actually shipped.
-<br />
 
 First pass: one background per mode (Arena fixed, Dungeon Crawl randomized across three generic "vault/corridor/stairs" scenes). Looked reasonable until the user pointed out the obvious problem - finishing a Forest run and getting a stone dungeon vault made no sense. Replanned around the run's own `MapTheme` instead: a new `MapTheme::end_scene_theme()` (Forest/Dungeon/Sewer) plus Arena as its own fixed case, `components::VictoryBackground`/`DefeatBackground` picking a background (and for Victory, a matching pose) keyed to that. Each dungeon theme got two Victory scenes to randomize between; Defeat stayed one fixed scene per theme, no randomization. All of it shares `resources/battle_backgrounds.png`'s existing 6x6 glyph grid - that atlas was already padded to 36 cells to satisfy the glyph-32 gotcha and only used 3 of them, so there was room to grow it without registering a single new console.
-<br />
 
 ### The watermark saga
 
 Nearly every delivered background needed at least one regen. Forest and Sewer needed one attempt each. Dungeon was the real holdout - the vault scene specifically came back watermarked three times running, each with a different mark, before a fourth attempt finally landed clean. Caught every one of them by actually zooming into all four corners of each image rather than trusting a glance, per the standing watermark-check rule - one mark was subtle enough at full size that a first look at the whole image missed it entirely.
-<br />
 
 ### The Amulet of Yala icon, removed
 
 The old Victory screen showed a small flat dungeonfont glyph next to the hero for a dungeon-crawl win. Asked the user directly whether it still belonged next to real painted scenes rather than guessing - the answer was no, remove it outright. The body text already carries that narrative beat on its own; only the End-screen icon is gone, the actual in-dungeon Amulet pickup is untouched.
-<br />
 
 ## A big new animation batch: boss deaths, Goblin's walk fix, the Shopkeeper's first animation, Victory's climbing pose
 
 The user delivered 12 zips in one batch - all 6 player classes, the 4 bosses, Goblin, and the Shopkeeper (its first animation ever). Looked everything over and reported back before writing any code, per the standing convention: the usual canvas-size drift (40x40/44x44/48x48 despite metadata.json's declared 32x32), and a real naming problem - 3 of 4 boss Death folders and 4 of 6 player climb-pose folders came back with PixelLab's own auto-generated captions instead of clean names (`The_knight_staggers_backward_as_its_stance_falters` instead of `Death`, and similar for the new north-east-facing "climbing away" pose). Confirmed each one was the right animation by actually opening frames and watching the motion, not by trusting the caption text.
-<br />
 
 ### Boss Death animations, without auditing every targeting/gauge loop in the game
 
 New `enemy_death.png` sheet, one south-west-facing row per boss, matching `enemy_battle.png`'s own orientation. Wiring it into `record_enemy_kill` turned into a real design fork: keeping a "dying" enemy inside `battle.enemies` until its animation finished would have meant guarding every ATB-gauge-fill and targeting loop that iterates that list against it - several call sites, plus the headless class-survivability simulation's own copy of the battle loop. Instead, the death animation lives on a brand new, completely independent `Battle::dying_effects` list - a pure decorative overlay, ticked and drawn every `battle_tick` frame and dropped once it finishes. Rewards, removal, and the fight-over check all still happen exactly when they did before this existed. The one real consequence: if the last enemy in a fight has a death animation, the Victory screen still appears on the old timing and the overlay just gets cut short by that transition - same as every other in-flight battle effect (flash, wiggle, popup) already does. Confirmed safe by rerunning both the normal test suite and the headless survivability simulations afterward - unchanged results, nothing regressed.
-<br />
 
 Goblin's own walk cycle got replaced in the same batch, fixing a real complaint: the old art made the spear look like it was welded to Goblin's head. New art reads clean in all four directions. The Shopkeeper got real animated art for the first time ever - a new `IdleSpriteSheet::Shopkeeper` variant and its own dedicated console trio (`SHOPKEEPER_IDLE_CONSOLE`/`_SCROLL_`/`_GLIDE_`), reusing the existing `IdleAnimation`/`tick_idle_animation` machinery outright rather than a bespoke component, since the Shopkeeper never moves or turns and none of the facing-rebuild logic built for real entities ever triggers for it. Plays `Idle_Selling` as its permanent standing loop; `Walk`/`Breathing_Idle` from the same zip go unused since it never needs them.
-<br />
 
 Victory's own "climbing away" pose (the missing piece from the Forest Stairs background) finally got real art too - a new row block (8-13) on `character_victory.png` rather than a separate sheet, the same "grow the sheet" convention `character_idle.png` used for 4-directional Walk, wired into the `VictoryPose::ClimbAway` slot that had been silently falling back to the ordinary face-camera animation since the backgrounds work shipped.
-<br />
 
 ## Real screenshots catch three real bugs the first pass missed
 
 None of these were guessed - all three came from the user actually running the game and sending screenshots, which this session leaned on hard once it became clear synthetic input doesn't work in this environment (more below).
-<br />
 
 Forest Stairs' climbing pose was sitting at row 4 (intended: near the base of the stairs) - a real screenshot showed it sitting directly on top of "Press Enter to return to the title screen." Moved to row 3, matching every other foreground pose. Separately, the Defeat screen's own fallen-portrait position turned out to still be using a fixed col=1 left over from before the Amulet icon (which that offset used to leave room for) was removed - a Debug-class Defeat on the Arena background showed the corpse sitting well off the courtyard's own centered staircase. Fixed with a new `DefeatBackground::portrait_grid_position`, the same per-background approach Victory already had.
-<br />
 
 The third: the "walking away" pose used for the two corridor-style Victory backgrounds (Dungeon Corridor, Sewer Walk) was drawing at native 1x dungeon-tile size on a plain console, and read as an almost-invisible speck against a full painted scene. Fixed by switching that one draw call onto `CHARACTER_IDLE_GLIDE_CONSOLE` (already registered as a fancy console, otherwise unused during this screen) purely to get `set_fancy`'s scale parameter - 4x bigger, confirmed via a follow-up screenshot.
-<br />
 
 ### A text-legibility scrim, tried and correctly reverted
 
 A fourth real problem showed up the same way: Forest Stairs' own archway light completely washed out the header/body text on top of it. Rather than guess a color swap, traced bracket-lib's actual shader source (`console_no_bg.wgsl` vs `fancy.wgsl`) to confirm why - the console types used for that text discard near-transparent glyph pixels outright, so no background color passed to a print call can ever show through; a "fancy" console's shader has no such discard and honors real alpha instead, the same mechanism this project's own transparent-background trick already relies on. Built a translucent dark band behind the text using that mechanism - technically correct, confirmed working - but the user disliked how it actually looked (a flat rectangle with hard edges, sitting on top of painted art like a placeholder) and asked for it gone until real UI art can do this properly. Reverted cleanly rather than leaving a stopgap the user had already said didn't work; the underlying legibility gap is now a known, accepted tradeoff logged against the new PixelLab UI item instead.
-<br />
 
 ## A new Theme Select screen, so testing one theme doesn't mean re-rolling runs
 
 Separately requested: picking a Dungeon Crawl theme kept requiring restarting runs over and over to land on the one you wanted to actually test. Added `TurnState::ThemeSelect`, reached from Class Select's hidden Debug shortcut - Dungeon-Crawl-only, Debug-only, since Arena's own end screens don't depend on the theme at all. A same-shape arrow-key menu as every other title-flow screen (Random/Forest/Dungeon/Sewer), and the pick sticks for the WHOLE run, not just the first floor - `MapBuilder::new` gained a `forced_theme` parameter, applied before tile-variant assignment runs (applying it after would have left variants assigned under the wrong theme's own variant-style rules).
-<br />
 
 ## Confirming, properly this time, that live input-driving doesn't work here
 
 Made a real second attempt at synthetic X11 input after the user asked directly whether it could be made to work - not just XTEST key/mouse events again, but a proper EWMH `_NET_ACTIVE_WINDOW` activation message, the standards-based way a window manager is supposed to hand focus to a window. Confirmed via `_NET_ACTIVE_WINDOW`'s own root-window property that it genuinely never took effect. Static screenshots of the game (direct X11 window capture) work fine - it's specifically driving input that doesn't, consistent with this project's own previously-documented WSLg focus-arbitration theory. Rather than keep re-diagnosing it each time it comes up, wrote the conclusion into `CLAUDE.md` as a standing rule: ask the user for screenshots of live/interactive game states instead of attempting to drive the game directly.
-<br />
 
 ## Researching PixelLab's UI-generation API for a future overhaul
 
@@ -4264,50 +4083,38 @@ The user asked to look into whether PixelLab (already used for every character/e
 ## A new name: "Five Blades Deep"
 
 "Ever Space" was never a great fit for a fantasy dungeon crawler to begin with, and it turns out to collide with a real existing game too. Brainstormed a first round of candidates across a few directions - keeping "Ever" as a prefix, tying the name to the Amulet of Yala directly, classic roguelike mood words - and the user liked two enough to check: "Hollow Reach" and "Everdelve." Both turned out to be real collisions, one of them (`EverDelve`, an old Flash dungeon-crawler with classes) uncomfortably close in concept, not just name. Checked the entire rest of the original list rather than one at a time - two more (`Everbound`, `Ashfall Depths`) turned out to be even closer collisions, both real roguelike dungeon-crawlers with almost the same pitch as this game. "Five Blades Deep" (a nod to the five real classes) came back clear, and the user picked it.
-<br />
 
 Deliberately not renaming anything yet - the crate name, window title, every doc header, the local folder, and the GitHub repo all still say the old name on purpose, logged as its own numbered backlog item instead of getting tangled into today's other work. The crate/package rename is flagged as the one piece worth doing carefully first whenever that pass happens, since it changes the built binary's own name/path.
 
 ## Stairs/counter rendering solid black at rest - a real recurrence, a real recording, a workaround rather than a root cause
 
 Backlog item 13 (added 2026-09-11, explicitly flagged as "same symptom as an already-fixed bug, don't assume the identical cause") came back up: the dungeon stairs and shop counter tiles were rendering solid black whenever the player stood still, and correctly whenever the camera was mid-glide.
-<br />
 
 The first theory - a repeat of the earlier `Camera::bottom_y` off-by-one that caused this exact symptom once before - turned out to be wrong. `camera.right_x`/`bottom_y` already span the full display exactly (confirmed from `Camera::on_player_move`'s own formula); there was no missing edge row/column to pad back in. A padding fix built on that theory compiled fine but changed nothing, which is what exposed the mistake.
-<br />
 
 Several rounds of static tracing followed - camera bounds, FOV/visible/revealed state (added temporary debug logging confirming both were always correct at the moment of drawing), the font's own real pixel content (sampled actual RGB/alpha values off `dungeonfont.png` - genuinely bright, not corrupted), the exact `ColorPair` being computed (also confirmed via debug logging) - all clean. A couple of dead-end detours too: a debug-class item ("Next Level," a cheat pickup that happens to reuse the same `>` glyph) got mistaken for the actual bug for a round, until the user corrected it back to "the map tile itself, not the debug abilities."
-<br />
 
 The user sent an actual screen recording (a GIF), which turned into the real breakthrough - not by watching it, but by extracting all 121 frames and measuring them: black-pixel count in the tile's own screen region, and a separate background-motion detector (to know when the camera was actually panning), tracked across every single frame. The two flipped in lockstep across 7 separate transitions - visible exactly when the camera moved, black exactly when it settled. That's a clean, reproducible fact, not a guess.
-<br />
 
 From there, traced as far down into bracket-terminal 0.8.7's own source as possible: read the actual `.wgsl` fragment shaders for both the plain console (`console_with_bg.wgsl`) and the fancy one (`fancy.wgsl`), the WGPU vertex-buffer-building code for both console backends, and `FontScaler::glyph_position`'s UV math. Every one of them computes the identical result for both paths, on paper. The literal reason bracket-lib's plain console fails for this specific glyph while its fancy console and a *different* plain console (`ABILITY_BAR_CONSOLE`, which renders the same glyph fine) both succeed was never actually found.
-<br />
 
 Shipped a fix anyway, on the strength of the empirical result rather than a root cause: `map_render.rs` now routes `TileType::Exit`/`Counter`/`Water` (the only tile types still on the old single-glyph dungeonfont path, not real per-theme textures) through the fancy console (`MAP_SCROLL_CONSOLE`) unconditionally, at rest or panning alike, instead of the plain console 0 that was failing. Console 0 is no longer used by map rendering at all. Confirmed by the user after rebuilding. Worth remembering: "renders fine on one console, fails on another, both computing identical inputs" is apparently possible in this bracket-terminal version for reasons this session couldn't isolate - if a similar symptom shows up again on a different glyph/console pairing, the working fix here (move it to whichever path is proven to render correctly) may be the faster path than re-tracing the same shader/vertex-buffer code a second time.
 
 ## CLAUDE.md cleanup - a stale gotcha, and a rule that only lived in private memory
 
 The user asked for a CLAUDE.md pass since instructions kept getting missed. Added a short "Read this first" block at the top collecting the rules most likely to get buried in prose, and compressed several of the longest Standing gotchas entries (the near-black-pixel shader rule, the new console-black-glyph one, the 3-variant glyph-32 saga, DijkstraMap) down to their essential facts, archiving the full narratives in `docs/DEVLOG.md`'s Known Environment Quirks section, which already claimed to be the "full reasoning" home but wasn't for a couple of these.
-<br />
 
 Found a real error along the way, not just length: the DijkstraMap gotcha claimed the fix was special-casing the literal target as an automatic win, but `screens/battle.rs`'s own comments show that patch was tried and abandoned - a second reproduction found the exact same stall on a different nearby cell, and the fix that actually held was replacing `DijkstraMap` outright with an in-house BFS. Corrected it, and flagged `systems/chasing.rs` (the real dungeon-crawl AI, still on `DijkstraMap` with only that simpler patch) as an unconfirmed latent risk rather than a solved problem. Also added "never `git push`" as a real, checked-in rule - it turned out to only exist in this assistant's own private cross-session memory before, invisible to a fresh clone or a different session.
-<br />
 
 ## Refactor Stage 1: closing out backlog item 9
 
 The user wants item 9 ("Refactoring opportunities") reduced or resolved, and specifically called out excess comments and duplicated code as the two things to look at. Dispatched an Explore agent first for a broad survey rather than guessing - it came back with real numbers: **~19,000 lines total, ~39% of them comments**, with `main.rs` and `components.rs` alone carrying 57% of the comment volume. Proposed a two-stage plan and got the go-ahead for Stage 1 (the safe, mechanical half) before touching anything; created a dedicated branch (`refactor-item-9-cleanup`) first, since this is real code-editing across many files, not just docs.
-<br />
 
 **The single biggest win**: `main.rs`'s console-index `prelude` module carried a full renumbering history for each of its ~30 `pub const ..._CONSOLE` declarations ("was slot N, then M, then P..."), and its own top comment admitted this had gone stale - "trust the numbered list above." Rewrote every doc comment down to what actually matters (source font/grid, what draws there, the one z-order constraint that applies), cutting that block from ~720 lines to ~320. Along the way also found a real duplicated-code pattern the Explore pass flagged: 45 hand-written `ctx.set_active_console(X); ctx.cls();` pairs in `State::tick`, collapsed into a loop over one new `ALL_CONSOLES` array - a newly registered console now needs updating in exactly one place instead of two.
-<br />
 
 Also trimmed `components.rs`'s repeated glyph-32-gotcha derivations (the same "32 / cols == forbidden row" reasoning re-explained from scratch at several per-sheet row-assignment functions instead of pointing at one canonical spot), deleted six one-off "clean regen landed on attempt N" watermark-history comments with no future value, and cut `screens/battle.rs`'s `enemy_portrait_position` down from a 4-pass revision-by-revision tuning diary to just the final layout rule.
-<br />
 
 On the code-duplication side, closed all three concrete items already on the backlog: a shared `components::find_player<T: EntityStore>(ecs) -> Option<(Entity, Point)>` (replacing ~13 hand-rolled queries across 5 files - this is the exact query shape a real `buy_nearby_item` bug once came from, a missing `.filter(component::<Player>())` silently matching the wrong entity), a shared `State::reveal_and_freeze_fov` (deduplicating `build_shop_room`/`arena_begin_wave`'s identical reveal-rectangle/frozen-FOV block), and a shared `find_prefab_placement` in `map_builder/prefab.rs` (deduplicating `apply_prefab`/`apply_chest`'s identical 10-attempt Dijkstra placement loop - `apply_chest`'s own doc comment already admitted it "reuses the exact same...loop").
-<br />
 
 Verified more than just "it compiles" throughout, since several of these touched real gameplay logic: reran both headless class-survivability simulations (Dungeon Crawl and Battle Arena) after the `find_player` rollout, again after the `reveal_and_freeze_fov` extraction, and again after `find_prefab_placement` - all three came back with numbers consistent with prior documented runs (Mage weakest, boss walls at Level 2/3, normal RNG variance between runs, no crashes). Net result: six files, ~556 fewer lines, three real duplication fixes, all committed in separate checkpoints on the refactor branch. Five bigger structural items remain on item 9 (moving Arena's orchestration out of `main.rs`, splitting `battle_tick`, splitting battle logic from battle rendering, and splitting both `components.rs` and `battle/mod.rs` by domain) - deliberately left for a Stage 2 decision rather than attempted in the same pass.
 
@@ -4318,154 +4125,120 @@ The user reported a stray wiggle showing up sometimes during battle animations, 
 ## Refactor Stage 2: the four structural splits, then battle_tick last
 
 With Stage 1 merged, moved on to the five remaining structural items, sequenced deliberately: the four "relocate already-separate code" splits first, `battle_tick` last since it's the one genuine restructuring job and the riskiest. New branch, `refactor-item-9-stage2`.
-<br />
 
 Built a repeatable methodology for the four relocations rather than doing each by hand: a Python script parses every top-level item in a file (struct/enum/fn/const via regex), walks backward from each item's own line to capture its full doc comment (stopping at a blank line), finds its end via brace-depth counting, then verifies zero content loss by diffing a sorted line-multiset of the original against the reconstructed output - catches anything missing or duplicated that a plain visual read could miss. A few "section divider" comments meant to introduce a whole group of upcoming items (not attached to any single one) fell outside this and needed manual reattachment each time, caught by an explicit "which non-blank lines weren't claimed by any parsed item" check.
-<br />
 
 Applied it four times: Battle Arena's own 9 orchestration methods out of `main.rs` into a new `arena_state.rs`, matching the "one impl State per file" convention every other screen already follows; `components.rs` (~2300 lines, a grab-bag of unrelated domains) split into `components/{mod,bars,animation,glide,tiles}.rs` by domain; `battle/mod.rs` (~1230 lines) split into `battle/{mod,menu,stats}.rs`; and pure battle-resolution logic (`resolve_player_action`/`trigger_enemy_action`/`dismiss_action_result`/`record_enemy_kill`/`finish_battle`) separated from battle *rendering* into a new `battle/resolve.rs`. That last one turned up a genuine Rust module-privacy subtlety: marking `enemy_portrait_position` `pub(crate)` in `screens/battle.rs` still wasn't enough, because `screens/mod.rs` declared `mod battle;` as fully private - an intermediate private module declaration blocks even `pub(crate)` items inside it from anywhere outside `screens` and its descendants, regardless of the item's own visibility. Fixed by widening that one declaration to `pub(crate) mod battle;`.
-<br />
 
 Every one of the four splits came back compiling clean on the first or second attempt, passed the fast test suite, and reran both headless class-survivability simulations afterward (unchanged patterns each time - Mage weakest, boss walls at L2/L3, normal RNG variance).
 
 ## Refactor Stage 2, final piece: splitting battle_tick
 
 The last and hardest item: `screens/battle.rs`'s `battle_tick`, at ~735 lines by a wide margin the single largest function in the codebase, handling both rendering and input for every `BattleTurn` state in one place. Unlike the four relocations above, most of its length was shared per-frame preamble - timer ticking, ATB gauge fill and the Filling-state transition, arena/HUD rendering - that every state needs regardless, with only the Actions-box/cursor-nav/match block actually being state-specific. Talked through the options with the user (one handler per `BattleTurn` state vs. extracting the shared preamble into a few helpers) before writing anything, given the size/risk; picked the 3-helper approach as the one that actually solves the readability problem without forcing an artificial per-state split onto code that's genuinely shared.
-<br />
 
 Extracted three new `State` methods: `tick_battle_timers` (flash/damage-popup/idle-frame/action-animation ticking for the player and every enemy, dying-effect ticking, the multi-hit queue), `tick_atb_and_maybe_act` (ATB gauge fill and the transition out of `Filling`, returning `true` if that transition triggered an enemy action which itself ended the battle, so `battle_tick` can bail out the same frame), and `draw_battle_hud` (arena portraits, name/HP/ATB/status text for player and enemies, the message log box, damage-number popups). `battle_tick` itself is now the shared preamble's three call sites plus the unchanged Actions-box/state-match block.
-<br />
 
 Drafted all three in scratch files first and reviewed them carefully before touching the real file, per this project's own convention for logic-touching changes - caught and fixed six double-reference bugs this way (`&mut battle`/`&battle` passed to calls where `battle` was already the reference-typed parameter, e.g. `tick_hit_queue(&mut self.ecs, &mut battle, ...)` when the local `battle` binding is already `&mut Battle`) before ever attempting a build. Spliced into `screens/battle.rs` and it compiled clean on the first real attempt - a sorted line-multiset diff against the pre-split file showed exactly those six fixed lines as the only "missing" originals, and the new function signatures/doc comments/call sites as the only "extra" lines, confirming zero unintended content loss. Fast suite passed; both headless simulations came back showing the same patterns as every prior run (Mage weakest, boss walls at L2/L3). This closes out backlog item 9 entirely - moved to Done.
 
 ## Map-gen refactor: `map_builder`'s single-tile-set assumptions, three phases
 
 With item 9 merged, picked the next backlog item together - a survey of `map_builder`'s remaining single-tile-set assumptions (item 8, written before the multi-theme system had been lived with much) found real, concrete issues: every architect repeated an identical throwaway-theme struct literal, the Floor/Wall variant-pool shape was a global constant rather than per-theme, and Exit/Counter/Water were permanently stuck on the old flat-glyph fallback with no path to real art. New branch, `refactor-map-builder-item-8`.
-<br />
 
 **Phase 1** (pure structural, no visual change): `MapTheme` gained `floor_variant_count()`/`wall_variant_count()` (defaulting to every theme's current shape) and `exit_tile()`/`counter_tile()` hooks (raw atlas cell, `None` default) - additive only, verified with both headless simulations showing identical patterns. Also extracted the repeated architect boilerplate into `MapBuilder::blank()`, and made `prefab.rs`'s template parsing panic on an unrecognized marker instead of silently `println!`-ing past it.
-<br />
 
 **Phase 2**: the user's own complaint - Forest's Dirt Path/Path Fork cells rendered as a random circular blob, since they'd been left on the default `Patch` treatment like every other floor variant ("we just have a circle of path tiles, I think they should be in a line"). New `MapTheme::path_variants()` hook; Forest's two path variants get excluded from the normal patch/scatter pools and instead walked as a real connected line between `player_start` and `amulet_start` - greedily descending a BFS distance field toward the target, ties broken at random so open rooms still wobble naturally while corridors (which only have one route anyway) stay straight. Asked about rotating Path Fork to point in different directions for real branching; checked the actual rendering pipeline first rather than guessing - `set_fancy`'s rotation only works on a "fancy" console, and the map-tile console draws at rest through a plain one (same precedent as console 0), so real rotation would need new art, not just code. Landed on the user's own fallback: Path Fork marks just the path's own north-most endpoint, a discrete accent rather than a second branch. Promoted `bfs_distance_field` out of `screens/battle.rs`'s class-survivability bot (which had its own private copy of the exact same BFS-not-DijkstraMap logic, built earlier this same day) into a shared `Map::bfs_distance_field` - one less duplicate, and a second real caller for it.
-<br />
 
 **Phase 3**, the biggest piece: putting the "special wall" row (cells 13-16, never placed by any generator before this) to real use. The user's own idea - water as a fortress's wall material, since a moat still needs to let the player see the interior/guards through it rather than hiding them behind a solid face - meant a real mechanics change, not just rendering: `TileType::Water` became blocking-but-not-opaque (`Map::is_opaque` gained a real special case; confirmed with the user directly that "blocking, see-through" was the intent, not the reverse). Built out per-theme: Forest's Fortress ring becomes real Water; Sewer's own Fortress uses its Toxic Sludge Pool instead (matching the same idea, different material), and Sewer separately gets its Standing Sewage Water used for the Chest Room's own ring plus a couple of small isolated Wall-to-Water patches elsewhere on the map - all purely cosmetic, since Water blocks exactly like the Wall it replaces. Dungeon deliberately keeps plain walls on both prefabs - no liquid tile in its set actually fits a fortress moat. Separately, the user wanted Forest's Tree Stump (and the equivalent solid-obstacle cells on Dungeon/Sewer) placed too, but sparingly - not tied to any specific spot, just "shouldn't have more than 1 in an area for 5x5." Joined the Wall variant pool via the same two-row split Floor already has, placed through a new pass far rarer than the existing wall accent, with an explicit neighborhood check enforcing that spacing cap (a plain low-probability roll alone doesn't guarantee it). `MapBuilder::new` had to move theme selection earlier in its own pipeline (before `apply_prefab`/`apply_chest`, not after) so the moat logic could read the real theme instead of the still-unset placeholder. The river-with-a-bridge idea (a winding Sewer water path crossed by its own grating-floor tile) got deliberately deferred - a real crossing-point guarantee is a harder problem than a moat or an isolated patch, logged as its own backlog item instead of folded into this pass.
-<br />
 
 Verified each phase with the fast test suite and both headless class-survivability simulations (consistent with every prior run throughout - Mage weakest, boss walls at L2/L3), plus several throwaway generation tests written specifically to verify the two hardest-to-eyeball properties by hand: the Forest path is one connected line with no gaps (a flood-fill across 20 generations), every placed Water tile resolves to a valid variant, and no two obstacle tiles ever land within the 5x5 spacing cap (45 generations across all three themes) - all removed once confirmed, per this project's own testing convention. Separately drafted a full 16-cell prompt list for a new Swamp theme at the user's request, recorded in `docs/Map_Tile_Theme_Guide.md` for whenever they run it through the generator themselves - not built, no art yet.
 
 ## Map-gen refactor, two real follow-ups from actual screenshots
 
 Two real issues, both caught from screenshots rather than guessed at - the moat system had been merged sight-unseen (a fair trade given both the risk of driving the game myself and the amount of design ground already covered that session), so this was the first real look at it in practice.
-<br />
 
 **Fortress-only-and-guaranteed read oddly once Turret/Bunker showed up next to it.** A screenshot showed what turned out to be a Turret or Bunker (not the actual Fortress shape) sitting there with plain walls, which is exactly what Fortress-only scoping was always going to produce - not a bug, just a direct consequence of only having built what was originally asked for ("the walls for the fort"). Widened it on request: `MapTheme::fortress_moat_variant` renamed to `prefab_moat_variant` (it's no longer Fortress-specific) and `apply_prefab` now rolls a `PREFAB_MOAT_CHANCE_PCT` (50%) chance independently for whichever of the three shapes gets picked, rather than a hardcoded 100% for Fortress and 0% for the other two. The Chest Room's own moat stays untouched (still deterministic) - only the Fortress/Turret/Bunker trio was asked to vary.
-<br />
 
 **The path's single dirt-path texture, drawn as a north-south trail, looked wrong running east-west** - a second real screenshot, this time of the Forest path line itself once it was actually connected. Turned out to be a smaller fix than first feared: `map_render.rs` already routes the map-tile sheet through a fancy console (`MAP_TILE_SCROLL_CONSOLE`) whenever the camera pans, with `set_fancy`'s rotation parameter just hardcoded to 0 - reusing this instead of registering a whole new console. Each path tile now checks its own immediate neighbors; a tile connecting left/right but not up/down gets routed through that same fancy console even at rest, with a real 90-degree rotation. Checked the existing rotated-glyph precedent first (`end.rs`'s fallen-portrait rotation, from an earlier session) to confirm `set_fancy` rotates in place around the given point with no extra position compensation needed - held true here too. A corner tile (connects both ways) has no single correct rotation and stays as before; would need real corner art to fix properly, not something worth chasing for one turn point on a path.
-<br />
 
 Both verified via the fast suite and both headless simulations (consistent, as always) - the rotation fix specifically can't be verified any further without a live screenshot, flagged directly rather than presented as confirmed-correct on faith.
 
 ## Rotated path tiles were showing black bars - traced the real shader, mitigated rather than fully diagnosed
 
 A follow-up screenshot of the rotation fix itself showed real black rectangles cutting through the horizontal path. Traced bracket-terminal 0.8.7's actual fragment shader source (`FANCY_CONSOLE_FS`, vendored locally) rather than guessing: it falls back to the vertex's own background color for any near-black/near-transparent source pixel - `ourBackground`, which this project always passes as opaque `BLACK` for every MapTiles-sheet tile. That exact mechanism is shared with the ALREADY-proven-fine camera-panning path (every MapTiles tile routes through this same console and shader while panning, with no prior black-bar complaints), which points away from "the art's near-black pixels aren't floored enough" and toward something specific to the rotated quad's own geometry not fully covering its cell - though this wasn't pinned down with full certainty, consistent with CLAUDE.md's own standing rule about not presenting unverifiable pixel/shader reasoning as confidently final.
-<br />
 
 Rather than keep tracing deeper without being able to render and check directly, mitigated defensively instead: a horizontal path tile now always draws its own correct, unrotated glyph first (exactly like every other tile), then layers the rotated version on top as a SECOND draw call, instead of routing exclusively through the rotated path. Whatever the real cause of the coverage gap turns out to be, anything it fails to cover now reveals the correct (if not perfectly oriented) texture underneath instead of solid black - can only help, regardless of whether the geometric theory is right. Verified with the fast suite (this doesn't touch battle/map-generation logic, so the headless simulations wouldn't exercise it either way); still needs a real screenshot to confirm the black bars are actually gone.
 
 ## The black bars are gone, but the layered base was itself the wrong shape
 
 A third screenshot confirmed the black bars were gone, but showed a new, smaller artifact - little brown flecks bleeding out above and below the horizontal run. The user's own read of it, offered directly rather than as a question, was exactly right: the base layer (the tile's own UNROTATED glyph - a north-south dirt trail with grass-colored corners baked into the art, not a uniform fill) still shows through wherever the rotated overlay's own now-repositioned "grass" corners don't quite reach, and since that base layer's real content is a VERTICAL trail, what peeks through at the top/bottom is real dirt-brown pixels, not grass.
-<br />
 
 Fixed by changing what the base layer actually draws: instead of the tile's own (wrong-orientation) glyph, it's now the theme's plain default floor glyph (variant 0, Grass) - `map_tile_glyph` (previously private to `components/tiles.rs`) widened to `pub(crate)` so `map_render.rs` could compute this directly. Grass has no directional shape, so the same kind of gap in the rotated overlay now reveals plain grass instead of a stray, wrong-oriented fragment - unremarkable instead of visibly broken. Verified with the fast suite; still needs a live screenshot to confirm this is actually clean now, not merely reasoned through.
 
 ## Clean at rest, but a live-recorded GIF caught clipping during the actual glide
 
 A fourth round: the fleck fix held up at rest, but a screen recording (not just a static screenshot this time) showed real clipping specifically while the camera was gliding between tiles. The user asked directly whether rotation could really preserve a true 32x32 footprint at all - worth actually checking rather than assuming either way. Traced the real vertex shader math (`FANCY_CONSOLE_VS`, vendored locally): rotation is applied as `(pos - center) * rotation_matrix * scale + center`, and a pure rotation matrix has determinant 1 - it can't change a quad's size, geometrically. Also confirmed `MAP_TILE_CONSOLE`/`MAP_TILE_SCROLL_CONSOLE` are registered with identical grid dimensions (`DISPLAY_WIDTH, DISPLAY_HEIGHT`), ruling out an aspect-ratio mismatch between the plain and fancy versions of this console. So the rotation math itself isn't the problem.
-<br />
 
 Rather than keep chasing a subtle sub-pixel/rendering-order theory blind (the continuously-changing fractional position every frame during a glide is the leading suspect - a seam that's easy to miss in one static frame could read as real "clipping" once it's animating), took the pragmatic path instead: a horizontal path tile now simply doesn't rotate at all while the camera is actively panning, falling back to its own plain unrotated glyph exactly like every other MapTiles tile during a pan - the same behavior that existed before this whole feature, for that one brief (~150ms) window only. Rotation still applies the instant the camera settles, which is where the fix has already been confirmed clean. Verified with the fast suite; still needs a live recording to confirm the clipping is actually gone during the glide now.
 
 ## The real problem wasn't rotation itself - it was two different renderings fighting each other
 
 A second recording still showed real clipping, described by the user as "crazy... clipping and tile swapping." Pushed back directly rather than proposing a fifth speculative patch - asked whether to keep guessing or revert rotation outright, and got pointed back to first principles instead: "why didn't we work on a rotation that works?"
-<br />
 
 Walking back through the actual sequence exposed the real mistake: the previous session's "don't rotate during panning" fix (the entry just above) made a path tile render via two COMPLETELY DIFFERENT code paths depending on `is_panning` - plain glyph while panning, grass-base-plus-rotated-overlay at rest. Real movement isn't one continuous glide, though - it's a rapid sequence of short per-tile glides with only a brief instant at rest between each step. That fix was inadvertently making the tile's look FLIP between two different renderings many times a second during ordinary walking - which is almost certainly the actual "tile swapping," independent of whatever fine clipping either individual state might still have.
-<br />
 
 Fixed by removing that divergence entirely: both the panning and at-rest branches now run the identical base_glyph + rotated-overlay logic, so there's no flicker between two different looks regardless of which state any given frame lands in. Verified with the fast suite; still needs a live recording to confirm this actually reads as one consistent tile during real movement now, not two fighting for the same cell.
 
 ## Actual research this time, not another guess - a single rotated draw with a small overscale
 
 A third recording still showed real clipping, and the user pushed back directly and correctly: layering two draws to work around a rotation problem was never actually fixing the rotation, and they explicitly asked for real research instead of another local guess, plus a hard requirement - a single rotated draw, no layering, period.
-<br />
 
 Searched bracket-lib's own GitHub, its usage guide, and its official `flexible.rs` example (a freely spinning, scaling `@` glyph) to confirm the `set_fancy` call shape this project already uses matches the library's own idiomatic usage exactly - no misuse found there. Went a level deeper into the vendored source itself: confirmed bracket-terminal's font textures use `NEAREST` filtering (not bilinear), and `FontScaler::glyph_position` computes each glyph's UV rect at exact cell boundaries with zero padding between atlas cells. That combination is a well-documented class of bug in pixel-art rendering generally - a rotated sprite's edge fragments can land exactly on a texel boundary and round to the wrong (adjacent) atlas cell, invisible when axis-aligned (screen pixels and texels line up exactly) but a real seam once rotated, worse in motion since the exact rounding point shifts every frame during a glide. Didn't find a bracket-lib issue describing this exact case, but the standard, broadly-used fix for exactly this class of bug doesn't require one: overscale the rotated sprite by a couple percent (`SCALE_FUDGE = 1.03`) so any hairline rounding gap gets swallowed by deliberate overlap into the surrounding same-colored grass, instead of leaving a visible seam.
-<br />
 
 Reverted to a genuine single draw per path tile - no base layer, no second overlay call, exactly what was asked for. Verified with the fast suite; still needs a live recording to confirm this is actually clean, including during the glide this time.
 
 ## Real fix: pre-rotate the actual art once, no runtime rotation at all
 
 The overscale fix still showed full black lines in a fourth recording. The user's own next suggestion turned out to be the actual right answer, cutting through several rounds of chasing engine-level rendering behavior: replace a real atlas cell with a pre-rotated copy of the dirt-path texture, so a horizontal path tile is just an ordinary static glyph like any other tile - no `set_fancy`, no rotation, no NEAREST-filtered texel-boundary edge cases to chase at all.
-<br />
 
 Forest's Path Fork cell (cell 10) was the natural target - nothing used it for real branching (the original "fork" idea was always just a discrete accent, per the 2026-09-13 rotation-limitation note earlier this same day), so repurposing it cost nothing. Edited `resources/map_tiles.png` directly with a one-time Pillow script: cropped the existing vertical Dirt Path cell (cell 9), rotated it 90 degrees as a plain offline image operation (no GPU/shader involved at all), and pasted it over the Path Fork cell - verified via a per-cell byte comparison against a backup that exactly one 32x32 cell changed, nothing else in the atlas touched.
-<br />
 
 Moved the horizontal/vertical decision from render time into generation time, where it always should have lived: `MapBuilder::stamp_theme_path` now walks the connected line same as before, but a second pass classifies each tile from its own path neighbors (horizontal if it connects left/right but not up/down, vertical otherwise, including corners) and bakes that choice directly into `tile_variant` as one of two real, distinct atlas cells. `map_render.rs` reverted entirely back to its pre-rotation-work form - no special path-tile handling left in it at all, since a horizontal path tile is now indistinguishable from any other Floor variant as far as rendering is concerned. `MapTheme::path_variants` renamed in spirit from `(main, fork)` to `(vertical, horizontal)` to match.
-<br />
 
 Verified with a throwaway test (one connected line, every tile's variant matching its own actual neighbor connectivity, across 30 generations - removed after confirming) plus both headless simulations (consistent with every prior run). This should be the actual end of this saga - no more rendering theories to chase, since there's no runtime rotation left to have a theory about.
 
 ## A fourth theme: Swamp, generated in two rounds and merged into one
 
 While still on the map-gen refactor branch, the user asked to add another theme - the Swamp one drafted earlier this same day (a 16-cell prompt list, saved but never generated). Handed over a plain-text, copy-friendly version in a code block after the first formatted version didn't paste cleanly.
-<br />
 
 **First batch**: 14 of 16 cells came back solid, matching the prompt closely. Two real misses: cell 7 ("Moss-covered rotted log wall") showed plain wood with no visible moss at all, and cell 13 ("Murky swamp water") was a completely flat solid color, no texture. Also confirmed the same grid-line-border artifact this project's very first Forest batch had (131x131 actual pixels for a nominal 4x4/128x128 grid) - already had the exact crop bounds documented from that session, no new investigation needed. No watermarks in any corner.
-<br />
 
 **Second batch**, using a sharpened prompt (explicit "visible bright-green moss," "subtle rippling water texture, not flat," plus a general "avoid very deep near-black shadows" note): fixed all three requested things - cell 7 now shows real moss, cell 13 has real ripple texture, and cell 16 ("Thick reed/cattail cluster") reads as tall reed stalks instead of a round bush shape it had drifted into. But the revision also broke two DIFFERENT cells that weren't touched at all: cell 3 ("Damp peat / dark soil") came back ~90% near-black, essentially a solid black square, and cell 11 ("Fallen dead tree / driftwood") lost its driftwood shape entirely, rendering as a generic cracked-ground texture nearly identical to cell 10.
-<br />
 
 Rather than a third generation round, built a hybrid: 14 of 16 cells from the second (improved) batch, with cells 3 and 11 specifically pulled from the first batch instead, where they were correct. Composited with the same near-black-flooring treatment (30/channel minimum) every prior theme's art has needed, verified via a per-cell byte diff that only the intended rows changed. New `SwampTheme` impl in `themes.rs` follows the exact same shape as Forest/Dungeon/Sewer - `tile_row(Some(13))`, `floor_variant_style` for the Patch/Scatter split on cells 9-12, added to both `dungeon_theme_pool()` and `ThemeChoice` (the Debug ThemeSelect menu, which turned out to already be built to scale with `ThemeChoice::ALL`'s own length rather than a hardcoded count - only a stale "the other three" UI string needed updating to "the other four"). Deliberately NOT wired into the moat/obstacle placement system Forest and Sewer have - that's real design work of its own (which liquid look, which prefab, sparse or deterministic), not something to bolt on unprompted while adding the theme itself.
-<br />
 
 Verified with a throwaway test (a real Swamp map generates valid in-range tile variants, `dungeon_theme_pool()` actually includes it) plus both headless simulations (consistent with every prior run - the theme pool going from 3 to 4 entries doesn't touch difficulty, only cosmetic terrain). **Worth remembering for the next theme**: a prompt revision aimed at fixing specific cells can regress OTHER cells that were never touched - always do a full 16-cell recheck after any revision, not just the cells the change targeted.
 
 ## Swamp's own Battle/Victory/Defeat backgrounds - and a camera-angle mistake caught immediately
 
 While the tile theme was still being verified, the user asked for prompts for the three remaining pieces this theme needs: a Battle Arena backdrop, two Victory scenes, one Defeat scene - a completely different asset type from the tile atlas (full 1280x800 painted scenes on `resources/battle_backgrounds.png`, not 32x32 tiles). Dispatched a research agent first to pull the real technical requirements (dimensions, per-theme variant counts, composition rules) rather than guess.
-<br />
 
 **A real mistake, caught immediately by the user rather than discovered later**: the first drafted Battle Arena prompt described a side-view JRPG backdrop, by analogy to the Victory/Defeat prompts (which really are side-view). The user corrected it directly - "we don't want a side view for the battle screen we need the enemies to be in the top right we need a top-down or low top down." Checked the actual existing asset before trusting anything further rather than re-guessing: cropped and viewed Forest's real battle background directly from `resources/battle_backgrounds.png`, confirmed it's genuinely top-down (a forest clearing viewed from above), and separately confirmed Victory/Defeat really are side-view by checking those too. Revised the Battle Arena prompt to top-down with an explicit top-right ground requirement; left Victory/Defeat alone since those were already correct.
-<br />
 
 **Four images came back** (Battle Screen, two Victory variants, Defeat). The first Battle Screen attempt had the right camera angle now but no clearly distinct standing area - the whole scene read as open water with no obvious ground patch, let alone one in the top-right specifically. Flagged this honestly rather than compositing something that might look wrong, and the user chose to regenerate rather than accept it. A sharpened prompt (explicit "TOP-RIGHT quadrant must be a clearly distinct patch of solid, dry, walkable ground... NOT water") fixed it cleanly - a real tan dirt bank running from the top-right down through the frame, clearly separated from the water.
-<br />
 
 All four passed the same technical checks used throughout this project for painted-scene art: exact 1344x768 generation size (matching the established crop-then-scale workflow - center-crop to 1229 wide, keep the full 768 height, scale the whole thing up to 1280x800), zero watermarks in any of the 16 corner crops across all four images, and 12-31% near-black content each (expected for moody scenes, floored to the standard 30/channel minimum before compositing - the same treatment full-scene art needed the first time this project used it, for Forest/Dungeon/Sewer's own Victory/Defeat backgrounds).
-<br />
 
 Composited into `resources/battle_backgrounds.png` at cells 14 (Battle), 15 (`SwampStance`, FaceCamera pose), 16 (`SwampWalk`, WalkAway pose), 17 (`Swamp` Defeat) - the next four free cells in the shared 36-cell atlas, confirmed via a per-cell byte diff that only those four changed. New `EndSceneTheme::Swamp` variant, `SwampTheme::end_scene_theme()` override, and `VictoryBackground::SwampStance`/`SwampWalk` + `DefeatBackground::Swamp` wired through every existing match arm (`random_for_theme`, `for_theme`, `background_row`, `pose`, `portrait_grid_position`, `walk_away_position`) - the compiler's own exhaustiveness check caught every site that needed a new arm, nothing missed. Picked `FaceCamera` + `WalkAway` for the two Victory poses rather than `ClimbAway` (which needs new character-climb animation art too, out of scope for just backdrops) - the same lower-effort pairing Dungeon and Sewer already use.
-<br />
 
 Not yet screenshot-verified live in a real fight, unlike the original three themes' own backgrounds - worth a real check next time Swamp comes up in a run, same as every other bracket-lib layout guess made without being able to render and check directly.
 
 ## Real screenshots confirm it - the Defeat corpse was floating on water
 
 The user tested it live and sent real screenshots. The Battle Arena background works well - the enemies land on the intended ground patch. Defeat had a real bug: the fallen character rendered visibly in the pool below the dead tree, not on solid ground.
-<br />
 
 Rather than guess a new position, sampled the actual composited image directly - cropped every cell of the 5x5 `BATTLE_PORTRAIT` grid this scene uses and looked at each one. The centered position (2,3), which every other Defeat scene shares, lands mostly in the pool for this specific piece of art - the grass band here is genuinely thinner than one grid cell (160px), sitting right at the seam between the tree/background row and the water row. (1,3) and (3,3) both came back majority-grass with only their lower edge touching water; picked (1,3), left of center, to also avoid the tree's own reflection. Documented as Swamp's first real exception to the "every Defeat scene shares one centered position" convention, with the same "first guess, not yet re-verified" caveat every other bracket-lib layout value in this project carries.
-<br />
 
 Separately, the user flagged the Battle Arena background as "will work but we might be able to do better" - not a bug, an open invitation - asked directly what specifically they'd want improved before guessing at more art changes. Two real things came back: the player's own portrait (a FIXED position, (1,3), used identically for every theme's Battle Arena - never made theme-specific) was landing on water since the ground patch this session generated only covered the top-right where enemies stand, and a request for a "low top-down" angle instead of perfectly overhead, so composited animations read more naturally. Revised prompt: two separate solid-ground patches (top-right for enemies, bottom-left for the player), shallow-angle top-down instead of straight overhead - the user is generating it now.
-<br />
 
 ## The Defeat position guess needed a second correction - this time pointed at exactly the right spot
 
@@ -4474,20 +4247,16 @@ The (1,3) fix from the previous entry wasn't quite right either - still dipped i
 ## (4,3) was clean ground but sat too close to the frame's own right edge - the coarse grid itself was the real limit
 
 A live screenshot confirmed (4,3) landed on real grass, but the user reported it read as too far right, close to clipping the frame edge. Checked a few more of the already-sampled grid cells before assuming another whole-cell hop would fix it: every other cell near the pool was either water or misty background trees - no single 256x160 cell in this 5x5 grid was ever going to be both clean ground AND comfortably clear of the edge at once.
-<br />
 
 Rather than trade one imperfect whole-cell guess for another, gave this specific placement real sub-cell precision instead: sampled actual pixel colors across a range of x/y coordinates directly against the composited image (not eyeballed) to confirm the grass patch extends further left than any single grid cell suggested, picked (3.4, 3.4) in fractional grid units. That needed `CHARACTER_DEATH_CONSOLE` (plain, whole-cell-only) to gain a fancy sibling - `CHARACTER_DEATH_GLIDE_CONSOLE`, inserted right after it (main.rs's own established "insert early, renumber everything after" pattern - 9 constants after it shifted up by one, mechanical and low-risk). `DefeatBackground::portrait_grid_position` (i32 pair) became `fallen_portrait_position` (f32 pair); the four original themes just widen their existing whole-cell spot unchanged. Reused the existing `draw_portrait_fancy` helper outright rather than writing a new set_fancy call by hand - it already carries the exact "set_fancy renders one cell too far north" correction every other fancy console on this same coarse grid has needed, so the new console pairing inherits that established fix automatically rather than needing its own from scratch.
-<br />
 
 Verified with the fast test suite (46 console registrations, indices 0-45, no gaps) - still needs a live screenshot to confirm the fractional position actually reads right, same as every bracket-lib layout value in this project until it's been checked against real play.
 
 ## The Battle Arena background needed a composition rethink, not another prompt tweak
 
 The "top-right for enemies, bottom-left for the player" revision (previous entry) still wasn't giving enough usable ground on either side - the user reported it plainly: "the current prompt is just not giving enough land for the player and the enemies." Every attempt so far had been asking for a mostly-WATER scene with ground carved out as the minority feature (an enclosed marsh pool with dry patches) - fighting the generator's own instinct every round rather than working with it.
-<br />
 
 Flipped the ratio instead of tweaking wording again: told the prompt explicitly that solid ground is the DOMINANT feature (80%+ of the frame) and water is a minor accent (one small puddle, not the base layer) - "this is NOT a water scene with a bit of dry land - it's a dry clearing with only a small water feature." Came back clean on the first try - a large sunlit muddy clearing fills nearly the whole frame, with only a thin ring of water visible at the edges through the root/vine border. Passed the same checks as every other piece of full-scene art in this project (zero watermarks across 4 corners, near-black floored to 30/channel). Composited into cell 14, replacing the previous attempt - confirmed via byte diff against the last commit that only that one cell changed.
-<br />
 
 **Worth remembering for the next piece of environment art**: when a generator keeps defaulting to a look that doesn't leave enough usable space (here, water as the dominant terrain), the fix is rebalancing which element is described as dominant vs. accent, not just adding more qualifiers to the existing composition.
 
@@ -4496,325 +4265,508 @@ Flipped the ratio instead of tweaking wording again: told the prompt explicitly 
 ## Item 10: real PixelLab UI panel art, starting with the Item Menu
 
 Picked up item 10 - replacing the game's hand-drawn ASCII box borders with real pixel art. New branch, `pixellab-ui-panels`, off `master`. Talked through the design before generating anything, per CLAUDE.md's convention: catalogued all 13 real `draw_ascii_box` call sites fresh (grep, not memory) rather than trusting the existing backlog notes blindly, given this session had already caught one stale-research mistake earlier. User's calls: one unified panel style reused everywhere (not per-screen), and figure out the full site list before generating art, building things "1 by 1."
-<br />
 
 **The prior API research was wrong.** `docs/ideas.md` claimed a dedicated `POST /generate-ui-v2`/`POST /create-ui-asset` UI-generation path, cited against "the real OpenAPI spec." Once the user provided a real API key and generation actually started, both the summarized WebFetch answer AND a first guess at `forced_palette`'s shape turned out wrong - neither endpoint exists at all. Fetched the raw `openapi.json` directly and had it list every single path rather than trust another summarized answer - confirmed there is no UI-specific endpoint, full stop. The real usable path is the same general pixel-art endpoint (`create-image-pixflux`) already proven for this project's tile atlases and battle backgrounds - fetched ITS raw schema directly too rather than trust the summary again, which is how the real `color_image` (not `forced_palette`) parameter shape was actually found.
-<br />
 
 **Getting the API key working needed a small detour.** The user first tried `export`ing it in their own terminal, which is invisible to this session (separate shell process, only cwd persists between Bash calls per this environment's own rules) - switched to a `.env` file the session reads directly instead. Added `.env`/`.env.*` to `.gitignore` immediately, before the file even existed, so there was never a window where it could be accidentally committed.
-<br />
 
 **Dungeon (carved stone) approved on the first generation.** Palette sampled directly from `resources/map_tiles.png`'s own Dungeon rows (4-7) and fed back to PixelLab as `color_image`, rather than a guessed hex list. Verified properly before showing it, not just eyeballed: a real pixel-health pass (watermark scan all 4 corners, near-black-opaque-pixel floor check) and, more importantly, an actual 9-slice stress test - sliced the 96x96 source into its 9 pieces and retiled them into a 256x160 test box (8x wider, 5x taller than the source) to catch a seam that a single static image could never reveal. Came back clean on the first try.
-<br />
 
 **The user couldn't see the images.** Two delivery attempts failed silently in this client - first the Read tool's own inline display, then SendUserFile (which reported success with real file UUIDs but still didn't render for the user). Published an Artifact instead - a real hosted page the user could open in any browser, sidestepping whatever this specific client's own image-rendering limitation was. This became the standing delivery method for the rest of the session - republishing the same artifact URL each time new art needed review, rather than fighting the inline-image path further.
-<br />
 
 **Three more materials matched to the game's own existing themes**, not picked arbitrarily - Forest, Sewer, Swamp, mirroring the 4 map themes the game already has (`map_builder::dungeon_theme_pool()`), each palette-sampled from that theme's own `map_tiles.png` rows the same way Dungeon was. Forest and Swamp were strong on the first try. Sewer needed two redo rounds:
 1. First attempt was technically clean (passed every check, tiled fine) but read too murky/low-contrast to actually say "rusted metal" - flagged honestly rather than presented as done.
 2. A sharper, higher-contrast prompt fixed the frame completely, but accidentally regressed the CENTER tile into a busy diagonal chevron pattern that was distracting once tiled - the exact same "a fix aimed at one cell can break a different one" lesson `Map_Tile_Theme_Guide.md`'s own Swamp write-up already learned for tile atlases, now confirmed true for UI panels too.
 3. Re-prompted with the now-good frame description unchanged, but an explicit, heavily emphasized "flat, plain, no diagonal patterns" instruction for just the center - fixed it, landed on a calm cobblestone texture matching the other three themes' quiet centers.
-<br />
 
 All four composited into one sheet, `resources/ui_panels.png` (3 cols x 12 rows of native 32px cells, one 3-row nine-slice band per theme, same row order as `dungeon_theme_pool()`), with a second pixel-health pass across the whole composited sheet confirming the paste operations didn't introduce anything new.
-<br />
 
 **Answered "how do you scale these to fit any sized border" honestly, including the real tradeoff**, before building anything: corners never stretch, edges/center tile to fill whatever space is between them - straightforward in principle, but bracket-lib's console grid means a real pixel-art box can only easily draw whole 32px tiles, coarser than the ASCII boxes' current fine ~12px-cell precision. Settled on a real design for `draw_pixel_box`: pixel-precise POSITION via `set_fancy`'s fractional placement (reusing the existing `draw_portrait_fancy` helper outright), but box SIZE rounds to the nearest whole 32px tile - a documented, deliberate simplification, not a silent approximation. Verified the actual conversion math (HUD_CONSOLE cells → real pixels → 32px tile counts) against the Item Menu's real numbers with a throwaway test, confirming e.g. the Items box's exact `LEFT_X=3, TOP_Y=12, LEFT_WIDTH=50, TOP_HEIGHT=11` converts to a 19x4-tile box - removed after confirming.
-<br />
 
 New `UI_PANEL_CONSOLE` (46, fancy, appended at the very end - no reordering needed since `draw_pixel_box` only ever draws a HOLLOW border, same shape `draw_ascii_box` already has, so it can never overlap whatever a box's own text/icons draw on an earlier console regardless of z-order). Wired into exactly ONE site so far - the Item Menu's Items box - deliberately not touching the other 12 `draw_ascii_box` call sites yet, per the "create them 1 by 1" plan and since this is genuinely unverified rendering (CLAUDE.md's own standing rule - can't drive/screenshot the game myself). Full recipe, verification methodology, and row-mapping documented in a new `docs/UI_Panel_Sheet_Guide.md`, mirroring `Map_Tile_Theme_Guide.md`'s own precedent. Full `cargo check`/`build`/`test` suite passes clean. Next: a live screenshot of the Items box before wiring up the rest.
 
 ## Three more rounds of real screenshot feedback on the Item Menu
 
 **Round 2**: the Items box rendered, but as a garish neon-blue frame with the list text nearly unreadable - the border swallowing most of the box. Two real, separate causes, not one: (1) tinting the stone art with the box's old category color (BLUE) crushed its own shading into a flat color wash - the multiply-tint trick this project already uses for greyed-out icons works fine on flat, already-colorful sprite art but wrecks a subtly-shaded material; switched to always tinting WHITE, with the box's title text still carrying the category color so nothing about "which box is which" was lost. (2) The border tiles were drawing at native 32px, wildly oversized for a HUD_CONSOLE-scale box - needed real engineering to fix, not a number tweak: traced `set_fancy`'s actual vertex-shader source (not guessed) to confirm it scales a glyph around its OWN center, meaning shrinking the tile alone (without also closing up the spacing between tile centers by the same factor) would open visible gaps between adjacent tiles. New `PIXEL_BOX_TILE_SCALE` (0.375, ~12px, matched to HUD_CONSOLE's own real cell width) applied to both the glyph's own render scale and its position step. `draw_panel_tile` stopped reusing `draw_portrait_fancy` (which hardcodes scale 1.0 for its other, unrelated caller) and got its own direct `set_fancy` call instead, so this didn't ripple into code this feature has nothing to do with.
-<br />
 
 **Round 3**: color and thickness both fixed, but the box interior showed the frozen dungeon view bleeding through wherever no text happened to sit. First pass added a `fill_region` call (space glyph, black background) - technically compiled and ran, but did nothing. Traced the REAL cause properly rather than guessing again: pulled bracket-terminal's actual `CONSOLE_NO_BG_FS` fragment shader source directly, and confirmed it receives a background color as a shader input but never reads it anywhere in the fragment logic at all - every fragment is either the glyph's own opaque texture (if bright enough) or a hard `discard`, with literally no third "solid background" code path. `HUD_CONSOLE` is registered via `with_simple_console_no_bg`, so every `bg` color ever passed to `set`/`fill_region` on it has always been silently ignored - this was a genuine, previously-unknown gotcha about this console type, not something specific to the new pixel-box work. Fixed by filling with a full-block glyph (CP437 219, `'█'`) tinted BLACK through `fg` instead - the same multiply-tint mechanism already used everywhere else, just aimed at a solid block instead of a sprite. Worth adding to CLAUDE.md's own standing gotchas list given how easy this would be to hit again anywhere else in this project that tries a background-color fill on a `no_bg` console.
-<br />
 
 **Same round 3 screenshot, direct feedback on top of the bug fix**: "put the text on the border" and "add more space between the boxes." For the title placement - the border tiles get an extra north-anchor correction (`WIGGLE_CONSOLE_Y_ANCHOR_OFFSET`) that plain `print_color`'d text never goes through, so a title printed at the box's own nominal top row visibly sat above where the border's real top edge rendered. Rather than chase the exact offset math (genuinely uncertain whether the correction should itself scale with `PIXEL_BOX_TILE_SCALE`), took the simpler, more directly-evidenced fix: nudge the title text down one row to match what the screenshot actually showed. For spacing - the gap between box rows was only 1 HUD_CONSOLE row (fine for a 1-cell ASCII border, cramped for a real ~12px stone frame), and Equipped Items/Stats had literally zero gap between them. New `BOX_GAP`(3)/`SUB_GAP`(2) constants, with `TOP_Y`'s own vertical-centering arithmetic recomputed by hand for the new 49-row total block height (was 43), and `BOTTOM_HEIGHT` widened by `SUB_GAP` so the two columns' bottom edges still line up.
-<br />
 
 All of round 3's fixes are still unverified - a fourth screenshot is the next step before touching any of the other 7 `draw_ascii_box` sites. `docs/UI_Panel_Sheet_Guide.md` updated to match reality after each round rather than left describing the previous, now-wrong behavior. Full `cargo check`/`build`/`test` suite passes clean after every round.
 
 ## Rounds 4 and 5 - the fill/border alignment, then a real architectural dead end on titles
 
 **Round 4**: the no_bg fill fix worked (solid black interiors, no more dungeon bleed), but the user flagged the black fill wasn't quite nested inside the border - spilling past it on some edges, short on others. Root cause: `draw_filled_pixel_box` was filling to the box's ORIGINAL nominal x/y/width/height, while the border rounds that same box to the nearest whole `PIXEL_BOX_TILE_SCALE` tile - two independent roundings of the same box aren't guaranteed to agree, and didn't. Fixed with a new `pixel_box_hud_rect` that re-derives the fill's own rect FROM the border's already-rounded footprint instead of computing it independently - guarantees the two match exactly by construction rather than by coincidence. Verified with a throwaway test confirming the fill rect's own re-derived tile count is identical to the border's own, removed after confirming.
-<br />
 
 **Round 5**: the fill/border alignment looked clean in the next screenshot, but the user reported something more serious - every box title ("Items", "Battle Actions", etc.) had vanished outright, not just moved. This traced back to round 3's OWN title-row nudge (`y+1`, meant to land the title "on" the border per direct feedback that same round) - and turned out to be a genuine architectural dead end, not a pixel-tuning miss that needed one more nudge. The border draws on `UI_PANEL_CONSOLE`, registered (and therefore z-ordered) AFTER `HUD_CONSOLE` - wherever the title's row happens to coincide with the border's own real footprint, the border's fully opaque tile paints directly over the title and erases it completely, regardless of DrawBatch command order within HUD_CONSOLE itself. The nudge was working exactly as coded; it just wasn't achievable the way it was attempted. Reverted both `print_box`'s title and the Stats box's own standalone title back to row `y`, the position already confirmed visible in every screenshot before round 3. Genuinely embedding a title in the border art (rather than floating clear of it) would need a real new console layered even later than `UI_PANEL_CONSOLE` - not attempted; readability won out over that specific look for now, and the user's actual stated priority ("we lost all the text describing the different boxes") was about getting titles back, not insisting on the embedded look at any cost.
-<br />
 
 `docs/UI_Panel_Sheet_Guide.md` and this journal updated after each round again. Full `cargo check`/`build`/`test` suite passes clean after both rounds. Sixth screenshot still needed before touching any of the other 7 sites.
 
 ## Round 6 closes the Item Menu, then straight on to the HUD bars
 
 Sixth screenshot: everything landed - titles visible, black fill nested cleanly inside every border, no more spilling. One real gap the user caught: the shared description panel sat completely blank whenever nothing was selected (an empty list, or the cursor between boxes) - read as broken now that it's a real filled stone panel rather than an easy-to-ignore hollow ASCII box. Added a plain "Select an item or action to see its description." placeholder, same GRAY convention the empty list boxes already use.
-<br />
 
 With the Item Menu confirmed working end to end, moved straight on to the dungeon HUD's three bar frames (Item/Ability/Battle Bar) per direct instruction ("move onto the ability bars") - a much faster pass than the Item Menu's own six rounds, since every hard problem (tint color, tile scale, the no_bg fill bug, fill/border alignment) was already solved there and the bars use the exact same `ability_bar_box_bounds` HUD_CONSOLE-cell coordinates `draw_filled_pixel_box` already expects. New `panel_batch` (UI_PANEL_CONSOLE) alongside the bars' existing bar_batch/label_batch/badge_batch/portrait_batch, submitted last (z=10006) so it paints over the icon/label consoles the same way `ABILITY_BAR_CONSOLE` already paints over `HUD_CONSOLE` today - no new z-order reasoning needed, just the established pattern.
-<br />
 
 Flagged one real unknown before calling this done: these three bars sit over the LIVE dungeon view during actual exploration, not a paused full-screen menu like the Item Menu - a solid black background behind each bar is a bigger visual statement there (permanently blocking part of the live game view under each bar) than it was inside an already-fullscreen menu. Not fixed preemptively - worth a real screenshot and the user's own reaction before assuming the same treatment is right in this different context. `docs/UI_Panel_Sheet_Guide.md` updated with the new site count (9 of 13 done). Full `cargo check`/`build`/`test` suite passes clean, including the permanent `hud_system_execution_tests` regression test.
 
 ## A real wrong turn on the title/fill question - reverted on direct correction
 
 Added the Description panel's own title as asked, but also read "the label will not have the black background" as license to exclude the title's own row from the fill entirely (a `has_title` flag). Wrong call, confirmed two rounds later: the user clarified directly that the black fill reaching UP to meet the title row - "coming up out of the top of the borders" - was specifically the look they liked, not something to fix. Worse, excluding that row left the title with nothing solid behind it at all, which is exactly what surfaced as "the text makes it so we can see the map below" once the title happened to sit over a light part of the frozen background.
-<br />
 
 This took genuine back-and-forth to actually land on - a first "does this make sense?" summary from me (after the initial complaint) got the FILL direction backwards, a second correction from the user spelled out all three points explicitly (like the fill sticking up, want labels, but text needs solid black behind it too), and only then was the real, single root cause clear: one flag, wrongly added, explained the whole thing. Reverted `has_title` entirely - `draw_filled_pixel_box` fills every box's full nominal area unconditionally again, no exceptions, across all 9 wired-up sites.
-<br />
 
 Also used the pause to actually VERIFY (not just assume) the separate edge-rounding concern flagged a few rounds back - wrote a real standalone script running `pixel_box_hud_rect`'s exact math against this game's real box dimensions (Items/Description/Stats/Dungeon Actions) and confirmed the fill matches the nominal box exactly, zero difference, in every real case. That concern was never actually live; the title-row exclusion was the whole story.
-<br />
 
 **Worth remembering**: when a user says "does this make sense?" after correcting course, that's a real request to confirm understanding before touching code again - not a formality. Two rounds of guessing wrong here versus one round of describing the plan and waiting for an explicit yes would have been a meaningfully cheaper way to get to the same fix. `docs/UI_Panel_Sheet_Guide.md` updated again. Full `cargo check`/`build`/`test` suite passes clean.
 
 ## The real remaining bug: text itself let the map show through
 
 With the fill/title question settled, the user pointed at the actual bug still left: "the text within the boxes makes it so we can see the map below." Took two rounds of "does this make sense?" to pin down precisely what was meant - not the box background (already solid), but each individual LETTER's own background. Confirmed with a side-by-side screenshot comparison: the fill itself was correct everywhere text wasn't, but wherever a character was printed, the live dungeon view showed through around and between its strokes instead of solid black.
-<br />
 
 Root cause, traced to bracket-terminal 0.8.7's real source rather than guessed: `SimpleConsole::set` REPLACES a cell's entire `(glyph, fg, bg)` tuple outright - it doesn't layer new content onto whatever was drawn there before. `draw_filled_pixel_box` and `print_box`'s own text calls were both targeting the SAME console (`HUD_CONSOLE`) in the SAME batch, fill first then text - draw order within one console doesn't matter here, because printing text over an already-filled cell doesn't paint on top of the fill, it OVERWRITES that cell's tile entirely with the letter's own glyph. Once overwritten, the cell's glyph is the letter's own shape, and `HUD_CONSOLE`'s `no_bg` shader (the same one round 3 already traced) discards any pixel whose SOURCE TEXTURE is near-black - exactly what the "empty" space inside a glyph's own 8x8 cell looks like. The fill that used to occupy that exact cell is just gone once text lands there, so the discarded pixel reveals whatever's several consoles further down (the live dungeon view) instead of solid black.
-<br />
 
 Fix: a genuinely separate console for text, not a same-console reordering (there is no ordering fix for this - the two draws touch the same cell array either way). New `PANEL_TEXT_CONSOLE` (index 47, `no_bg`, same `HUD_COLS x HUD_ROWS` grid as `HUD_CONSOLE`), registered in `main.rs`'s builder chain immediately after `HUD_CONSOLE`, so it's later in z-order. `print_box` in `item_menu.rs` split into three batches (`fill_batch` for the fill+border, `panel_batch` for the border art, `text_batch` for every printed character), with `text_batch` targeting the new console. Every `print_color`/`print_color_centered` call in `item_menu.rs` that lands on top of a fill - box titles, "Nothing here.", every list entry, the Stats box's title and stat lines, the Description panel's title and wrapped description text - moved onto `text_batch`. The one exception: the footer line below every box, which never sits on a fill and was never affected, stayed on the plain `HUD_CONSOLE` batch.
-<br />
 
 Full `cargo check`/`build`/`test` suite passes clean, brace balance confirmed, full diff reviewed before committing. `systems/hud.rs`'s three dungeon-HUD bars have the identical latent bug (their `label_batch` does double duty for both fill and the Ability Bar's own number labels) - flagged in `docs/UI_Panel_Sheet_Guide.md`'s "Still open" list as a known follow-up, not yet started, since it should wait on the Item Menu fix itself being confirmed live first. Next: a fresh screenshot from the user to confirm this actually closes the "text lets the map show through" issue.
 
 ## Confirmed live, then straight on to the HUD bars
 
 User confirmed the Item Menu fix live - "That is PERFECT!!!! Awesome." No further correction rounds needed. Moved immediately on to the dungeon HUD's Ability Bar per direct instruction ("move onto the ability bars out of battle").
-<br />
 
 Only the Ability Bar actually had this bug - its number-key labels (1-9/0) print onto `label_batch` (`HUD_CONSOLE`), the exact same console `draw_filled_pixel_box`'s own fill uses there. The Item Bar and Battle Bar draw icons only (on `ABILITY_BAR_CONSOLE`, a separate console from the fill), so they were never affected. Fixed the same way as the Item Menu: moved the label `print_color` call onto a new `text_batch` targeting `PANEL_TEXT_CONSOLE` (the same console registered for the Item Menu fix, already later in z-order than every console the HUD bars use), submitted last in the function's own batch order. `cargo check`/`build`/`test` clean, brace balance confirmed, diff reviewed before committing. Still needs its own live screenshot - these bars sit over the LIVE dungeon view, a real context difference from the Item Menu's paused full-screen state, flagged as an open question a few rounds back and still unconfirmed.
 
 ## Item Menu confirmed, a real fill/border alignment fix, and a Swamp Battle Bar
 
 User confirmed the Item Menu fix live - "That is PERFECT!!!! Awesome." Moved on to the dungeon HUD bars per direct instruction, then three more direct asks from a fresh batch of screenshots (with a clarifying round first, since "that battle icons" box was genuinely ambiguous between the Item Menu's Battle Actions box and the dungeon HUD's own Battle Bar - asked, and it was the latter): switch the dungeon HUD's Battle Bar specifically to the Swamp material, make the borders a bit bigger, and - the substantial one - "I really don't want to have the black background unless its perfectly centered and does not over flow outside the box."
-<br />
 
 That last one turned into a real architecture fix, not a number tweak. The fill's rect (`pixel_box_hud_rect`) was computed independently from the border's own footprint, by rounding the border's real sub-pixel position to `HUD_CONSOLE`'s own coarse ~12-16px cell grid - a genuinely different console and resolution than the border's own `set_fancy` positions. Two independent roundings of the same box don't have to agree, and with the border itself only ~16px thick, even a few pixels of drift reads as a real visible seam. Rather than trying to tighten that rounding, traced whether the fill could just MOVE onto the same console as the border and share its exact numbers instead - which meant first confirming whether that console (`UI_PANEL_CONSOLE`, a `with_fancy_console`) could even hold two overlapping draws without one erasing the other, the same question that forced `PANEL_TEXT_CONSOLE` to exist as a separate console in the first place. Pulled bracket-terminal's real source directly rather than assume either way: `with_fancy_console` is backed by `FlexiConsole`, a SPARSE console whose `set_fancy` PUSHES a new `FlexiTile` onto a `Vec` - it never overwrites anything already queued, unlike `HUD_CONSOLE`'s `SimpleConsole` (one fixed `Tile` per cell, `set` replaces it outright). So fill and border CAN safely share `UI_PANEL_CONSOLE`.
-<br />
 
 Went one step further and read the actual vertex shader source (`FANCY_CONSOLE_VS` - `base_pos = (aPos - center_pos) * scale; base_pos += center_pos`, with `scale` a `vec2` applied component-wise) to confirm a single glyph can be stretched non-uniformly, not just resized - meaning ONE `set_fancy` call, positioned and scaled from the exact same `base_col`/`base_row`/`tiles_w`/`tiles_h` numbers the border's own tiles already use, can cover the whole interior with pixel-perfect coincidence by construction. New `draw_panel_fill` replaces the old `pixel_box_hud_rect` entirely - `draw_filled_pixel_box`'s signature simplified as a result (drops the separate fill-target batch parameter, since fill and border share one `panel_batch` now).
-<br />
 
 The other two asks were simpler: `PIXEL_BOX_TILE_SCALE` bumped 0.375 -> 0.5 (12px -> 16px border thickness), and the dungeon HUD's Battle Bar switched from `UiPanelTheme::Dungeon` to `UiPanelTheme::Swamp` (the Item Bar and Ability Bar stay Dungeon) - both one-line changes once the real architecture question was settled. `hud.rs`'s now-fill-less `label_batch` (it only ever existed to hold the fill on `HUD_CONSOLE`) was dropped entirely rather than left as dead weight.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated to describe the new fill architecture in place of the old rounding-based one. Next: a fresh screenshot of the dungeon HUD bars to confirm all of this together - the pixel-perfect alignment, the bigger border, the Ability Bar's own text/fill fix from the previous round, and the new Swamp Battle Bar.
 
 ## The pixel-perfect fill's own regression - hidden icons - and the shop tooltip
 
 The requested screenshot came back with good news and a real new bug: "It doesn however look like the black background is the right size" (the alignment fix landed), but "You cant see the any of the abilites in the bars" - every bar rendered as a solid black box, nothing visible inside. Also asked for every border on the dungeon screen to be converted, not just the 3 bars.
-<br />
 
 The icon bug traced straight back to the previous round's own fix. Moving the fill onto `UI_PANEL_CONSOLE` for pixel-perfect alignment also moved it onto that console's fancy shader (`SPRITE_CONSOLE_FS` - `FragColor = original * ourColor`, no discard case at all) - meaning the fill is now a single, fully opaque quad with nothing that lets anything underneath show through. That's fine where "underneath" means the dungeon view (several consoles earlier, exactly what should be covered) - but the dungeon HUD bars' own icon portraits and stack-count badges live on `ABILITY_BAR_CONSOLE`/`ABILITY_BAR_BADGE_CONSOLE`, BOTH registered well before `UI_PANEL_CONSOLE` in the console list, so the fill started painting directly over them too.
-<br />
 
 The "correct" fix - moving `ABILITY_BAR_CONSOLE` itself to register later - would mean renumbering every console constant between its current position (24) and wherever it moved to, a big, error-prone mechanical change across dozens of call sites. Took the cheaper, equally-correct alternative instead: two brand new consoles, `ABILITY_BAR_ICON_CONSOLE` (48) and `ABILITY_BAR_ICON_BADGE_CONSOLE` (49), plain duplicates of the old two consoles' exact grid/font config, appended at the very end of the list (after `PANEL_TEXT_CONSOLE`) where no renumbering is needed at all. `systems/hud.rs`'s out-of-combat bar block now draws its icons/badges there instead. Checked whether anything else depended on `ABILITY_BAR_CONSOLE`'s specific identity before doing this - only one other real dependency turned up, a mouse-position translation (`ctx.set_active_console(ABILITY_BAR_CONSOLE)` feeding `AbilityBarMousePos`) that's purely geometric, keyed to the console's GRID DIMENSIONS rather than which literal index holds the visible content - identical between old and new, so left untouched. Also checked whether the Ability Bar's own number-key label (on `PANEL_TEXT_CONSOLE`, registered BEFORE these two new consoles) could now get hidden by an icon the same way - traced `ability_bar_label_position`'s real math and confirmed the label sits a full row above the icon's own cell, never actually overlapping it, so no.
-<br />
 
 For "every border on the dungeon screen": audited every real `draw_ascii_box` call site left in the codebase - only 4 remain (shop-item tooltip, Pause Hints, the battle log, in-combat Battle Actions), and only the shop-item tooltip is actually visible during dungeon exploration itself; the other 3 are pause- or battle-only screens, not "the dungeon screen." Converted just that one site to `draw_filled_pixel_box`, giving it its own `panel_batch`/`text_batch` pair (previously it just folded into the same `draw_batch` as the health/level text) at fresh z-values (10008/10009) distinct from the ability-bar block's own 10006/10007, since both target the same two consoles and the file's own existing comment already flagged same-console/same-z ordering as genuinely ambiguous.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing twice (icon fix and shop-tooltip conversion landed as separate commits). `docs/UI_Panel_Sheet_Guide.md` updated for both. Next: another fresh screenshot to confirm the icons are actually back and the shop tooltip reads right.
 
 ## Border too thick again, and Swamp everywhere on the dungeon screen
 
 The next screenshot showed the icons ARE back (confirming the console-split fix worked) and the fill's alignment held up ("It doesn however look like the black background is the right size") - but a new complaint: "the color that isn't the sprite for the bar is taking up too much space." The 0.5x scale bump from two rounds ago, sized right for the Item Menu's large boxes, reads far too heavy on the dungeon HUD bars' much smaller ones - the exact tension a single shared constant can't fully resolve, now confirmed both directions in the same project (too thin at 0.375 for big boxes, too thick at 0.5 for small ones). Dropped to 0.3 rather than split into a per-caller parameter, since that's real added complexity nobody's asked for yet - flagged clearly in the constant's own doc comment as the next move if a third round goes a third direction instead of confirming 0.3 works for both sizes.
-<br />
 
 Also asked for every bar on the dungeon screen to match the Battle Bar's Swamp material - Item Bar and Ability Bar switched from Dungeon to Swamp too. A genuine "does this make sense?" pause here, per CLAUDE.md's own standing rule, since the request was ambiguous about the shop-item tooltip (part of "the bars"? a separate thing?) - asked directly with AskUserQuestion rather than guess, and the answer expanded scope further: "I want the tooltips to be the wooden and green corners. As well as the hints bar." - meaning the shop tooltip AND the Paused screen's Hints box (still on the old `draw_ascii_box`, never converted at all) both needed to become real Swamp panels.
-<br />
 
 Converted the Hints box the same way every other box has been: `panel_batch`/`text_batch` split (fill+border vs. the "Hints" title and rotating tip text), Swamp theme, same reasoning as every prior conversion for why text needs its own later console. Also answered a direct side-question about WHEN the shop tooltip got its stone border in the first place - the previous round, in response to "convert every border on the dungeon screen," using Dungeon as the only theme specified at the time.
-<br />
 
 With this round, 12 of the original 13 `draw_ascii_box` sites are converted - only the battle log and the in-combat Battle Actions box (both battle-only) remain. `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated. Next: yet another fresh screenshot - nothing in this round has been confirmed live yet, all reasoned through from the previous screenshot's feedback.
 
 ## The real fix: two scales, not one - and the Hints box confirmed Perfect
 
 Good news in the next screenshot: "The Hints is Perfect!" - the Swamp theme, the 0.3x scale, the panel_batch/text_batch split, all of it landed clean on that box. But the dungeon HUD bars and the shop tooltip still weren't right, and the user asked directly: "Do you know what is wrong?"
-<br />
 
 Rather than guess a fifth scale value, sat down and computed the real geometry instead - `ability_bar_box_bounds`'/`SHOP_TOOLTIP_WIDTH`/`HEIGHT`'s own actual numbers, ported into a throwaway Python script alongside `pixel_box_tiles`' real conversion math, rather than eyeballing the screenshot again. The numbers explained everything at once: a border tile's PIXEL size is fixed by the scale constant regardless of the box's own size, so a box that's small in EITHER dimension has the border eating a much BIGGER FRACTION of that dimension than a large box does - at the current 0.3x, a single-icon Ability Bar box's two border COLUMNS alone were ~29% of its total width, and the shop tooltip's two border ROWS were fully ~50% of its total height. The Hints box, by contrast, is 7 rows tall and 90 columns wide - big in both dimensions, so its own border fraction at the exact same 0.3x scale is negligible (a few percent). Same scale, wildly different results, purely because of how small the box itself is - not a coincidence, not something eyeballing another screenshot would have pinned down this precisely.
-<br />
 
 This is exactly the tension flagged (but not yet acted on) two rounds ago: "if this recurs, the real fix is a per-caller scale parameter." It recurred, with real numbers proving it wasn't just a vibe. Added `PIXEL_BOX_TILE_SCALE_COMPACT` (0.15, half the default) and threaded an explicit `scale` parameter through the whole `draw_panel_tile`/`pixel_box_tiles`/`draw_panel_fill`/`draw_pixel_box` chain - `draw_filled_pixel_box` stays as a thin wrapper defaulting to the original `PIXEL_BOX_TILE_SCALE` (Item Menu, Hints - both untouched, both already confirmed good), and a new `draw_filled_pixel_box_scaled` takes the scale explicitly for the 3 dungeon HUD bars and the shop tooltip, the only sites that actually have this problem.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing (including catching and fixing a bad journal.md edit mid-session - a stray placeholder heading accidentally landed inside the previous round's own section instead of appending a new one; caught by re-reading the file rather than trusting the edit blindly, per CLAUDE.md's own standing rule about re-viewing the exact file after any large edit). `docs/UI_Panel_Sheet_Guide.md` updated with the real numbers behind the two-scale split. Next: a fresh screenshot of the dungeon HUD bars and shop tooltip at their new compact scale - the geometry says it should look right, but nothing's confirmed it live yet.
 
 ## Wrong problem, twice - then a geometry fix instead of another scale guess
 
 The compact scale round came back with "Its still not right Looks about the same" - a strong signal, since 0.3 -> 0.15 should have been a very visible change if border thickness were really the bottleneck. Re-verified the fix had actually compiled and wired correctly (grepped every call site - it had), which meant the theory itself, not the implementation, was the problem.
-<br />
 
 Asked directly which "non-sprite color" was the issue - border frame, or dead black padding around the icon - expecting one clean answer to finally close this out. Got something more specific and useful instead: "The border is overlapping the icons for the abilities. Do you not see that? There is also far more space below than we need... Take some time and really look at the images." A fair, pointed correction - two rounds of scale tuning hadn't actually looked hard enough at what the screenshots were showing.
-<br />
 
 Described back precisely what was visible in all three screenshots (the Ability Bar's icons reading as clipped/obscured at the top, unlike the Item/Battle Bar's intact ones; the shop tooltip's text sitting close to the top with a visibly bigger gap below) before touching code, per CLAUDE.md's own "describe the plan, don't just guess" convention - but this time grounded the description in the actual pixel math too, not just eyeballing. Found the real, verifiable clue: `ability_bar_box_bounds`'s labeled-box top clearance (`label_row - 1`) was numerically IDENTICAL to the unlabeled branch's (`icons_top_px_row - 2`) - despite the Ability Bar needing to clear an EXTRA row of content (the number label) that the Item/Battle Bar never has. Bumped it to `label_row - 2`, one genuine extra row of real clearance. Also trimmed the bottom edge's `+ 1` (sized back when the border was much thicker, now just dead space under a thin compact-scale border) down to the bare ceiling-division clearance, and moved the shop tooltip's text down a row into a box bumped from 3 to 4 rows tall.
-<br />
 
 A real slip mid-edit: the bottom-clearance change accidentally dropped the `icons_bottom_row` variable itself, caught immediately by `cargo check` (not by re-reading first) - fixed before it went any further. Worth remembering: even a "just delete one line" edit on a multi-line block needs the same post-edit compile check as anything else, not just large edits.
-<br />
 
 `cargo check`/`build`/`test` clean after the fix, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated. Next: yet another fresh screenshot - this round is a geometry fix based on comparing formulas and matching the described symptoms, not a traced root cause at the rendering level, so it needs confirming like everything else has.
 
 ## Found the real bug - set_fancy scales tiles around a fixed center
 
 The geometry-tweak round didn't land clean either. First the height fix produced a NEW, real visible problem - the Ability Bar came out one HUD row taller than the Item/Battle Bar (a side effect of only touching the labeled branch's top clearance while trimming bottom clearance everywhere) - described that back precisely before touching anything, per direct instruction ("tell me what is wrong before you do anything").
-<br />
 
 Then came the real pivot: "Height isn't as bad as the fact that we are still giving too much room on the bottom of the bars and that the abilities are still overlapping on the left hand side of the ability bars. and too much space on the right hand side of the item bar." Horizontal (left/right) geometry hadn't been touched at all this whole time - a genuinely new axis of the same underlying problem. Worked through the LEFT/RIGHT clearance formulas by hand and found they SHOULD already have generous margin mathematically, which didn't match the reported overlap at all - flagged that contradiction honestly ("I'm not confident I'm seeing what you're seeing") rather than confidently claim a diagnosis that didn't actually check out, and asked which specific thing "overlapping" meant.
-<br />
 
 The real break came from a much more pointed, visual question: "do you see the border on the left hand side?" - sent with a tightly cropped image of just the Ability Bar. Looking at it directly: the top-left and bottom-left CORNER pieces were visible, but the vertical strip of LEFT EDGE texture connecting them was missing, reading as flat black. Rather than guess between "art asset issue" and "code bug," pulled the actual `resources/ui_panels.png` pixels for the Swamp theme's left-edge vs right-edge tiles and compared their real brightness - nearly identical (28.4 vs 29.1), ruling out an asset problem and pointing squarely at rendering/positioning.
-<br />
 
 Went back to first principles: solved the REAL vertex shader formula bracket-terminal actually uses for `set_fancy` (`base_pos = (aPos - center) * scale + center`, confirmed straight from the GLSL source, not assumed) for where a tile's own edge truly lands. The result: a tile positioned at `P` only renders with its edge AT `P` when `scale == 1.0` - at any smaller scale, it's shifted by `+(1-scale)/2` native-cell-units, because the vertex shader shrinks the tile AROUND A FIXED CENTER POINT rather than around its own nominal corner. Verified the exact number: ~11px at the old default scale (0.3), ~13.6px at the new compact scale (0.15) - small enough to hide inside a thicker border, big enough at the compact scale to visibly crowd an icon on one side while leaving the opposite side with obvious extra space. This is a SINGLE root cause for every symptom reported across the last two full rounds: left-overlap on the Ability Bar, right-excess-space on the Item Bar, AND the bottom-excess-space that kept surviving padding trims - all the SAME whole-box positional drift, not four separate bugs.
-<br />
 
 Fixed it at the source: `pixel_box_tiles` now subtracts that same `(1-scale)/2` back out of `base_col`/`base_row` before any tile position is derived, canceling the shift so the border's real position matches what the caller actually asked for regardless of scale. Verified with a real throwaway test (3 cases: zero shift at scale 1.0, the shift matches the derived formula at compact scale, and feeding the correction back through the real edge formula lands exactly at the original intended position) before removing it, per this project's own established testing convention.
-<br />
 
 Being honest about the one soft spot: the X-axis math is airtight (derived with no assumptions), but the Y-axis goes through `FlexiConsole::set_fancy`'s own internal position flip (the same flip `WIGGLE_CONSOLE_Y_ANCHOR_OFFSET` already separately corrects for) - hand-deriving that flip's exact interaction with the NEW correction proved genuinely error-prone (worked it two different ways and got two different signs). Chose the sign that matches the already-confirmed live symptom pattern instead of trusting either derivation blindly, and flagged this openly in both the code comment and the docs as the first thing to check if vertical alignment gets WORSE instead of better.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated with the real math behind this. **Worth remembering**: two full rounds of geometry/padding tuning couldn't fix this because it was never a padding problem - it was a genuine coordinate bug hiding underneath, and the actual break came from a tightly-cropped, specific visual question ("do you see the border on the left hand side?") rather than another full-screen screenshot, plus going back to the real vertex shader math instead of another guess. Next: yet another fresh screenshot - this is the deepest fix yet, but still unconfirmed live.
 
 ## Confirmed: no more overlap - and the predictable next problem
 
 The center-shift fix worked - "We no longer have the issue with the border being over lapped." Real, satisfying confirmation that the vertex-shader derivation was right, not just plausible. But the very next sentence named the predictable follow-on: "we now have too much padding around the edges." Predictable in hindsight - every "extra buffer" cell added across the last several rounds (`left`'s own `- 1`, `right`'s own `+ 1`, the top edge's `- 1`/`- 2` "breathing room") had been hand-tuned specifically to fight the center-shift drift, back when its real cause was still unknown. Fixing that drift at the source didn't remove those old patches - they just kept adding padding that nothing was crowding into anymore.
-<br />
 
 Went through `ability_bar_box_bounds` edge by edge and separated the STRUCTURALLY necessary rounding direction (left/top need floor division, which already rounds away from the icon on those edges with no correction needed; right/bottom need ceiling division, since floor would round toward the icon there) from the now-redundant extra buffer stacked on top of each. Stripped every one of those extras back to the bare rounding-based minimum - left and top lost their explicit `- 1`, right lost its explicit `+ 1` (keeping the still-necessary ceiling division itself), and the labeled Ability Bar's top clearance dropped from `label_row - 2` back to `label_row - 1` (the actual minimum that keeps the border off the label's own row without literally overlapping it).
-<br />
 
 Also updated the function's own top-level doc comment, which had explicitly documented the OLD "plus one for breathing room" reasoning by name - left uncorrected, that comment would have actively misled the next person (or session) into re-adding padding the current code no longer has, for a reason (the center-shift bug) that no longer applies.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated - the center-shift fix itself is now confirmed live (no more overlap), while this round's padding trim and the fix's own Y-axis sign both remain unconfirmed. Next: another fresh screenshot to see whether the trim landed right, and whether vertical alignment holds up.
 
 ## A trust conversation, a real regression found by looking harder, and a scope pivot
 
 The next screenshot came back ambiguous - "Its either too much or too little padding. You see this right?" - and revealed something more serious than padding: the middle box (Ability Bar) wasn't rendering at all. Flagged that directly before assuming anything, rather than guess it was another spacing issue. Turned out to be completely normal - some classes (Barbarian) just have zero out-of-combat abilities, so the box correctly doesn't draw. Genuinely reassuring to rule out with a direct question rather than silently "fix" something that wasn't broken.
-<br />
 
 The user then asked two real questions that mattered more than any single pixel value: how much code is actually shared across all these converted borders, and why not just make the borders bigger instead of all this precision tuning. Answered both directly - the core rendering pipeline (`draw_filled_pixel_box`/`pixel_box_tiles`/`draw_panel_fill`/`draw_pixel_box`, the shared consoles, the theme enum) is 100% shared and has been stable; the churn has all been in `ability_bar_box_bounds`, the one place that has to reconcile two independent coordinate systems (the icons' own coarse grid vs. the border's pixel-precise one). And "bigger borders" doesn't fix clearance, because border THICKNESS (the scale constants) and box POSITION (the bounds function) are two separate concerns - a bigger frame at the same position doesn't move the box's edges relative to the icon at all.
-<br />
 
 While explaining this, the user caught something I'd missed: "the text for the labels in the menu are moving... they used to be directly above the top border." A real, direct correction - "Are you not looking at the pictures that I send?" Looked again, specifically at the Item Menu screenshot (not just the dungeon bars I'd been focused on), and found it: the center-shift fix, being in shared code, corrects the border's position at EVERY scale it's used with, including the Item Menu's own default 0.3x - where the correction is worth almost exactly one HUD row. The Item Menu's title row was tuned rounds ago against the border's OLD, buggy (too-far-south) position; fixing the bug at its root moved the border up into the row the title already occupied. Had to walk back something I'd said just one message earlier - that the shared pipeline "hasn't needed to change, has been solid" - because that was true file-wise but not true of what it RENDERS; a fix to shared code can silently change a screen nobody's actively looking at. Said so plainly rather than let it slide, since it's exactly the kind of thing behind the user's stated need to "feel confident."
-<br />
 
 Diagnosed the fix (title row `y` -> `y - 1`, now safe because `PANEL_TEXT_CONSOLE` renders after the border and can't be erased by it, unlike when this same nudge was tried years earlier under the old console architecture) but did NOT apply it without an explicit go-ahead - the conversation moved on before confirming.
-<br />
 
 Then a real pivot, away from precision-tuning entirely: "I just want wider ability boxes for the abilities and smaller for the items can you do that? You know what I want I'm pretty sure." A much simpler, more direct request than anything attempted so far this session - stop chasing mathematically-perfect minimal clearance and just give the Ability/Battle Bar (both hold class abilities) deliberately more width than the Item Bar. Added `extra_side_pad` to `ability_bar_box_bounds` (0 for Item Bar, a new `ABILITY_BOX_EXTRA_PAD` constant for Ability/Battle Bar) - a genuinely different kind of change than everything else this session: a deliberate design choice layered on top of the (now-correct) minimum clearance, not another attempt to compute the "right" answer from geometry. Updated all 6 call sites (hover-detection and drawing, x3 bars) to keep the hover boundary and the drawn box in agreement.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Also took the opportunity to trim `docs/UI_Panel_Sheet_Guide.md`'s own status block, which had grown into a full changelog across many rounds - pointed future reads at this journal's own dated entries for the blow-by-blow instead, keeping the guide itself as a reference to CURRENT architecture only. **Worth remembering**: when a shared/root-cause fix lands, the right move is to check EVERY screen that shares the fixed code, not just the one that prompted the fix - a regression can hide in a screen nobody's currently looking at, and finding it requires actually looking, not assuming "I didn't touch that file" means "that file's output didn't change." Next: a screenshot to confirm the new bar widths, plus an explicit answer on whether to apply the Item Menu title-row fix now.
 
 ## The battle screen: a 5th theme, the last 2 sites, and real HP/ATB bars
 
 A genuine scope expansion, not another correction round: "I want to work on the battle borders. I want the ability selection and the battle message to use this UI. We should also work on a way to make the atb and health have a unique bar. I think you can run through the API to get that done." A new reference image came with it - an ornate wood-and-gold frame, visually distinct from all 4 existing map-theme materials.
-<br />
 
 Investigated before planning anything: grepped the actual battle-screen code and found both the HP bar and the ATB gauge already share one function, `hp_bar_string`, rendering as plain `[####------]` ASCII text - no pixel art at all, no visual distinction beyond color. That reframed "unique bar" from a vague request into a concrete, scoped one: build a real graphical bar, something that never existed before. Asked two direct clarifying questions before spending any PixelLab calls - one frame design or two, and whether enemies get the upgrade too - rather than guess and risk wasted generation cycles. Answers: one shared frame style (fill color does the distinguishing), and player-only ("I think we shouldn't be able to see the enemies health and atb bar in the end" - a forward-looking design intent, not just today's scope).
-<br />
 
 Generated the new `Battle` theme (5th `UiPanelTheme`, the first not tied to a map theme) via the same recipe as the original four - landed close to the reference on the first attempt, verified with the same near-black-floor/transparency/tiling-seam checks every prior material got (412 pixels needed flooring this time, more than usual, but otherwise clean). The bar frame took two attempts: the first prompt asked for a "carved recessed channel" that's "fully transparent," and the model read that as a carved DETAIL to draw rather than literal absence of content - came back as a solid wooden scroll, no transparency anywhere. Rewrote the prompt as a literal "empty picture frame... like an empty window frame... NOT wood, NOT a plaque, NOT a scroll" - landed a genuine hollow channel on the retry, verified pixel-by-pixel (not just eyeballed) that the middle really is `alpha=0` all the way across. **Worth remembering**: asking PixelLab for a transparent/hollow region reads better as "an empty frame/window" than as "carved" or "recessed" - the latter phrasing asks for decorative content, not absence of it.
-<br />
 
 Converted the battle screen's last 2 `draw_ascii_box` sites - the ability-selection box and the battle log - completing all 13 of the original sites; `draw_ascii_box` itself is now dead code, removed. Two real details surfaced along the way, not just a mechanical swap: the battle log was positioned in `FINE_TEXT_CONSOLE`'s own finer grid, not `HUD_CONSOLE`'s, so its position needed a real pixel-ratio conversion (and its WIDTH needed a fresh judgment call, not a naive shrink, since the same physical-pixel ratio would have left too little ROOM for the same text once it also moved onto the coarser grid the panel system requires). And the Actions box's border used to switch color (yellow/green) with `player_can_act` - a real "you can act now" signal, not decoration - almost got silently dropped when the border switched to always-WHITE tint; caught it while reviewing my own edit and moved the signal to the title's own color instead, the same pattern every earlier category-color loss used.
-<br />
 
 Built `draw_pixel_bar` for the new HP/ATB bars - a genuinely different rendering mechanism from the box work (a proportional colored fill under a 3-cell frame, not a 9-slice), but reusing as much of the proven pipeline as possible: the exact same `draw_panel_tile` primitive, and a parallel `pixel_bar_tiles` sharing `pixel_box_tiles`' own center-shift correction (the identical `set_fancy` mechanism, so the identical positional bug would apply without it). Measured the fill's own vertical position/size directly from the generated frame's real pixel data (its opaque channel walls sit at rows 6-9 and 25-28 of each 32px tile) rather than guessing a centered default - same "trace the real asset, don't assume" instinct the border-alignment bug taught earlier this session. Wired into the player's own HP/ATB display only, per the earlier scope answer.
-<br />
 
 `cargo check`/`build`/`test` clean after every chunk (border conversion, then the bar mechanism, committed separately), brace balance confirmed, full diffs reviewed before each commit. `docs/UI_Panel_Sheet_Guide.md` updated substantially - new "5-theme" section, a new "Using it: draw_pixel_bar" section, the bar-frame's own two-attempt generation story. Next: a screenshot of the battle screen - none of this round has been seen live, and it's the deepest new-territory work (a genuinely new rendering mechanism, not a refinement of an existing one) this whole effort has done yet.
 
 ## A real launch-time crash, caught by actually running the game
 
 "It seems to be just opening and then closing" - a crash report, not a rendering complaint. Rather than guess, ran the game directly with a timeout to capture the real panic output instead of asking the user to reproduce it: `no entry found for key` in bracket-terminal's own initializer, within about a second of launch.
-<br />
 
 Compared `BATTLE_BAR_CONSOLE`'s registration against every other custom console in the builder chain and found the real, simple cause: every custom sprite sheet in this project needs its own `.with_font("name.png", w, h)` call, registered up front, before ANY console can reference that filename - `battle_bar_frame.png` had a console registered for it (`.with_fancy_console(..., "battle_bar_frame.png")`) but was never added to the `.with_font(...)` list every other sheet already has a line in. One missing line, `cargo check`/`build` both clean (this is a pure runtime failure, invisible to the compiler), confirmed fixed the same way it was found - actually running the game again (`timeout 8 cargo run`) and confirming no panic and no leftover process, not just re-reading the code and assuming it was right.
-<br />
 
 Added a new standing gotcha to `CLAUDE.md` for this specific failure mode - it's cheap to hit again for any future custom sheet, and the fix (one line) is easy to forget precisely because it doesn't show up until the game is actually launched.
 
 ## Good news, bad news, and a second real bug in the same new feature
 
 The game launched. The border/log box conversions were confirmed clean on the first real look - title placement, content, everything read right. But the new HP/ATB bars only half-worked: "The ATB bar is there" (the frame was visible), then immediately, "They just aren't being filled" - no color inside either bar at all.
-<br />
 
 Started tracing before the user's second message even finished landing, since the symptom (frame fine, fill invisible) pointed somewhere specific: `draw_pixel_bar`'s fill reused `to_cp437('█')` (CP437 index 219) - the EXACT same glyph `draw_panel_fill` already uses successfully for the panel boxes. Looked up what 219 actually resolves to directly in bracket-terminal's own codepage437 source rather than assume, confirming the number, then reasoned through why the SAME glyph index could behave completely differently on two different custom fonts: `ui_panels.png` is a real 45-cell sheet, always tinted BLACK, so wherever index 219 happens to sample - garbage or not - the color multiply zeroes it out regardless of what's actually there; it "works" by accident, not by correctness. `battle_bar_frame.png` was a much smaller sheet (originally just 3 cells) where that same out-of-range index instead landed in the frame's own intentionally-transparent channel - and this fill uses a REAL color (RED/CYAN/GREEN), not BLACK, so multiplying by near-zero alpha there rendered nothing instead of accidentally working out.
-<br />
 
 Fixed at the source rather than picking a different guessed index: added a genuine 4th cell to `battle_bar_frame.png` itself - a dedicated, verified-pixel-by-pixel solid-opaque-white square - and pointed the fill at ITS real glyph index (3) instead of reusing a CP437 constant meant for an entirely different, much larger font. Verified the asset edit didn't disturb the original 3 cells, then ran the game again for real (not just `cargo check`) to confirm the fix actually launches clean, and remembered to kill the leftover child process `timeout` left running this time (missed that the first time through and caught it via a stray `pgrep`).
-<br />
 
 Added a second `CLAUDE.md` gotcha for this - `to_cp437('█')` as a "safe" solid-fill glyph is really "safe on this one large, BLACK-tinted sheet specifically," not a generally portable trick, and the next custom font that reuses it without a real cell to back the index could hit the exact same silent-no-fill failure.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated - the border/box conversions are now marked CONFIRMED live; the bar fill fix is not yet confirmed, just landed. Next: one more screenshot to see actual color in the bars.
 
 ## The fill fix worked - straight into a real layout pass
 
 Confirmed: real cyan and red color in both bars, first time either has shown anything but ASCII brackets. Immediately followed by four concrete layout requests in one message - drop the "You" label, wrap both bars in a real bordered panel, move the battle log up and left, and overlay the HP number directly on the bar instead of printing it below. Described all four back before touching anything (direct instruction: "does this make sense?"), including one real technical wrinkle worth flagging up front rather than discovering mid-implementation: text overlaid on the bar needs a console registered LATER than the bar's own console, and the bar's own console is already the last-registered one in the entire game - meaning the overlay text needs a genuinely new console, not just a later batch on an existing one.
-<br />
 
 Implementation was mostly straightforward reuse of established patterns - the panel around the bars is just another `draw_filled_pixel_box_scaled` call with the Battle theme, same as every other converted box this whole effort has built. The one new piece was `BATTLE_BAR_TEXT_CONSOLE` (51), appended at the very end for exactly the reason described in the confirmation message: even `PANEL_TEXT_CONSOLE` - already the go-to "always renders on top" console for every other box's own text - is registered BEFORE `BATTLE_BAR_CONSOLE`, so text on it would still end up UNDER the bar's own opaque fill. This is the third time this session a "needs to render on top of the current latest console" situation has come up (`PANEL_TEXT_CONSOLE` itself, `ABILITY_BAR_ICON_CONSOLE`, now this) - each time solved the same way, appending one more console rather than trying to reorder anything.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game for real again too, per the standing habit from the crash-fix round - no panic, confirmed no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated with the new panel/overlay-console sections. Next: a screenshot of this whole layout pass - nothing in it has been seen live yet.
 
 ## A genuine ambiguity in "within the borders" - caught and reverted same-day
 
 Before any screenshot came back, a direct correction: "I didn't want a border around the health and ATB borders I just wanted to have the colored bars within the borders." The exact phrase from the earlier "does this make sense?" round - "the colored bars need to be within the borders" - had two real readings, and the wrong one got built: wrapping BOTH bars in a brand new bordered box, when the actual ask was for the FILL to stay inside the bar's OWN existing frame (its end caps and top/bottom strips), which `draw_pixel_bar` was already handling via its own fill-bounds math from the earlier glyph-index fix.
-<br />
 
 Reverted the panel cleanly - removed the whole `player_panel_batch`/`PLAYER_PANEL_*` block, left everything else (the bar mechanism itself, the dropped "You" label, the overlay-text console) untouched, since none of that was actually in question. Also nudged the battle log's position again mid-turn, on a second direct correction that arrived while the panel revert was still being checked: the previous round's "move up and left" had overshot ("too high and to the left now"), so it moved back toward center (X 4→10, Y 12→17) rather than all the way back to its original position, which had its own documented problem (crowded the enemy formation).
-<br />
 
 Flagged the real lesson in `docs/UI_Panel_Sheet_Guide.md` directly: "within the borders" is genuinely ambiguous between "inside THIS element's own border" and "inside A border drawn around it," and it's worth explicitly confirming which one before building rather than picking one and finding out later - which is exactly what happened here, just caught same-day instead of costing another round.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game again too - no panic, though this run left an actual child process behind that `timeout` didn't clean up (caught via `pgrep`, killed manually) - same thing that happened once before; worth just checking for a leftover process every time from now on, not only when something seems off. `docs/UI_Panel_Sheet_Guide.md` updated to correct the now-wrong panel documentation from last round rather than just leaving it stale. Next: a screenshot to confirm the revert actually landed right and the log's new position works.
 
 ## Battle log nudged lower; "within the borders" raised again, unresolved
 
 Before a screenshot came back: "I think I want the battle log a little lower and we still need the colored bars within th borders." The log nudge was simple (`MSG_BOX_Y` 17 -> 21). The bars comment is more interesting - the SAME phrase that caused last round's misread, said again, AFTER the panel was already reverted. Re-checked the fill's own containment math before touching anything this time (scale-proportional, `s * BAR_FILL_HEIGHT_FRACTION`/`s * BAR_FILL_TOP_FRACTION`, mathematically consistent with how the frame itself scales) rather than guess a third interpretation blindly - found nothing obviously wrong in the numbers. Decided NOT to touch the bars' code again without a fresh screenshot of the actual current (reverted) state first, since the last two rounds on this exact request both went in without one and both needed correcting. Explained this reasoning back plainly rather than silently picking a third guess.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, verified by running the game again (clean this time, no leftover process). Next: a screenshot - needed now more than at almost any other point this session, since the bars question genuinely can't be resolved by more code-reading alone.
 
 ## The real bug, finally - a tightly-cropped screenshot settled it
 
 The requested screenshot came back cropped tight on just the two bars, with a direct question: "See how the colored bars are not within the borders?" And there it was, completely unambiguous this time - a thin dashed frame line floating above, a solid colored stripe floating below it, not touching at all. Not a subtle alignment nudge; two disconnected pieces.
-<br />
 
 Went straight to the math rather than guess a value. `draw_pixel_bar`'s fill-centering code treated `base_col`/`base_row` as if they were the frame's own true rendered edge - but they're not; `pixel_bar_tiles`' center-shift correction (the same fix that made the border-overlap bug go away two rounds ago) deliberately shifts them `(1-scale)/2` cell-units BEFORE that true edge, so that the FRAME lands correctly. The fill math never accounted for that same offset - it measured its own position relative to `base_row` directly, as if `base_row` already equalled the frame's top edge. At `PIXEL_BAR_TILE_SCALE` (0.5), that missing term is 0.25 cell-units - HALF the bar's entire rendered size. Not a rounding error; a wrong reference point entirely.
-<br />
 
 Given how costly it's been this session to re-derive Y-axis set_fancy math by hand and get a sign wrong (the earlier "Confidence note" flagged exactly this risk), solved the correct formula symbolically first, then verified it with a real Python script BEFORE writing any Rust - computed both the frame's true rendered span and the fill's true rendered center from the actual `set_fancy` transform, across four different scale values, confirmed the derived formula matched to the ninth decimal place every time. Only then implemented it in Rust, and verified THAT with a throwaway test mirroring the identical math, removed after both cases passed clean.
-<br />
 
 Also logged, not yet started: a follow-up request for a staggered look between the two bars, explicitly sequenced by the user to come AFTER this fix is confirmed working ("once we get the colored bars within the border I would like to see..."). Noted in `docs/UI_Panel_Sheet_Guide.md`'s "Still open" rather than attempted in the same pass - it's a distinct, separate change and the base fix itself isn't confirmed live yet.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. Ran the game again - no panic, no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated with the corrected formulas and the queued staggered-bars follow-up. **Worth remembering**: when hand-derived set_fancy math is involved and the stakes of a wrong guess are "another round," verify with a real numeric script against the actual transform BEFORE writing the Rust fix, not after - this is the second time this session that discipline caught something a plausible-looking derivation alone might have gotten subtly wrong. Next: a screenshot to confirm the fill genuinely sits inside the frame now.
 
 ## The fill fix confirmed, three more requests, and a strategic question
 
 The fill-centering fix worked - full green and red bars, correctly sitting inside their frames. Three follow-ups arrived in the same message: the HP number still not fitting well, the bars should sit closer together, and slightly offset from each other rather than left-aligned. Traced the "not fitting" complaint to real numbers rather than eyeball-guessing another value: the fill's own rendered height is a fixed fraction of `PIXEL_BAR_TILE_SCALE`, so at the existing 0.5 it worked out to only ~7px tall against the overlaid text's own ~12px row height - the text was structurally taller than the colored strip it sat on, no amount of repositioning alone would have fixed that. Bumped the scale to 0.75, which grows the fill's absolute size right along with everything else without touching its own proportions inside the frame (already generalized/parameterized in the fix two rounds ago, so no math needed rederiving). The "closer together" and "off center" requests were simpler - tightened the vertical gap and gave the two bars independent X positions instead of one shared constant, staggering the HP bar a few columns right of the ATB bar.
-<br />
 
 Then a genuinely different kind of question, stepping back from the specific pixel values: "Is there a helper that we can make to make using these a lot easier?" A fair read of the session - the `panel_batch`/`text_batch` setup (create two batches, target the right two consoles, remember the right scale, submit both with non-colliding z-values) has been hand-rolled at every one of the ~11 converted sites now, and several of THIS session's own bugs (text on the wrong console, wrong scale for a narrow box, z-value collisions) came directly from that repetition rather than from anything conceptually hard. Didn't just say yes and start refactoring every file, though - proposed a concrete design back and asked for confirmation before touching the ~11 existing call sites, since a refactor at that scale deserves the same "talk through the design first" treatment this project's own CLAUDE.md already asks for on any large change.
-<br />
 
 `cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing (bar layout round). Ran the game again - no panic, no leftover process. `docs/UI_Panel_Sheet_Guide.md` updated; this entry doubles as the concrete helper proposal referenced from its own "Still open" list. Next: a screenshot of this round's bar layout, and a decision on whether/how to build the helper.
+
+## Building and testing PanelBox before any wider rollout
+
+Explicit instruction on the helper proposal: test it first, make it genuinely plug-and-play, and cover icon placement as well as text - not just the `.text: DrawBatch` field the original proposal sketched. Built `render_helpers::PanelBox` as a real owning struct (not just two loose batches): `new(x, y, width, height, theme, scale)` draws the fill+border immediately via the already-proven `draw_filled_pixel_box_scaled`; `text_color(dx, dy, fg, bg, text)` prints onto its own `PANEL_TEXT_CONSOLE` batch at a box-relative offset, chainable; `submit()` flushes both batches and consumes `self`.
+
+The z-value collision bug (two batches on the same console sharing a `z_order` - confirmed straight from bracket-terminal's `command_buffer.rs` source, `sort_unstable_by` on ties is genuinely unspecified order, not just theoretically risky) gets closed off entirely rather than just documented: `submit()` never takes a z_order at all, pulling one from a shared `AtomicUsize` starting at 20000 - clear of every hand-rolled z value anywhere in the codebase (surveyed all of them first, highest existing was 10100) - so a `PanelBox` can coexist with any not-yet-converted call site in the same frame with no collision possible either way.
+
+The icon question needed an honest answer, not a forced abstraction. Checked where icons and boxes actually coexist today (`systems/hud.rs`'s ability bar) and confirmed they're NOT on the same coordinate grid as the box's own text - `ABILITY_BAR_ICON_CONSOLE` uses dungeonfont's own coarse cell size, while the box itself and `PANEL_TEXT_CONSOLE` share `HUD_CONSOLE`'s finer grid. A single method can't place both correctly. Added `cell(dx, dy) -> Point` for the case that DOES share the grid (e.g. `CHARACTER_PORTRAIT_HUD_CONSOLE`), and documented plainly in the struct's own doc comment why a foreign-grid console stays the caller's own job, tied to that console's existing constants, same as `systems/hud.rs` already does it correctly.
+
+One real new dependency: `object-pool = "=0.5.4"`, added directly to `Cargo.toml` pinned to the exact version already locked transitively through `bracket-terminal` - needed only to name `Reusable<'static, DrawBatch>` as `PanelBox`'s own field type, since `DrawBatch::new()` doesn't return a plain `DrawBatch`. Doesn't change what's actually linked, just exposes a name that was already resolved.
+
+Converted the Battle Log box (`screens/battle.rs`) as the real functional test, per the explicit "test this first" instruction - a genuine call site, not a synthetic one. It also happened to be the one box still using `ctx.print_color`/`ctx.set_active_console` directly instead of a `text_batch`, so the conversion removed that pattern entirely, including the `ctx.set_active_console(FINE_TEXT_CONSOLE)` restore it used to need.
+
+`cargo check`/`build`/`test` clean (added two small unit tests for `PanelBox`'s own z-ordering and `cell()` math, both passing), brace balance confirmed, full diff reviewed. Tried running the real game to visually confirm the converted box - hit a panic (`attempt to subtract with overflow`, bracket-terminal's `hal/scaler.rs`) before the title screen even rendered. Didn't assume it was my change: `git stash`'d everything and reran against the unmodified branch, and the IDENTICAL panic reproduced there too - confirmed pre-existing, unrelated to `PanelBox` or the Battle Log conversion, first seen this session. Left uninvestigated (out of scope for this task, and CLAUDE.md's own standing rule is not to try to drive/debug the live game myself in this environment) - flagged to the user rather than silently working around it. Next: the user runs the game on their own end and confirms the Battle Log box still looks right, then a decision on rolling `PanelBox` out to the remaining ~10 call sites - explicitly not started yet, per the "test first" instruction.
+
+## The screenshot came back clean - one nudge, then the full rollout
+
+The user ran the game themselves (the pre-existing scaler panic apparently doesn't reproduce on their end, only in this sandbox) and sent back a real screenshot of the converted Battle Log box - the border, fill, and text all rendered correctly. One small ask: move the "Battle Log" title up a bit. Nudged its `text_color` call from `dy = 0` to `dy = -1`; the user sent a second screenshot confirming it landed right, then gave the actual go-ahead: "I think we can implement the new system if you think its ready."
+
+Rolled `PanelBox` out to every remaining real call site, one file at a time, `cargo check` after each:
+
+- **`screens/battle.rs`'s Actions box** - straightforward: border+fill onto `PanelBox`, the `player_can_act` title-color signal moved onto `.text_color(1, 1, ...)`. Left the menu rows themselves on their existing `print_menu_row_left(ctx, ...)` path (still targeting `PANEL_TEXT_CONSOLE` via `ctx.set_active_console`) rather than forcing them through `PanelBox` too - that helper owns the selection-cursor/highlight styling `PanelBox.text_color` has no equivalent for, and a submitted `DrawBatch` coexisting with direct `ctx` calls on the same console already worked fine before this conversion (console z-order, not command-buffer timing, is what actually decides paint order between two different consoles - confirmed by re-checking the mechanism, not just assuming the existing mix was safe).
+- **`screens/item_menu.rs`'s 6 boxes** (`print_box`, shared by 4 of them, plus the inline Stats and Description boxes) - the biggest single conversion, and the one that finally applied a fix that had been sitting diagnosed-but-not-applied since earlier in the session: `docs/UI_Panel_Sheet_Guide.md`'s "Still open" list already had the actual cause and fix written down (title printing ON the border at this screen's box heights/scale, fix is `dy = -1` not `dy = 0`) - just never applied because it wasn't the task at the time. Applied it here as part of the conversion itself, on the reasoning that leaving a known, already-diagnosed bug in place while rewriting the exact code that has it would just reproduce it needlessly. Also removed the whole shared `panel_batch`/`text_batch` pair this screen used to thread through `print_box`'s parameters and 3 more call sites by hand.
+- **`screens/pause.rs`'s Hints box** - needed one real design addition, not just a mechanical swap: this box centers its text on the console's own full width (`print_color_centered`), not at a box-relative offset, because the box itself happens to be centered on that same grid. Added `PanelBox::text_color_centered(dy, fg, bg, text)` alongside the existing `text_color(dx, dy, ...)` rather than force-fitting the centered case through the box-relative one.
+- **`systems/hud.rs`'s 4 remaining sites** - the shop tooltip (own `PanelBox`, replacing its manually-picked 10008/10009 z-values entirely) and the 3 dungeon HUD bar frames (Item/Ability/Battle Bars). The three bars print no title text of their own at all - their icons live on a completely different console/grid (`ABILITY_BAR_ICON_CONSOLE`, dungeonfont-sized cells, not HUD_CONSOLE's), exactly the case `PanelBox`'s own doc comment already flags as out of scope for a generic icon-placement method - so each conversion is just `PanelBox::new(...).submit()` where the fill used to go, nothing more.
+
+One piece of real cleanup once every site was converted: `draw_filled_pixel_box` (the unscaled convenience wrapper `PanelBox::new` no longer needed, since it always passes its own explicit `scale`) had zero real callers left - confirmed with a grep sweep, not assumed - so removed it outright rather than leave known-dead code around, after first moving its genuinely useful doc comment (the fill/text console-layering explanation) onto `draw_filled_pixel_box_scaled`, the function that actually survives and that `PanelBox` itself calls.
+
+`cargo check`/`build`/`test` clean after every file and again at the end, brace balance confirmed across all 5 touched Rust files, full diff reviewed (`+338/-273` across `render_helpers.rs`, `battle.rs`, `item_menu.rs`, `pause.rs`, `hud.rs`). Tried running the game again to confirm visually - same pre-existing `hal/scaler.rs` panic as last time, still sandbox-specific (the user's own runs work fine). `docs/UI_Panel_Sheet_Guide.md` updated: the bar-layout round is now marked CONFIRMED (the user's screenshots settled it), the `PanelBox` rollout entry rewritten to reflect the full conversion instead of just the one test site, and the old separately-tracked "Item Menu title prints on the border" bug marked fixed (it's the same fix, applied here, not a separate pass). Next: a screenshot of the rest of the rollout (Item Menu, Pause Hints, the 3 dungeon HUD bars, the shop tooltip) - none of it confirmed live yet, same blocker as before.
+
+## The dungeon map's own portrait/health frame, and the mouseover tooltip
+
+Two screenshots came back confirming the rollout (the dungeon HUD bars and the battle screen's Actions/Battle Log/HP-ATB bars all rendering correctly), then the next ask: a border around the character portrait on the dungeon map, the real pixel-art HP bar in place of the old plain one (both top-left corner, dungeon exploration only), then - after that - the mouseover tooltip in a border box too, then a later placement pass and a conversation about dropping the enemy ATB/HP bars. Confirmed understanding back in plain terms before touching anything, per the "does this make sense" rule, since it was explicitly asked as a confirmation question, not a go-ahead.
+
+The two follow-up screenshots didn't answer the two design questions asked back (theme, portrait-box sizing) - proceeded on judgment rather than re-asking, since there was real precedent to lean on: Swamp is already the established theme for everything else on this exact HUD (the shop tooltip, all 3 dungeon bars - and the user's own words picked Swamp for "the tooltips" specifically, earlier in the session), and "snug, icon-sized" was the natural reading of "a border around the character icon" with no pushback on that framing. Stated both choices plainly up front rather than silently assuming them.
+
+`systems/hud.rs::ability_bar_box_bounds` (the function that already computes a snug bounding box around N icons for the Ability/Battle Bar's own borders) had `bar_row` hardcoded to `ability_bar_row()` internally - the portrait icon needed the exact same bounding-box math but at a DIFFERENT row (`HEALTH_FRAME_ICON_ROW`, not the ability bar's row). Generalized it to take `row` as an explicit parameter instead, updated all 3 existing call sites to pass `ability_bar_row()` themselves, then reused it for the portrait with `n = 1`, no labels, no extra pad - the same snug-fit math, just parameterized to a different spot on the same console.
+
+The dungeon map's HP bar was still the very first bar style this project ever had - `bar_horizontal`, bracket-lib's own built-in block-glyph bar, never converted to the real PixelLab art the battle screen's player HP bar got. Swapped it for the same `render_helpers::draw_pixel_bar`/`battle_bar_frame.png` mechanism, targeting `BATTLE_BAR_CONSOLE`/`BATTLE_BAR_TEXT_CONSOLE` directly from `hud.rs` - those two consoles are global (registered once in `main.rs`, not scoped to the battle screen), and the dungeon HUD and battle screen never draw in the same frame, so reusing them from a second call site is architecturally sound, not a hack. No ATB bar alongside it - ATB doesn't exist outside battle. `HEALTH_BAR_ROWS` (a constant that existed purely to fake a taller bar with bracket-lib's own cell-only bar, by drawing multiple identical rows) is meaningless for a `draw_pixel_bar` (whose height is implicit in its own tile scale), so it was removed rather than left as unused dead weight.
+
+The mouseover tooltip (`systems/tooltips.rs`) used to just `draw_batch.print` plain text directly with no box at all. Wrapped it in a `PanelBox`, same Swamp/compact-scale choice as the shop tooltip - but sized dynamically to the actual text length (`display.chars().count() + 4`) rather than a fixed width like the shop tooltip's own `SHOP_TOOLTIP_WIDTH`, since this tooltip's content genuinely varies (just a name, or "name : N hp") and a fixed width would either clip a long name or waste space around a short one.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed on both touched files. Tried running the game again - no panic at all this time (killed by the timeout instead, no leftover process), the first genuinely clean run in this sandbox since the scaler panic first showed up - still can't screenshot it myself either way (CLAUDE.md's own standing rule), so still waiting on the user for real visual confirmation of the portrait border, the new dungeon HP bar, and the tooltip box. Next: that screenshot, then the placement pass and the enemy-bars conversation the user already flagged as coming after this.
+
+## Two real bugs from the screenshot, plus the actual "mouseover descriptions" box
+
+Two screenshots came back. The map-entity tooltip (`systems/tooltips.rs`, converted last round) looked genuinely correct - a clean "Goblin" box, Swamp border, no complaints there at all. Two real problems though: the new dungeon-map HP bar rendered fine, but the portrait border was completely EMPTY - just a bare bordered square, no character art inside it - and a second screenshot showed the Ability/Item Bar's own hover-description text (e.g. "Dodge: Boosts your evasion...") still floating as bare centered text with no box at all. Read the user's first, compressed message ("Dont see the player portrait of the box on the mouseover details") as two separate complaints rather than one - confirmed a beat later when a clarifying message landed mid-diagnosis: "I was talking about the abilites and item mouse over details," meaning the SECOND phase of the original 3-part ask was actually this ability-bar hover tooltip, not (or not only) the map-entity one already converted.
+
+**The missing portrait, root-caused before touching anything**: the class-portrait icon draws on `CHARACTER_PORTRAIT_HUD_CONSOLE` (console 31, `character_portrait.png`, same grid as `ABILITY_BAR_CONSOLE`) - registered well BEFORE `UI_PANEL_CONSOLE` (46), where the new portrait border's own fill lives. Console z-order is registration order; a later-registered console paints over an earlier one wherever it draws anything - so the border's fully-opaque fill quad started painting directly over the portrait the moment the border existed, exactly the same failure mode `ABILITY_BAR_ICON_CONSOLE` was already built earlier this session to dodge for the dungeonfont-sourced ability icons. Same fix, applied to the SAME underlying problem on a different sprite sheet: added `CHARACTER_PORTRAIT_HUD_ICON_CONSOLE` (52) - a second, later-registered instance of console 31's exact grid/font config - and repointed `hud.rs`'s `portrait_batch` to it. Console 31 itself stays registered (nothing else in the codebase ever targeted it - confirmed with a grep sweep before leaving it as an intentional orphan rather than trying to renumber everything after it to remove it outright).
+
+**The ability/item hover-description box**: converted `hud.rs`'s `hovered` block from bare `tooltip_batch.print_color_centered` calls to a `PanelBox`, same Swamp/compact-scale choice as every other box on this HUD. This one needed real geometry work, not just a mechanical swap - the text is centered PER LINE on the whole console (kept, since a wrapped multi-line description is more sensitive to a few columns of misalignment than a single digit is, same reasoning the original code already had), so the BOX itself also has to be horizontally centered on that same width for its border to actually line up with the centered text (documented on `text_color_centered`'s own doc comment, from when it was added for the Pause Hints box). Height grows with the wrapped line count (`lines.len() + 3`), and the box's own top is derived from the existing `ability_bar_tooltip_start_row` anchor (already correct, unchanged) minus 2 rows of margin, so the box's bottom border lands exactly where the old text block's own top used to be anchored - same growing-upward-from-the-hovered-bar behavior as before, just with a real border around it now.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed across all touched files (`main.rs`, `render_helpers.rs`, `systems/hud.rs`, `systems/tooltips.rs`, plus the untouched earlier files). Ran the game again - the pre-existing `hal/scaler.rs` panic came back this time (confirmed intermittent in this sandbox now, not consistently reproducing or consistently clean), no leftover process either way. Next: a screenshot confirming the portrait actually shows up now, and that the ability/item hover description reads correctly inside its new box.
+
+## Giving PanelBox a real, standardized content inset
+
+Both fixes worked - the portrait showed up, the ability/item description got its box - but the user flagged something more fundamental: "the padding and centering of the images and text is not quite right," and asked to actually talk about how the helper itself works rather than keep tweaking individual boxes. Looked back at what `text_color` had actually been asked to do at each of its ~16 real call sites and found the tell: `dx` values of 1, 2, and 4 all showed up for what was meant to be the same "don't sit on the border" margin, entirely because every site still hand-picked its own offset - exactly the class of drift `PanelBox` was supposed to have eliminated, just moved one level up from "which console" to "which padding." Asked the user directly which direction to take it (a built-in default inset, full auto-sizing from content, or just patch the two flagged spots) rather than assume - picked the built-in inset.
+
+Added `PANEL_CONTENT_INSET_X`/`PANEL_CONTENT_INSET_Y` as real constants on `PanelBox` itself: `text_color`/`text_color_centered`'s `dx`/`dy` are now offsets from `(x + INSET_X, y + INSET_Y)`, not the raw border - `dx = 0, dy = 0` is the standard "first line of content" position for every box, full stop. Added `text_color_raw` as the one real escape hatch, identical to what `text_color` used to do (no inset) - needed for the handful of titles that print ABOVE the box entirely (`dy = -1`, e.g. the Item Menu's and the Battle Log's), which are genuinely outside the padded content area, not just a small tweak on top of it.
+
+Picking the actual inset VALUES needed a real survey, not a guess: checked what every existing "inside the box" call was already using before writing the constant. Nearly all of them (the Item Menu's list rows, its Stats/Description boxes, the Battle Log, both tooltips) had already independently converged on `dx = 2, dy = 2` (from the border) as their de facto content margin - only the Actions box's title (`dx = 1, dy = 1`) was the real outlier. That made the right value obvious: `INSET_X = 2, INSET_Y = 2` lets `dy = 0` be the correct first-content-row for almost every box with zero per-site adjustment, rather than a value that would force most sites to keep writing a leftover `+ 1`. Went through all ~16 call sites converting each to the new scheme - for every site that already used the de facto `2, 2` convention, the math works out to the EXACT same absolute screen position as before (verified by hand for each one, not assumed) - this is a pure API cleanup for those, zero expected visual change. The one deliberate exception is the Actions title, which moves from its old one-off `dx = 1, dy = 1` to the new standard `dx = 0, dy = 0` (one row/column different) - a real, intentional consistency fix, not a preserved position, since the whole point was to stop that box from being the odd one out.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed across every touched file, full diff reviewed. Ran the game again - no panic this time (killed by the timeout, no leftover process) - still can't screenshot it myself. Next: a screenshot confirming the padding now reads consistently across every box, especially the Actions title's new position and the ability/item description box specifically (the one that started this conversation).
+
+
+## Confirmed, then a deliberate switch to one bar at a time
+
+Five screenshots came back covering the whole rollout - Item Bar, the technique-icon row, portrait/HP bar, two full battle screens, and the Deathblow description box. The inset fix read as intended: the description box text that started this whole conversation now has real margin off the border instead of touching it, and the portrait/z-order bug from two rounds ago is confirmed fixed too. Asked to just describe what I saw first, without acting on it - a genuinely different mode than the rest of this session, so answered it as pure observation and waited.
+
+The next request set the tone for everything since: work on ONE UI element at a time, starting with the Item Bar specifically, "so that we both know exactly what I want and you know what I mean when I say more or less padding." Saved this as its own standing memory (`feedback_ui_tuning_workflow`) rather than let it stay an implicit, session-only preference - it's a real methodology shift worth carrying into future sessions, not just this one.
+
+The Item Bar's own complaint (more padding on the right and bottom) turned out to be a different code path than the inset work entirely - this box wraps icons on `ABILITY_BAR_ICON_CONSOLE`, not `PanelBox` text, so its bounds come from `ability_bar_box_bounds()` and its `extra_side_pad` parameter, not `PANEL_CONTENT_INSET_X/Y`. That function has no bottom-padding parameter at all. Asked whether true 0.5-cell padding was possible before assuming a whole-unit fallback - explained plainly why it isn't without a bigger structural change (the whole box-geometry pipeline is `i32` HUD_CONSOLE cells), then added two new constants (`ITEM_BOX_EXTRA_RIGHT_PAD`/`_BOTTOM_PAD`, both 1) scoped to ONLY the Item Bar's own draw call - the shared function itself, and the Ability/Battle Bars that also call it, untouched.
+
+Confirmed working the same day, then straight on to the Ability Bar - four separate complaints in one message, each traced to a different piece of code before touching anything:
+
+- **Side padding "WAY too much"**: the Ability Bar was sharing `ABILITY_BOX_EXTRA_PAD` (3) with the Battle Bar. Split it into two real constants - renamed the old one `BATTLE_BOX_EXTRA_SIDE_PAD` (keeping its value, now Battle-Bar-only) and added `ABILITY_BOX_EXTRA_SIDE_PAD` (1) for the Ability Bar alone, so the Battle Bar's own padding stays exactly where it was until it's actually its turn.
+- **No bottom padding**: same gap the Item Bar had, same fix - a new `ABILITY_BOX_EXTRA_BOTTOM_PAD` (1), scoped to the Ability Bar's own draw call only.
+- **Hotkey numbers too close to the top border**: the real bug here wasn't a missing constant, it was a stale comment. The code read "exactly one row above the label - the minimum that keeps the border from sitting ON the label's own row," which is true but isn't actual PADDING - it's the border sitting on the row directly adjacent to the label, zero blank rows between them. Changed `label_row - 1` to `label_row - 2` for one genuine blank row of clearance.
+- **Hotkey numbers "a little too far to the left"**: nudged `ability_bar_label_position`'s column by +1, off the icon's exact flush-left pixel edge.
+
+Confirmed this all three functions (`ability_bar_box_bounds`, `ability_bar_label_position`, and the label-printing call itself) are ONLY ever reached by the Ability Bar's own code paths before touching them - the Item Bar and Battle Bar never call the `has_labels = true` branch or print any hotkey number at all, so none of these four fixes could have leaked into either sibling bar even before the explicit constant-splitting made that doubly certain.
+
+`cargo check`/`build`/`test` clean after both rounds, brace balance confirmed, ran the game each time with no panic and no leftover process. Confirmed live via screenshot: "That is better." Next up, same one-at-a-time discipline: the Battle Bar - not started yet, waiting on the user's own screenshot and specifics for it, same as how the Ability Bar round began.
+
+## The Battle Bar's turn
+
+Same two complaints as the Ability Bar's own round: too much side padding, no bottom padding at all. `BATTLE_BOX_EXTRA_SIDE_PAD` (the old shared `ABILITY_BOX_EXTRA_PAD`, split off and renamed to Battle-Bar-only two rounds ago) dropped from 3 to 1 - the exact value the Ability Bar's own side pad had already settled on, though arrived at independently rather than assumed just because it matched. Added `BATTLE_BOX_EXTRA_BOTTOM_PAD` (1), same "no bottom-padding parameter existed at all" gap the Item and Ability Bars both had, scoped to only the Battle Bar's own draw call.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming this round, then all three dungeon HUD bars will have had their own individual pass.
+
+Confirmed live: "Those all look good to me." All three dungeon HUD bars (Item, Ability, Battle) have now each had their own individual padding pass under this session's one-at-a-time discipline. Next up, same pattern: the ability-bar hover-description box - not started yet, waiting on the user's own screenshot and specifics.
+
+## The hover-description box: snug on both edges, a real buffer between boxes
+
+Two screenshots (Poison Shot, a single line; Freeze Trap, wrapped to two) both showed the same problem: the description box's own bottom border and the hovered bar's own top border landed on the exact same row - not just close, literally coincident, reading as "right on top of" the bar it describes. Worked out the actual row math before proposing anything (`ability_bar_tooltip_start_row`'s old formula put the box's bottom border exactly at `box_y`, the bar's own top border row - zero gap by construction, not a rounding error) and confirmed the read-back before writing any code, per the "does this make sense" convention.
+
+Two real fixes, done together: added `PanelBox::text_color_centered_raw` (bypasses the standard content inset, same relationship `text_color_raw` already has to `text_color`) so this box's text can sit snug against its OWN top border - previously it had 2 rows of standard inset above the text but ZERO padding below it (the old formula already put the last line flush against the bottom border), an asymmetry nobody had actually asked for, it was just what the standard inset produced by default. Now both edges are snug. Separately, reworked the box's own vertical position/height formula from scratch (`tooltip_y = box_y - TOOLTIP_GAP - tooltip_height`, `TOOLTIP_GAP = 1`) so there's a genuine blank row between this box and the bar's own border, rather than the two touching. The old `ability_bar_tooltip_start_row` helper became fully unused once the new formula derived everything directly from `box_y` and the wrapped line count - removed it rather than leave dead code around.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed on both touched files, ran the game with no panic, no leftover process. Next: a screenshot confirming both the buffer and the snug text position actually read as intended.
+
+Confirmed live across three real descriptions (Stealth, Poison Shot, Freeze Trap - one and two-line cases both): "that looks good." Next up, same one-at-a-time pattern: the dungeon map's player portrait and its health bar - not started yet, waiting on the user's own screenshot and specifics.
+
+## The health bar's text: a real granularity mismatch, solved exactly
+
+The portrait itself got a pass - "looks good" - but the "12 / 12" text sat visibly too high in the bar, not centered. Worked out the real numbers before proposing anything: the bar's own rendered height (24px at the current `PIXEL_BAR_TILE_SCALE`) and a HUD_CONSOLE text row's own real height (~11.94px) don't divide evenly, so text on a fixed whole row can never actually center inside the bar - off by about 6px no matter which row is picked. Checked the "obvious" fix (just move the text down a row) before suggesting it and found it doesn't help at all - same 6px error, just flipped to the opposite edge, not a real fix. Presented the actual tradeoffs (a cheap "make the bar bigger so the fixed error matters less" option, a real "draw the text as fractional-position glyphs" option, or "just try moving it anyway") rather than pick one - the user's own answer was a genuinely better idea than any of the three offered: keep the text exactly where it is, and shift the BAR itself by a fraction of a row instead.
+
+Solved that shift exactly, not by feel: verified with a real Python script first (this session's established discipline for any hand-derived `set_fancy` positioning) that shifting the bar by `-0.505` HUD_CONSOLE rows centers its real pixel span on the text row's real pixel span to within a fraction of a pixel. Implementing it meant widening `draw_pixel_bar`/`pixel_bar_tiles`'s `y` parameter from `i32` to `f32` - a real API change, not just a new call-site constant, since the whole point is letting a bar's position differ from any whole HUD_CONSOLE row. Scoped narrowly: the dungeon HP bar passes the new fractional shift (`HEALTH_BAR_VERTICAL_CENTER_SHIFT = -0.505`); both of `screens/battle.rs`'s existing calls (the battle screen's own ATB/HP bars) just cast their existing integer rows to `f32` - same value, same behavior, untouched for now, per this session's one-bar-at-a-time discipline. Also wrote a throwaway Rust test mirroring the Python numbers before removing it, per this project's own testing convention - confirmed the real formula matches, not just the derivation on paper.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed across all three touched files, ran the game with no panic, no leftover process. Next: a screenshot confirming the text now reads centered - then, per the user's own plan, applying whatever's learned here to the battle screen's own HP/ATB bars, which share the exact same underlying mismatch.
+
+Confirmed live: "That is a lot better. I think this will work." Next up, exactly as planned: apply the same `-0.505`-row technique to the battle screen's own ATB/HP bars, which share the identical text/bar height mismatch - not started yet, waiting on the user's go-ahead.
+
+## The battle screen's HP bar, plus a genuinely useful coincidence
+
+Same request, now for the battle screen's own HP/ATB bars: center the HP number, and move the two bars closer together (a 1-unit gap). Moved `BAR_TEXT_VERTICAL_CENTER_SHIFT` (renamed from the dungeon-specific `HEALTH_BAR_VERTICAL_CENTER_SHIFT`) into `render_helpers.rs` as a real shared `pub const` rather than redefine the same derived value a second time in a second file - the whole point of deriving it exactly once was to not have it drift between the two call sites that need it.
+
+The "1-unit gap" request needed the same honesty as the text-centering fix: ran the real numbers before touching code and found that naively changing the existing `+3` row offset to `+1` (matching how "1 unit" has worked in every padding fix this session) would actually make the two bars OVERLAP by about 1.5 rows - the vertical-shift fix ALSO pulls the HP bar up, and the two changes compound rather than add cleanly. Whole-row-only positioning meant no integer gap could be exact either, same granularity story as the text fix - the two real nearest options were a 0.5-row gap or a 1.5-row gap. Presented both rather than pick one; the user chose 0.5.
+
+The genuinely nice part: working that out revealed the EXISTING `PLAYER_HP_BAR_HUD_Y = PLAYER_ATB_BAR_HUD_Y + 3` constant, unchanged since 2026-09-14, already happens to be exactly the row that produces a 0.5-row gap once the new shift is applied - no second constant change needed on top of the vertical-centering fix. Confirmed this by computing the real numbers for `+3` directly rather than assuming the coincidence held, then updated that constant's own stale doc comment (which used to say "not measured, a first-pass guess") to record why the value stays what it is now, instead of leaving it looking like a coincidence nobody investigated.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed across all three touched files, ran the game with no panic, no leftover process. Both dungeon and battle HP bars now share one derived-once constant for this fix rather than two independently-guessed ones. Next: a screenshot confirming the battle screen's HP number now centers and the two bars read as closer together.
+
+Confirmed live - the number centers, the bars read as closer - but a follow-up: "I wonder if we can make them closer." The whole-row constraint that gated the last round only applies to the HP bar (its text can't move off a whole row); the ATB bar has no text at all, so it's actually free to shift by ANY real fraction. Realized this before proposing a value rather than repeat the same "here are the two nearest whole-row options" framing from last round - told the user the ATB bar could be tuned to basically anything, including full contact, and asked how close. Solved exactly for their answer (a genuine 0.2-row gap) the same way as every other bar-math fix this session: real Python script against the actual pixel formula first, then a new `PLAYER_ATB_BAR_GAP_SHIFT` (0.285) constant applied only to the ATB bar's own draw call - `PLAYER_ATB_BAR_HUD_Y` itself stays a clean whole `36`, since `PLAYER_HP_BAR_HUD_Y`'s own formula (`+ 3`) still depends on it being one.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the tighter 0.2-row gap reads right.
+
+Confirmed live: "that is great." The battle screen's player HP/ATB bars are done for now - centered text, staggered position, and a real, deliberately-chosen gap. Next up, same one-at-a-time pattern: the battle screen's Actions box - not started yet, waiting on the user's own screenshot and specifics.
+
+## The Actions box: title outside, no top padding, moved down
+
+Three asks in one message: "get rid of the Actions within the border," no top padding, move the box down ~5 rows. The first one was genuinely ambiguous - "get rid of...within the border" could mean delete the title outright or just move it off the interior - asked before touching anything rather than guess, since the two readings produce very different results. The user wants it moved above the border for now (same convention the Battle Log/Item Menu titles already use), with removing it outright left open as a possible later step.
+
+Moved the title to `text_color_raw(2, -1, ...)`, matching that existing convention exactly. That freed up real interior space the box no longer needs to reserve - the list used to start at `box_y + 3` (2 rows of clearance for the title plus a gap); with the title gone from the interior, moved it to `box_y + 1` (immediately below the border, zero blank rows - direct request). Shrank `box_height` from `content_rows + 4` to `content_rows + 2` to match - checked the bottom edge's own math before touching it and confirmed it was ALREADY snug (zero blank rows before the border, even before this change), so only the top actually needed to shrink. `box_y_base` (both branches - single enemy vs. 2+) got the requested +5 added directly.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming all three changes read as intended - the title above the border, the tighter list, and the box's new lower position.
+
+Confirmed live: "that looks good." The Actions box is done for now. Next up, same one-at-a-time pattern: the Battle Log box - not started yet, waiting on the user's own screenshot and specifics.
+
+## The Battle Log's own top padding, and a real design question about the Actions box
+
+Two screenshots this round - one 2-enemy fight, one 4-enemy fight. First ask: remove the Battle Log's own top padding, same `text_color_raw`/snug treatment the Actions box list just got. Moved the log lines from the standard inset to `text_color_raw(2, 1 + i, ...)` and shrank `MSG_BOX_HEIGHT` from `MAX_LOG_LINES + 3` to `+ 2` to match, same "check the bottom edge is already snug before touching it" verification as the Actions box round.
+
+Second ask is a real design question, not a pixel tweak - the 4-enemy screenshot showed the Actions box sitting noticeably lower than the 2-enemy one (`box_y_base` is 45 for ≤1 enemy, 52 for 2+, to clear a zigzag formation's own name/HP text at its worst case - see that constant's own doc comment). The user doesn't want the box to move at all regardless of enemy count, but said "let's talk about this" rather than just naming a fixed value - flagged as a real tradeoff conversation rather than implemented outright: the box's own move-down behavior exists for a real reason (avoiding a zigzag formation's own UI), so picking ONE fixed position means picking which end of that tradeoff to always pay - either always the lower/safer position (a little more wasted space in single-enemy fights, but the same box position never changing) or the higher one (better use of space normally, but a real risk of the box overlapping a zigzag formation's front-row enemy text in a 2+ fight).
+
+`cargo check`/`build`/`test` clean, brace balance confirmed for the Battle Log fix, ran the game with no panic, no leftover process. Next: a screenshot confirming the Battle Log's tighter top, and the user's own call on the Actions box's fixed-position tradeoff before that part gets implemented.
+
+## A bottom anchor instead of a fixed top position - genuinely better than what was proposed
+
+Four more screenshots came back showing enemy formations varying in ways beyond just count (spacing, staggered rows) - enough that the user said they weren't sure either fixed-position option (always-higher, always-lower) was actually right. Their own answer was better than what I'd offered: anchor the box's BOTTOM edge to the bottom of the player's own portrait instead of picking any fixed row at all - "I think it would fit not matter which formation we get." That's a real design improvement over my own proposal, not just a value pick.
+
+Found the player's own portrait position is already a known, fixed quantity - `draw_portrait(&mut still_portrait, 1, 3, tinted)` on console 4's 5x5 grid, confirmed against an existing comment a few hundred lines down that already derived its pixel position once ("the player portrait starts at pixel y=480 / row 60"). Computed the CELL's own bottom edge from that same grid math: (3+1) * (800/5) = 640px = HUD_CONSOLE row 53.6, rounded to 54. Flagged honestly that this is the drawing CELL's bottom edge, not a measured pixel position of the character art's actual feet within it (sprite cells typically have some empty margin) - a close approximation, not an exact one, pending a screenshot.
+
+Replaced the whole `box_y_base`/enemy-count branch with a single formula: `box_y = BOX_BOTTOM_ROW - box_height + 1`, so the box's TOP moves to accommodate however many action rows there are, while its BOTTOM always lands on the same fixed row - formation-proof and enemy-count-proof by construction, not by picking a safe-enough constant. The old top-anchored `.min(HUD_ROWS - box_height)` clamp came out too, since a bottom anchor a good margin above the console's own edge doesn't need it.
+
+`cargo check`/`build`/`test` clean, no new warnings, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the box's new bottom-anchored position actually lines up with the player's feet the way it's meant to, across a few different formations.
+
+Confirmed live: "that should work." That's the whole UI-panel tuning pass wrapped up for now, one element at a time as planned - portrait border, dungeon HP bar, both hover-description boxes, all 3 dungeon bars' padding, the Actions box (title, padding, and now a formation-proof bottom anchor), the battle screen's HP/ATB bars, and the Battle Log. The user flagged 1-2 more screens still to look at, but not this session.
+
+Also asked to add a new backlog item before moving on: an Options screen expansion covering screen size (Video), Sound Effects/Music volume (Audio - the screen only, the actual audio engine is deferred to item 6), and Hotkeys. Checked `screens/options.rs` before writing the item rather than assume - it already exists and already covers Hotkeys (a full rebind list) plus Battle Speed/ATB Mode, so only Video and Audio are genuinely new scope; noted that plainly in the new item 14 rather than silently duplicate the Hotkeys ask.
+
+## Enemy ATB bars, over their heads, with room for HP to come back later
+
+Picked the battle screen back up: replace each enemy's old ASCII ATB bar with the same real pixel-art bar the player already has, positioned above the enemy's own head, and remove the enemy HP bar entirely (not deleted-and-gone though - explicitly framed as "might want it back," so this needed a real design that makes that easy, not just a quick removal). Talked through the plan before writing code, since this touches new territory (per-enemy bar positioning across every formation, not a single fixed bar).
+
+The "leave room to add it back easily" part shaped the actual design, not just a comment promising it would be easy later: built `enemy_bar_position(col, row, width, slot_from_head)`, a small stacking function where `slot_from_head = 0` is the bar closest to the enemy's own head and each slot up reserves another 3 HUD rows (the same spacing the player's own ATB/HP bars already proved out - `PLAYER_HP_BAR_HUD_Y = PLAYER_ATB_BAR_HUD_Y + 3`, not a new unverified number). The ATB bar draws at slot 1, not slot 0, leaving slot 0 genuinely reserved and empty - when HP comes back, it's one more `draw_pixel_bar` call at slot 0, and the ATB bar doesn't need to move at all.
+
+Centering needed the enemy's own portrait position, not the old FINE_TEXT_CONSOLE-based name/HP text position (a completely different coordinate system, anchored BELOW the portrait rather than above it) - reused `enemy_portrait_position` directly (the same 5x5, 256x160px-cell grid the sprite itself renders in) rather than derive a second, parallel position system. Verified the vertical math wouldn't push a "back row" enemy's bar off the top of the screen before writing it - checked the real formation-row values across every theme (as low as 1.5) and confirmed the resulting bar position stays well clear of row 0 even in that worst case.
+
+Removing the HP bar meant `battle::hp_bar_string` (the ASCII bar-string helper) lost its only remaining callers - confirmed with a grep sweep, not assumed, then deleted it outright rather than leave it as dead code, and updated every stale comment that referenced it or claimed "enemies keep the ASCII version" (main.rs, render_helpers.rs, battle.rs itself) so the docs don't actively mislead the next read.
+
+`cargo check`/`build`/`test` clean, no new warnings (confirmed `hp_bar_string`'s own dead-code warning disappeared once removed), brace balance confirmed across all 4 touched files, ran the game with no panic, no leftover process. Next: a screenshot confirming the enemy ATB bars actually read as "over their heads" and centered, across a couple of different formations.
+
+## The enemy name: bigger, and actually centered under the enemy
+
+The ATB bar itself came back confirmed "perfect" - the enemy's own NAME was the next thing flagged, unprompted: "really small," and left-aligned to the portrait's own left edge rather than centered under it. Explained why it was small before changing anything (it renders on `FINE_TEXT_CONSOLE`, a much finer grid than most other text in this game, originally sized that way specifically to avoid crowding in tight multi-enemy formations) and flagged the real tradeoff before touching it - the user confirmed they wanted it bigger anyway, and centering as the more important of the two asks.
+
+Moved the name onto `HUD_CONSOLE` instead (~1.5x the cell size of `FINE_TEXT_CONSOLE`, real size increase using an existing console rather than new scaling infrastructure), and switched from a raw `print_color` at the portrait's own left edge to `ctx.print_color_centered_at`, centered on the SAME portrait-center math `enemy_bar_position` already uses for the ATB bar above it - both now agree on where "centered under this enemy" actually is. Kept the vertical position anchored to the exact same real pixel row the old FINE_TEXT_CONSOLE version used (converted through the real per-console row heights, not re-guessed), so only the horizontal alignment and size actually changed.
+
+Checked the real spacing before calling it done, not after a complaint: in a full 4-enemy formation, adjacent enemies' name centers land only ~14 HUD columns apart, and one already-existing enemy name ("Goblin Chieftain," 16 characters) is technically longer than that gap. Left it alone rather than pre-emptively solve it - no evidence that specific enemy ever appears in a full 4-enemy group in real encounter data, and documented the limit plainly in the code rather than silently ship a case that could look wrong later with no explanation of why.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the name reads bigger and genuinely centered under the enemy now.
+
+## A real bug: single-enemy's name landed dead center of the screen
+
+The 4-enemy screenshot looked right - names centered under each goblin. The single-enemy one didn't: "Goblin" rendered in the dead center of the screen, nowhere near the actual enemy sprite sitting up in the corner. Root cause was a real inconsistency in `enemy_name_position`'s own `count <= 1` branch, written the round before - it hardcoded `53` (HUD_COLS's own screen-center column) instead of actually computing the position from the enemy's real portrait location the way the multi-enemy branch already correctly did. `enemy_portrait_position` (the function everything else in this system already reads from) already handles `count <= 1` correctly on its own, always returning the single-enemy's own fixed portrait spot - there was never a real reason for a separate branch here at all. Removed it entirely and let the single code path derive `col` the same way for every enemy count, closing off the whole "forgot to handle this branch the same way" class of mistake rather than just patching this one instance of it.
+
+`cargo check`/`build`/`test` clean (fixed the resulting unused-variable warning on the way), brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the single-enemy name now sits correctly under its own portrait.
+
+Confirmed live: "Okay perfect." The enemy ATB bar/name rework is done - real pixel-art ATB bars over each enemy's head with room reserved for HP to come back later, and a bigger, correctly-centered name under both single and multi-enemy formations alike.
+
+## Player buffs: from one unbounded text line to a real icon+number stack
+
+Asked directly what happens with more than one buff active at once - a fair question, since the honest answer was "nothing good": every active buff joined into ONE line separated by " | ", unbounded, with no wrapping or stacking. Also found (not asked, but worth surfacing) that this line's fixed position predated this session's several rounds of moving the ATB/HP bars, so it had drifted into visibly overlapping them.
+
+The user's own redesign was better than anything I'd have proposed: icon + a small number, stacked vertically downward, no border box, in the empty space between the player sprite and the Actions box. Investigated the real data before assuming every buff could actually be shown that way rather than guessing: Ice Armor, Battle Cry, and Dodge are all real named templates with their own icon already (the exact same `glyph_for_item_name` lookup `systems/hud.rs`'s dungeon-HUD buff badges already use) and a real countdown number. Defending and Countering aren't - neither has a template entry, so neither has an icon by that same lookup. Asked rather than guess how to handle those two specifically.
+
+The user's answer: Defending doesn't need showing at all (the Actions box already makes the choice visible, a duplicate notification adds nothing), but Countering "does have an icon" - checked more carefully and confirmed what they meant: `Counter Attack`, the one real technique that currently arms it, has its own template icon, and reusing that one is a reasonable stand-in even though the underlying effect (`TechniqueEffect::Counter`) is technically generic. Countering shows icon-only, no number, since it has no countdown of its own (armed for exactly one hit).
+
+Built the stack from a small `Vec<(char, Option<i32>)>` (icon glyph, optional count) rather than the old ad hoc string-building, reusing `BUFF_BADGE_CONSOLE` - the exact same console the dungeon HUD's own buff badges already use, the same "reuse a global console across screens" pattern `BATTLE_BAR_CONSOLE` already established between `hud.rs` and `battle.rs`. Numbers print on `HUD_CONSOLE`, their position derived from the icon's own real pixel position, not a second independently-guessed spot.
+
+`cargo check`/`build`/`test` clean, no new warnings, brace balance confirmed, ran the game with no panic, no leftover process. Position (column 13, starting row 13 on console 0's 40x25 grid) is a first-pass guess like every other new UI element's first placement this session - pending a screenshot to confirm it actually lands in the intended empty space and doesn't collide with anything.
+
+Screenshot round: down 3 rows, right 2 columns for the icon; the number text nudged 1 further HUD column left on top of that; and the per-buff row spacing widened from 1 to 2 rows so a second/third buff reads as clearly separated rather than packed tight. Applied via named constants (`PLAYER_BUFF_ICON_ROW_STEP`, `PLAYER_BUFF_TEXT_COL_NUDGE`) rather than folding the adjustment into the existing position math directly, so this round's specific deltas stay visible/traceable rather than disappearing into a single recomputed number. `cargo check`/`build`/`test` clean, ran the game with no panic, no leftover process. Next: a screenshot confirming the new position.
+
+## The missing buff number was a real bug, not a taste call
+
+The icon landed in the right spot this round, but "I don't see the amount" - Ice Armor's own countdown number had disappeared entirely. Checked which buff it actually was before assuming anything (it visually could have been Countering, which is deliberately icon-only by design) - the user confirmed it was Ice Armor, a real numbered buff, so this was a genuine bug.
+
+Worked out the real cause with actual pixel math rather than guessing another nudge: the previous round's adjustments (moving the icon, then nudging the text left by 1 HUD column on top of that) accidentally put the number's real position INSIDE the icon's own 32px cell footprint - verified directly (icon spans [480,512)x[512,544) real px at this exact position, the text landed at (490,513), squarely inside it). `BUFF_BADGE_CONSOLE` (25) is registered AFTER `HUD_CONSOLE` (18), so the icon's own opaque glyph was painting directly over the number every single frame - not a rendering glitch, straightforward console z-order doing exactly what it's supposed to do with two things occupying the same pixels.
+
+Replaced the nudge-based column math entirely with a real clearance formula: the text now starts a genuine `ICON_TEXT_GAP_PX` (4 real pixels) past the icon's own right edge, computed from the icon's actual pixel footprint rather than approximated in HUD columns and adjusted by feel. Verified the new position clears the icon's real footprint with an actual number before writing it, not after - confirmed no overlap. The now-unused `PLAYER_BUFF_TEXT_COL_NUDGE` constant from the previous round came out with it.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Worth remembering for next time a HUD_CONSOLE/coarse-grid pair needs adjusting: a small nudge in one console's units can silently cross into another console's own cell footprint at these grid-size ratios - worth checking real pixel overlap directly rather than trusting that "a small change" stays small in every console's own terms. Next: a screenshot confirming Ice Armor's number is visible and clear of the icon now.
+
+## Clearance from the Actions box, checked with real numbers this time
+
+Number visible and confirmed working - next flag: with more than 2 buffs, the column could start overlapping the Actions box, asked to move the buff column left (or move the box). Given the last two rounds on this exact feature both traced back to under-measured "small" adjustments (a guessed nudge that buried the number under its own icon, then a screenshot revealing it was already close to the Actions box), didn't repeat that pattern a third time - computed the real clearance before picking a new column. Turned out the concern wasn't really about buff COUNT at all (more buffs only add ROWS, they don't change the column's own horizontal footprint) - the real issue was already live at a single buff: a worst-case 2-digit count's own real right edge reached ~14px PAST the Actions box's own left edge at the old column, not overlapping only in this specific screenshot by luck (a smaller number, or a slightly different frame, would have shown it). Moved the column from 15 to 13, verified that clears the same worst case by a real ~50px margin instead of eyeballing "a bit to the left."
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the buff column now reads clear of the Actions box.
+
+## Wrong side of the problem - moved the box instead of the buff
+
+Moving the buff column left "fixed" the Actions box clearance but broke something the pure box-clearance math never checked: it now sat behind the player sprite. A real, useful lesson about the check I'd just run two rounds ago - it verified clearance on ONE side (toward the Actions box) without checking the other (toward the player), so it was never actually a complete fix, just a differently-incomplete one.
+
+Direct instruction this time: leave the buff exactly where it already looked right, move the Actions box instead. Reverted `PLAYER_BUFF_ICON_COL` back to 15. For `BOX_X`, the user's own suggested amount ("1 or 2 columns") didn't hold up against the real numbers - recomputed the same worst-case 2-digit clearance check against the box's own left edge and found +1 still overlaps (-1.6px) and +2 barely clears (10.4px, thin enough to not trust) - +3 is the smallest shift that actually clears it with a real margin (~22px). Went with the number the math actually required rather than the smaller suggested one, and said so plainly rather than silently overriding the request.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the buff is back where it looked right AND clear of the (now-moved) Actions box.
+
+Confirmed live: "Perfect." The battle screen is done for this pass - enemy ATB bars and names, the Actions box (title, padding, bottom anchor, and now its own X position), the Battle Log, the player's HP/ATB bars, and the player buff column all confirmed working. One screen left per the user's own count - the Options screen, flagged several rounds ago and set aside for "later." Not started yet, waiting on the user's own screenshot and specifics, same pattern as every element this session.
+
+## The Options screen: a real redesign, a new theme, and closing out the branch
+
+Last screen of this pass: "something similar to the item menu," 4 categories (Audio, Video, Hotkeys, Gameplay). Talked through the design before writing anything, per the user's own "let's talk about it before you code" - the old screen was one flat numbered list (rebind Actions plus Battle Speed/ATB Mode/Menu Memory all mixed together), no categorical separation at all. Flagged the real open questions rather than assume: how cross-box navigation should work with 4 real boxes instead of Item Menu's 2, whether Audio/Video needed a real persisted data model even with no engine behind them yet, and - checked directly rather than assumed - whether Fullscreen toggling was even technically possible with this exact bracket-terminal version.
+
+That last check mattered: bracket-terminal 0.8.7 has no supported runtime fullscreen API, but the live window handle IS reachable through an internal, not-officially-public global (`bracket_terminal::prelude::BACKEND`), which would also need a new direct `glutin` dependency just to name one type. Presented that as a real choice rather than silently picking one side - the user chose the simpler path: highlightable but genuinely inert for now, same treatment as Audio. Added the specific finding to backlog item 14 rather than leave it undocumented.
+
+**The new theme**: asked for "gears and science," no reference image this time - wrote the prompt myself rather than wait on one, then ran the exact same verification pass the Dungeon theme's own generation established as the bar: opaque-alpha check, near-black-pixel floor (7577 of 9216 pixels needed it - the frame's own dark background), and the real 9-slice stress test (sliced into 9 tiles, retiled into a box 8x wider and 5x taller than the source) before ever showing it - came back clean, no seams, on the first generation. Composited as `UiPanelTheme::Gears`, the sheet's 6th band (96x576 now) - pixel-diffed the whole sheet afterward and confirmed zero pixels changed in the existing 5 themes, only the new band added.
+
+**The screen itself**: reused `battle::MenuCursor` - the exact same "2 stacked columns, Left/Right switches column, Up/Down moves within it, remembers each column's own row" shape `item_menu_cursor` already proved out, not a new abstraction. Left column: Audio above Hotkeys. Right column: Video above Gameplay. `options_cursor`'s own type changed from a plain `usize` to `MenuCursor` - a real API change, so every reset site (`screens/pause.rs` x2, `screens/title.rs`) needed updating too, not just `options.rs` itself. Audio/Video rows print permanently GRAY regardless of selection (Hotkeys/Gameplay still turn YELLOW when selected, the normal convention) - the one deliberate visual difference marking "here, but not functional yet." The old number-key (1-7) shortcuts came out entirely, replaced by pure arrow+Enter navigation matching Item Menu's own convention, now that there's no single flat list to number.
+
+`cargo check`/`build`/`test` clean on the first real compile - no iteration needed on the Rust side, unusual for a change this size. Brace balance confirmed across all 5 touched Rust files, ran the game with no panic, no leftover process. Next: a screenshot confirming the whole redesigned screen - layout, the new Gears theme, cross-box navigation, and the Audio/Video greyed-out treatment all at once, since this was one large connected change rather than the usual small round-by-round tuning. The user wants to close this branch once this is confirmed.
+
+The screenshot came back mostly right (theme, layout, cross-box navigation, the greyed-out Audio/Video treatment all read correctly) but with one real bug: the last row of text in each box sat ON the bottom border instead of above it. Root cause was a mismatch I introduced myself while building this, not a rendering quirk - copied the Actions-box/Battle-Log's own `rows + 2` height formula without noticing those two boxes print their content RAW (`text_color_raw`, first row one clean line below the border), while these new boxes use the STANDARD inset (plain `text_color`, first row two lines below the border) - the same row count needs one MORE row of box height under the standard inset than under the raw one. Fixed by changing both height constants to `rows + 3`, with the actual reasoning (not just the new number) written into the constant's own doc comment so this doesn't get miscopied again the next time a box uses standard-inset content.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming the text now sits fully inside all 4 boxes.
+
+Text sat fully inside every box now, but Audio's own bottom padding read as missing compared to the other three. Real cause, not a rendering fluke: Audio (3 rows) and Hotkeys (4 rows) both fill EVERY row slot the box's own height was sized for, leaving zero blank margin at `+ 3` - Video and Gameplay only looked padded because they have unused row capacity (Video fills 2 of the 3 rows Audio's own height requires, since they share a height so their edges line up). Bumped to `+ 4` so every box gets one genuine blank row regardless of how full it is, rather than an accident of which boxes happen to have spare capacity - documented the full `+2 -> +3 -> +4` history directly in the constant's own doc comment, not just the final number, so the next person touching this (including future-me) has the reasoning, not just a value that looks arbitrary.
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, ran the game with no panic, no leftover process. Next: a screenshot confirming Audio now has real, visible padding matching the other three boxes.
+
+## The whole UI pass, done - item 10 moves to Done
+
+Confirmed live: "That is great. I think that is it for the UI pass." Item 10 in `docs/ideas.md` - real PixelLab-generated UI panel art, replacing every hand-drawn ASCII box border - started 2026-09-13, is genuinely finished now, several sessions and one long connected one later. Moved it to Done rather than leave it sitting in the numbered list with a note, per this project's own standing convention - and its own text was badly stale (still describing "first real wiring: the Item Menu's Items box only" from the very first day), so wrote a fresh summary of the actual final state rather than patch the old one. Item 14 (the Options screen redesign, added and finished the same day) moved to Done alongside it. Renumbered everything that shifted as a result (10 items down to 9, 11-13 became 10-12) and preserved the one real still-open piece from item 14 (the Audio/Video functionality, including the real Fullscreen technical finding) as its own new item 13, rather than let it get lost in a Done entry.
+
+The Done summary itself tries to be the condensed version, not a re-narration - the real blow-by-blow (every bug, every measurement, every direct request) already lives in this file's own 2026-09-14/15 entries; docs/ideas.md just needed to say what actually shipped. Also fixed one stale cross-reference in an existing Done entry that pointed at "item 10 below," which no longer exists now that 10 moved.
+
+What shipped, for the record: 6 real generated themes (Dungeon/Forest/Sewer/Swamp/Battle/Gears), a real reusable `PanelBox` helper (built, tested, and rolled out to every site after the user explicitly asked for one), a real pixel-art HP/ATB bar mechanism now used by the player AND every enemy, and every screen this session actually touched - the dungeon HUD, the Item Menu, Pause, the whole battle screen, and the Options screen - converted, tuned, and confirmed live via real screenshots at every step. Not part of this pass, and said so plainly rather than implied "everything": chest.rs, stats_view.rs, end.rs, and title.rs still use plain text, never raised as in-scope.
+
+Branch `pixellab-ui-panels` is functionally done per the user's own count. Next: whatever the user wants to do about the branch itself - they mentioned wanting to close it out, not yet acted on.
+
