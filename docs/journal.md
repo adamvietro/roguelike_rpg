@@ -4746,3 +4746,19 @@ Compared `BATTLE_BAR_CONSOLE`'s registration against every other custom console 
 <br />
 
 Added a new standing gotcha to `CLAUDE.md` for this specific failure mode - it's cheap to hit again for any future custom sheet, and the fix (one line) is easy to forget precisely because it doesn't show up until the game is actually launched.
+
+## Good news, bad news, and a second real bug in the same new feature
+
+The game launched. The border/log box conversions were confirmed clean on the first real look - title placement, content, everything read right. But the new HP/ATB bars only half-worked: "The ATB bar is there" (the frame was visible), then immediately, "They just aren't being filled" - no color inside either bar at all.
+<br />
+
+Started tracing before the user's second message even finished landing, since the symptom (frame fine, fill invisible) pointed somewhere specific: `draw_pixel_bar`'s fill reused `to_cp437('█')` (CP437 index 219) - the EXACT same glyph `draw_panel_fill` already uses successfully for the panel boxes. Looked up what 219 actually resolves to directly in bracket-terminal's own codepage437 source rather than assume, confirming the number, then reasoned through why the SAME glyph index could behave completely differently on two different custom fonts: `ui_panels.png` is a real 45-cell sheet, always tinted BLACK, so wherever index 219 happens to sample - garbage or not - the color multiply zeroes it out regardless of what's actually there; it "works" by accident, not by correctness. `battle_bar_frame.png` was a much smaller sheet (originally just 3 cells) where that same out-of-range index instead landed in the frame's own intentionally-transparent channel - and this fill uses a REAL color (RED/CYAN/GREEN), not BLACK, so multiplying by near-zero alpha there rendered nothing instead of accidentally working out.
+<br />
+
+Fixed at the source rather than picking a different guessed index: added a genuine 4th cell to `battle_bar_frame.png` itself - a dedicated, verified-pixel-by-pixel solid-opaque-white square - and pointed the fill at ITS real glyph index (3) instead of reusing a CP437 constant meant for an entirely different, much larger font. Verified the asset edit didn't disturb the original 3 cells, then ran the game again for real (not just `cargo check`) to confirm the fix actually launches clean, and remembered to kill the leftover child process `timeout` left running this time (missed that the first time through and caught it via a stray `pgrep`).
+<br />
+
+Added a second `CLAUDE.md` gotcha for this - `to_cp437('█')` as a "safe" solid-fill glyph is really "safe on this one large, BLACK-tinted sheet specifically," not a generally portable trick, and the next custom font that reuses it without a real cell to back the index could hit the exact same silent-no-fill failure.
+<br />
+
+`cargo check`/`build`/`test` clean, brace balance confirmed, full diff reviewed before committing. `docs/UI_Panel_Sheet_Guide.md` updated - the border/box conversions are now marked CONFIRMED live; the bar fill fix is not yet confirmed, just landed. Next: one more screenshot to see actual color in the bars.

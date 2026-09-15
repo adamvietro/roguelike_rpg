@@ -456,12 +456,17 @@ upgrading them now would be wasted work ahead of a later change to hide
 them outright).
 
 **Its own asset, not part of `ui_panels.png`**: `resources/
-battle_bar_frame.png`, a plain 3-cell horizontal row (left cap /
-tileable middle / right cap, glyph indices 0/1/2 directly) rather than
-a `UiPanelTheme`-style 3x3 block, since a bar has no top/bottom edges to
-tile the way a box does. Drawn on its own new console,
-`BATTLE_BAR_CONSOLE` (50, fancy, same `DISPLAY_WIDTH x DISPLAY_HEIGHT`
-grid as `UI_PANEL_CONSOLE`) - `batch` must target it.
+battle_bar_frame.png`, a plain 4-cell horizontal row (left cap /
+tileable middle / right cap / a dedicated solid-white fill cell, glyph
+indices 0/1/2/3 directly) rather than a `UiPanelTheme`-style 3x3 block,
+since a bar has no top/bottom edges to tile the way a box does. Drawn
+on its own new console, `BATTLE_BAR_CONSOLE` (50, fancy, same
+`DISPLAY_WIDTH x DISPLAY_HEIGHT` grid as `UI_PANEL_CONSOLE`) - `batch`
+must target it. Needs its own `.with_font("battle_bar_frame.png", 32,
+32)` line in `main.rs`'s builder chain, registered BEFORE
+`BATTLE_BAR_CONSOLE` itself - see `CLAUDE.md`'s own standing gotcha for
+what happens if that line is missing (a launch-time panic, not a
+compile error).
 
 **Reuses `draw_panel_tile` directly** for the frame (no new tile-drawing
 primitive needed - the exact same `set_fancy` mechanism applies, just 1
@@ -483,6 +488,21 @@ measuring the real generated frame's pixel data (its opaque channel
 walls sit at roughly rows 6-9 and 25-28 of each 32px tile) rather than
 guessing a centered default - see `PIXEL_BAR_TILE_SCALE`'s own doc
 comment for the exact numbers.
+
+**The fill's glyph is cell 3 (a dedicated solid-white square), NOT
+`to_cp437('█')`** - confirmed live 2026-09-14 that the CP437 block
+character (index 219) renders NO fill at all on this font: `draw_panel_
+fill` gets away with the same glyph on `ui_panels.png` only because
+that's a much larger sheet, always tinted BLACK, so wherever 219
+happens to sample lands opaque and the multiply zeroes it out
+regardless. `battle_bar_frame.png` originally had only 3 cells -
+sampling index 219 there landed in the frame's own intentionally-
+transparent channel area, and a REAL (non-BLACK) fill color multiplied
+by near-zero alpha rendered as nothing. Added the 4th cell specifically
+so the fill never depends on where an index meant for a full CP437
+character set happens to land in an unrelated, much smaller font - see
+`CLAUDE.md`'s own standing gotcha for the general version of this
+lesson.
 
 `PIXEL_BAR_TILE_SCALE` (0.5) is its own constant, deliberately not
 reused from either panel-box scale - a status bar and a box border are
@@ -515,14 +535,16 @@ every other pixel value in this project - pending a screenshot.
   differently relative to a box's nominal size at different total
   widths, in a way that reads as inconsistent spacing between a
   2-icon and a 5-icon box even with identical bounds math.
-- A fresh screenshot confirming the two newly-converted battle sites
-  (the ability-selection box and the battle log, both `UiPanelTheme::
-  Battle` at `PIXEL_BOX_TILE_SCALE_COMPACT`) and the new player HP/ATB
-  bars (`draw_pixel_bar`) - none of this has been seen live. The battle
-  log's own width/height (30 HUD columns, `MAX_LOG_LINES + 3` rows) and
-  the bars' position/width/row-spacing are all first-pass judgment
-  calls, not measured against anything - the single most likely things
-  to need retuning once seen.
+- **CONFIRMED live**: the ability-selection box and battle log
+  (`UiPanelTheme::Battle` at `PIXEL_BOX_TILE_SCALE_COMPACT`) - title
+  placement, border, and content all read correctly. The bars'
+  FRAME also confirmed live; their FILL did not (see the glyph-index
+  bug above, now fixed) - **still needs a fresh screenshot to confirm
+  the fix actually shows color now**. The battle log's own width/
+  height (30 HUD columns, `MAX_LOG_LINES + 3` rows) and the bars'
+  position/width/row-spacing remain first-pass judgment calls, not
+  measured against anything - still the most likely things to need
+  retuning once the fill itself is confirmed working.
 - Whether `player_can_act`'s "you can act now" signal (now the
   "Actions" title's color, yellow/green) reads as clearly as the old
   border-color version did - a real behavior change (signal moved from
