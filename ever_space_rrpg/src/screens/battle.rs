@@ -822,41 +822,23 @@ impl State {
         // pixel value in this project - pending a screenshot.
         //
         // The "You" label was dropped entirely (direct request
-        // 2026-09-14) - the bars themselves, now enclosed in their own
-        // bordered panel below, read as "this is the player's status"
-        // without needing a name label the way a numbered enemy does.
+        // 2026-09-14) - the bars themselves read as "this is the
+        // player's status" without needing a name label the way a
+        // numbered enemy does.
+        //
+        // NOT wrapped in a separate bordered panel - tried that
+        // 2026-09-14, reverted the same day on direct correction: "I
+        // didn't want a border around the health and ATB borders I just
+        // wanted to have the colored bars within the borders." The ask
+        // was always about the FILL staying inside the bar's OWN
+        // existing frame (battle_bar_frame.png's own end caps/top-
+        // bottom strips), not a second, separate box drawn around the
+        // whole bar. See draw_pixel_bar's own doc comment for how the
+        // fill's bounds are kept inside that existing frame.
         const PLAYER_BAR_HUD_X: i32 = 32 * HUD_COLS / 160;
         const PLAYER_ATB_BAR_HUD_Y: i32 = 36;
         const PLAYER_HP_BAR_HUD_Y: i32 = 40;
         const PLAYER_BAR_WIDTH: i32 = 20;
-
-        // Both bars now sit inside a real bordered panel (direct
-        // request 2026-09-14: "the colored bars need to be within the
-        // borders") instead of floating bare over the live background -
-        // same Battle theme, same draw_filled_pixel_box_scaled pipeline
-        // every other converted box uses. Padding chosen to clear the
-        // bars' own left/top edges without touching the panel's own
-        // border. Drawn on panel_batch (UI_PANEL_CONSOLE, 46) -
-        // registered BEFORE BATTLE_BAR_CONSOLE (50), so the bars
-        // correctly paint over this panel's own fill rather than the
-        // other way around.
-        const PLAYER_PANEL_X: i32 = PLAYER_BAR_HUD_X - 2;
-        const PLAYER_PANEL_Y: i32 = PLAYER_ATB_BAR_HUD_Y - 2;
-        const PLAYER_PANEL_WIDTH: i32 = PLAYER_BAR_WIDTH + 4;
-        const PLAYER_PANEL_HEIGHT: i32 = (PLAYER_HP_BAR_HUD_Y - PLAYER_ATB_BAR_HUD_Y) + 5;
-
-        let mut player_panel_batch = DrawBatch::new();
-        player_panel_batch.target(UI_PANEL_CONSOLE);
-        draw_filled_pixel_box_scaled(
-            &mut player_panel_batch,
-            PLAYER_PANEL_X,
-            PLAYER_PANEL_Y,
-            PLAYER_PANEL_WIDTH,
-            PLAYER_PANEL_HEIGHT,
-            UiPanelTheme::Battle,
-            PIXEL_BOX_TILE_SCALE_COMPACT,
-        );
-        player_panel_batch.submit(0).expect("Batch error");
 
         let mut player_bar_batch = DrawBatch::new();
         player_bar_batch.target(BATTLE_BAR_CONSOLE);
@@ -933,9 +915,11 @@ impl State {
         // bordered box - moved up and to the left (direct request
         // 2026-09-14) from its original "centered above the player"
         // position, which crowded into the enemy formation on the
-        // right. No longer derived from the player-portrait-centering
-        // math the original ASCII version used - a fresh position
-        // chosen to clear the enemies instead.
+        // right, then nudged back down and right a little the same day
+        // on direct correction ("too high and to the left now"). No
+        // longer derived from the player-portrait-centering math the
+        // original ASCII version used - a fresh position chosen to
+        // clear the enemies instead.
         //
         // The real PixelLab panel border (item 10 in docs/ideas.md),
         // Battle theme - converted 2026-09-14, the last of the original
@@ -953,8 +937,8 @@ impl State {
         // pixels did the old box occupy." Chosen empirically, like every
         // other first-pass box size in this project - pending a
         // screenshot.
-        const MSG_BOX_X: i32 = 4;
-        const MSG_BOX_Y: i32 = 12;
+        const MSG_BOX_X: i32 = 10;
+        const MSG_BOX_Y: i32 = 17;
         const MSG_BOX_WIDTH: i32 = 30;
         const MSG_BOX_HEIGHT: i32 = MAX_LOG_LINES as i32 + 3;
 
