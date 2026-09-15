@@ -210,28 +210,35 @@ fn draw_stack_count_badge(batch: &mut DrawBatch, col: i32, bar_row: i32, count: 
 /// ABILITY_BAR_CONSOLE - the out-of-combat Ability Bar centers itself
 /// (see ability_bar_start_col) while the Battle Bar sits explicitly to
 /// its right, so this takes the range directly rather than recomputing
-/// it. A pad on every side keeps the border from touching the icons/
-/// labels themselves.
+/// it.
+///
+/// No nominal-cell padding beyond the rounding direction itself anymore
+/// (removed 2026-09-14, see each edge's own comment below) - past
+/// rounds added an extra cell of buffer on every edge specifically to
+/// counteract `render_helpers::pixel_box_tiles`'s own center-shift bug
+/// (a tile's true rendered position used to drift toward the box's
+/// interior on some edges, away from it on others - see that function's
+/// own doc comment for the full story), which read as the border
+/// crowding the icons on one side and leaving too much padding on the
+/// other. Now that the shift is fixed at its real source, those extra
+/// buffers were pure redundant padding ("too much padding around the
+/// edges," confirmed live) - removed, keeping only the ROUNDING
+/// DIRECTION itself (each edge still needs to round toward whichever
+/// side keeps its own real clearance, not literal zero gap).
 ///
 /// The edges past which the box GROWS AWAY from the icons (bottom, right)
-/// need more care than a flat "+1" pad, on both axes: ABILITY_BAR_CONSOLE
-/// (where the icons actually live) renders ABOVE HUD_CONSOLE (where this
-/// box is drawn) in z-order, so any HUD_CONSOLE row/column whose PIXELS
-/// overlap the icon's own pixel range gets visually painted over by the
-/// icon, border or not. A plain truncating division from a pixel position
-/// into HUD_CONSOLE cell units can land a cell whose pixels still reach
-/// into that overlap - a flat "+1" of nominal padding then isn't actually
-/// one whole cell of real clearance. Both the bottom and right edges
-/// round UP first (ceiling division) before adding clearance, so the
-/// chosen row/column's pixels start at or after the icon's true bottom/
-/// right edge; the top and left edges' plain truncating division already
-/// rounds down/toward the icon (safe on those sides, since the box is
-/// growing AWAY from the icon there) so they only need the extra "-1"
-/// for breathing room, not a ceiling. The right edge originally used the
-/// same plain-truncation-plus-flat-pad the bottom edge already avoided -
-/// confirmed as a real bug via screenshot, not just theoretical: a
-/// full-bleed ability icon's art visibly crowded right up against the
-/// border with almost no gap.
+/// still need more care than a plain truncating division, on both axes:
+/// ABILITY_BAR_CONSOLE (where the icons actually live) renders ABOVE
+/// HUD_CONSOLE (where this box is drawn) in z-order, so any HUD_CONSOLE
+/// row/column whose PIXELS overlap the icon's own pixel range gets
+/// visually painted over by the icon, border or not. A plain truncating
+/// division from a pixel position into HUD_CONSOLE cell units can land a
+/// cell whose pixels still reach into that overlap. Both the bottom and
+/// right edges round UP (ceiling division), so the chosen row/column's
+/// pixels start at or after the icon's true bottom/right edge; the top
+/// and left edges' plain truncating division already rounds down/away
+/// from the icon (safe on those sides, since the box is growing AWAY
+/// from the icon there), so they need no ceiling correction at all.
 fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32, i32, i32) {
     let bar_row = ability_bar_row();
 
@@ -240,43 +247,53 @@ fn ability_bar_box_bounds(start_col: i32, n: i32, has_labels: bool) -> (i32, i32
     let icons_top_px = bar_row * (800 / ABILITY_BAR_ROWS);
     let icons_bottom_px = (bar_row + 1) * (800 / ABILITY_BAR_ROWS);
 
-    let left = (icons_left_px * HUD_COLS / 1280) - 1;
-    // Ceiling division (the "+ 1279" trick), THEN +1 for real clearance -
-    // same reasoning as the bottom edge below, and the same bug the
-    // bottom edge already avoided: a plain truncating division here
-    // rounds the right edge DOWN, i.e. toward the icon's own pixels
-    // rather than past them, so a flat "+1" wasn't real clearance -
-    // confirmed visually (a full-bleed icon's art crowded right up
-    // against the border with almost no gap).
-    let icons_right_col = (icons_right_px * HUD_COLS + 1279) / 1280;
-    let right = icons_right_col + 1;
-    // Ceiling division (the "+ 799" trick) - see this function's own doc
-    // comment on the right edge above for why ceiling, not truncating,
-    // division. No longer a further "+1" on top of that: tightened
-    // 2026-09-14 on direct feedback that there was "far more space below
-    // than we need" once the border itself got thin (PIXEL_BOX_TILE_
-    // SCALE_COMPACT) - the old extra clearance row, sized for a much
-    // thicker border, now just reads as dead black fill under the icon.
-    let icons_bottom_row = (icons_bottom_px * HUD_ROWS + 799) / 800;
-    let bottom = icons_bottom_row;
+    // No extra "- 1" beyond the plain floor division anymore - removed
+    // 2026-09-14 once `render_helpers::pixel_box_tiles`'s own center-
+    // shift fix (see its doc comment) was in place. That extra column
+    // used to double as an accidental compensation for the border's
+    // real rendered position silently drifting toward the icon on this
+    // exact edge - now that the drift itself is fixed at the source,
+    // the plain floor division alone (which already rounds AWAY from
+    // the icon, toward smaller columns) is real, sufficient clearance
+    // on its own; the extra column was reading as pure excess padding
+    // ("too much padding around the edges," confirmed live).
+    let left = icons_left_px * HUD_COLS / 1280;
+    // Ceiling division (the "+ 1279" trick) still needed - plain
+    // truncating division here rounds the right edge DOWN, i.e. toward
+    // the icon's own pixels rather than past them, which is genuinely
+    // insufficient clearance (confirmed live, pre-dating the center-
+    // shift fix). No longer a further "+1" on top of that though -
+    // removed for the same reason as the left edge's own extra column
+    // above: it was compensating for the center-shift drift, which no
+    // longer exists.
+    let right = (icons_right_px * HUD_COLS + 1279) / 1280;
+    // Ceiling division (the "+ 799" trick) - see the right edge's own
+    // doc comment for why ceiling, not truncating, division. No extra
+    // buffer beyond that (removed for bottom clearance 2026-09-14, then
+    // again implicitly here since the center-shift fix removed the
+    // remaining need for any of these edges to over-compensate).
+    let bottom = (icons_bottom_px * HUD_ROWS + 799) / 800;
 
     let top = if has_labels {
         let (_, label_row) = ability_bar_label_position(start_col);
-        // Bumped from `label_row - 1` to `label_row - 2` 2026-09-14 on
-        // direct feedback ("the border is overlapping the icons for the
-        // abilities") - this box's own top clearance was numerically
-        // IDENTICAL to the no-labels branch below despite having an
-        // extra row of content (the label) to clear, which the no-labels
-        // branch never had to account for. One more row of real
-        // clearance between the border's top edge and the label/icon
-        // below it.
-        label_row - 2
+        // Exactly one row above the label - the minimum that keeps the
+        // border from sitting ON the label's own row (which would risk
+        // the border's opaque tile painting over the label text, the
+        // same failure mode print_box's own title nudge hit earlier).
+        // No extra buffer beyond that anymore - the extra row added
+        // 2026-09-14 to fix a reported overlap was compensating for the
+        // center-shift drift (see render_helpers::pixel_box_tiles' own
+        // doc comment), which is now fixed at its real source.
+        label_row - 1
     } else {
-        // No label row to clear above the icons here - just the icon's
-        // own top edge, with the same real-clearance reasoning as the
-        // bottom edge (see doc comment) plus one more row of breathing
-        // room so the border doesn't sit flush against the icons.
-        (icons_top_px * HUD_ROWS / 800) - 2
+        // One row above the icon's own top edge - the same "away from
+        // the icon, toward smaller rows" floor-rounding the left edge
+        // relies on above needs no ceiling correction here, since
+        // rounding down already moves AWAY from an icon whose reference
+        // edge is below this one. No extra "breathing room" row beyond
+        // this minimum anymore, for the same center-shift reasoning as
+        // every other edge in this function.
+        (icons_top_px * HUD_ROWS / 800) - 1
     };
 
     (left, top, right - left, bottom - top)
