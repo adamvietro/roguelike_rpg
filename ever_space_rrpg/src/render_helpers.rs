@@ -383,6 +383,50 @@ fn draw_panel_tile(
 /// `draw_pixel_box` so the conversion math can be checked directly
 /// against real numbers rather than only indirectly through whatever
 /// `DrawBatch` ends up queued.
+///
+/// A real, confirmed positional bug fixed here 2026-09-14, on top of the
+/// plain pixel-to-tile conversion: `set_fancy`'s vertex shader scales a
+/// tile's raw (unscaled, one-native-cell) quad AROUND A FIXED CENTER
+/// (`base_pos = (aPos - center) * scale + center`, center = position +
+/// 0.5 cell - confirmed against the real GLSL source, not guessed).
+/// Solved out for a corner's own true left edge: `(P - (P+0.5))*s +
+/// (P+0.5) = P + (1-s)/2` - i.e. a tile positioned at `P` doesn't
+/// actually render with its edge AT `P` unless `scale == 1.0`; at any
+/// smaller scale it renders shifted by `+(1-scale)/2` native-cell-units
+/// (0.425 cells - ~13.6px - at `PIXEL_BOX_TILE_SCALE_COMPACT`, 0.15).
+/// Every tile in a box shifts by this SAME amount (a translation, not a
+/// resize), so the fill and border stay aligned with EACH OTHER, but the
+/// whole box's real position drifts away from whatever `x`/`y` the
+/// caller actually asked for - toward the box's own interior on the
+/// low-coordinate edges (crowding/appearing to overlap an icon sitting
+/// just past the box's own left/top edge, on a totally independent
+/// coordinate system that knows nothing about this drift) and away from
+/// it on the high-coordinate edges (extra empty space past the icon on
+/// the right/bottom). Confirmed live: this was small enough to go
+/// unnoticed at the larger default scale (0.3, ~11.2px) but became
+/// clearly visible - "the border is overlapping the icons," "too much
+/// space on the right hand side of the item bar" - once `PIXEL_BOX_
+/// TILE_SCALE_COMPACT` made the shift proportionally huge relative to
+/// the border's own now-thin tiles. Subtracting the same `(1-scale)/2`
+/// back out here, before any tile position is computed from `base_col`/
+/// `base_row`, cancels it out so the border's real rendered position
+/// matches the caller's intended `x`/`y` regardless of scale.
+///
+/// Confidence note: the X-axis derivation above is exact, solved
+/// directly from the real vertex shader with no assumptions. The SAME
+/// correction is applied to `base_row` too, on the reasoning that the
+/// vertex shader's `vec2` transform treats X and Y identically - but
+/// `FlexiConsole::set_fancy` inverts `position.y` before this transform
+/// runs (`invert_pos.y = height - position.y`, the same coordinate flip
+/// already behind `WIGGLE_CONSOLE_Y_ANCHOR_OFFSET`), which makes a fully
+/// independent hand-derivation for Y genuinely error-prone. The row
+/// correction's sign was chosen to match the ALREADY-CONFIRMED live
+/// symptom (the border crowding down into an icon at the top, excess
+/// room at the bottom - structurally the same pattern the X-axis fix
+/// addresses), not re-derived from the flip in isolation. If a fresh
+/// screenshot shows the vertical alignment got WORSE instead of better,
+/// this is the first place to check - the fix for Y specifically may be
+/// `+ center_shift` instead of `- center_shift`.
 fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32, scale: f32) -> (f32, f32, i32, i32) {
     let px_x0 = (x * 1280) as f32 / HUD_COLS as f32;
     let px_y0 = (y * 800) as f32 / HUD_ROWS as f32;
@@ -393,7 +437,8 @@ fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32, scale: f32) -> (f32,
     let tiles_w = (((px_x1 - px_x0) / tile_px).round() as i32).max(2);
     let tiles_h = (((px_y1 - px_y0) / tile_px).round() as i32).max(2);
 
-    (px_x0 / 32.0, px_y0 / 32.0, tiles_w, tiles_h)
+    let center_shift = (1.0 - scale) / 2.0;
+    (px_x0 / 32.0 - center_shift, px_y0 / 32.0 - center_shift, tiles_w, tiles_h)
 }
 
 /// Draws the box's solid black interior fill as ONE `set_fancy` quad,
