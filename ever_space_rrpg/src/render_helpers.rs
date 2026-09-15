@@ -731,8 +731,21 @@ pub fn draw_pixel_bar(
     };
     if ratio > 0.0 {
         let fill_tiles_w = tiles_w as f32 * ratio;
-        let fill_center_col = base_col + s * fill_tiles_w / 2.0;
-        let fill_center_row = base_row + s * (BAR_FILL_TOP_FRACTION + BAR_FILL_HEIGHT_FRACTION / 2.0);
+        // See this function's own "center-shift" note above: `base_col`/
+        // `base_row` are NOT the frame's true rendered left/top edge -
+        // that edge sits `(1-s)/2` cell-units further along (the same
+        // correction `pixel_bar_tiles` applies so the FRAME lands at the
+        // caller's intended position at all). Confirmed live 2026-09-14
+        // that omitting this same `(1-s)/2` term here left the fill
+        // rendering as a completely separate stripe, offset a full half
+        // of the bar's own rendered height/width away from the frame's
+        // real channel - not a subtle few-pixel miss. Verified
+        // numerically (a small script computing both the frame's true
+        // span and the fill's true center from the real set_fancy
+        // formula) before writing this fix, not re-guessed.
+        let fill_center_col = base_col + s * (fill_tiles_w - 1.0) / 2.0;
+        let fill_center_row =
+            base_row + s * (BAR_FILL_TOP_FRACTION + BAR_FILL_HEIGHT_FRACTION / 2.0 - 0.5);
         let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
         batch.set_fancy(
             PointF::new(fill_center_col, fill_center_row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
