@@ -9,6 +9,79 @@ the next thing to build. Not auto-loaded every session; read it on demand.
 
 ## Current state (as of the last full session)
 
+9/15/26, branch `pixellab-ui-panels` (not yet merged to `master` -
+committed, not pushed; the user handles push/merge via GitHub Desktop).
+Backlog items 10 (real PixelLab UI panel art, replacing every hand-
+drawn ASCII box) and 14 (Options screen expansion) are both fully
+closed - see `docs/ideas.md`'s Done section for the complete writeup;
+this section only hits the highlights.
+
+- **Every hand-drawn `draw_ascii_box` call site is gone**, replaced
+  with real pixel-art panel borders across the dungeon HUD, the Item
+  Menu, Pause, the battle screen, and the Options screen.
+  `render_helpers::draw_ascii_box` itself was deleted once its last
+  real caller converted.
+- **Six real PixelLab-generated themes** in `resources/ui_panels.png`
+  (3x18-row, 32px-cell atlas): Dungeon, Forest, Sewer, Swamp (all four
+  reused from the map-theme work), Battle (ornate wood-and-gold,
+  matching a user-supplied reference), and Gears (brass/gunmetal
+  steampunk-and-science, generated from a text description alone - no
+  reference image). Every theme passed a real verification pass before
+  use, not just an eyeball check: a watermark scan, a near-black-pixel
+  floor, and a genuine 9-slice stress test (sliced into its 9 tiles,
+  retiled into a box far bigger than the source, to catch seams a
+  single static image can't reveal).
+- **`render_helpers::PanelBox`** - a reusable helper built partway
+  through this effort once the same hand-rolled boilerplate (wrong
+  console for the fill vs. the text, z-order collisions between
+  batches, inconsistent hand-computed padding) kept causing the same
+  class of bug across roughly a dozen call sites. Owns both the
+  fill+border batch and the text batch, auto-assigns a collision-free
+  z-order, and gives every box a standard content inset so `dx = 0, dy
+  = 0` is the correct first-content-row almost everywhere, with
+  `text_color_raw`/`text_color_centered_raw` as deliberate escape
+  hatches for the real exceptions.
+- **`render_helpers::draw_pixel_bar`** - a real pixel-art HP/ATB bar
+  (colored proportional fill under a frame, `resources/
+  battle_bar_frame.png`), replacing the old `[####----]` ASCII gauge
+  string (`battle::hp_bar_string`, deleted once its last caller
+  converted) for the player (dungeon HUD and battle screen both) and
+  every enemy's own ATB gauge. Solved a real, non-obvious problem along
+  the way: a bar's own real rendered height and a HUD_CONSOLE text
+  row's real height don't divide evenly, so overlaid text can only be
+  centered by shifting the BAR itself by a real fraction of a row
+  (`BAR_TEXT_VERTICAL_CENTER_SHIFT`), derived with an actual numeric
+  script against the real `set_fancy` transform, not guessed.
+- **Every screen this effort touched**: the dungeon HUD (player-status
+  portrait border, real HP bar, Item/Ability/Battle bars each with
+  their own individually-tuned padding, the ability/item hover-
+  description box, the mouseover entity tooltip); the Item Menu's all 6
+  boxes; Pause's Hints box; the battle screen (a bottom-anchored
+  Actions box that tracks the player's own portrait instead of a fixed
+  row that had to vary by enemy formation, the Battle Log, the player's
+  HP/ATB bars, every enemy's own ATB bar and a bigger/centered name, a
+  real icon+number player buff column); and the Options screen,
+  rebuilt from one flat numbered list into 4 categorized boxes (Audio,
+  Video, Hotkeys, Gameplay) navigated the same 2-stacked-column way the
+  Item Menu already is.
+- **Not part of this pass**: `chest.rs`, `stats_view.rs`, `end.rs`, and
+  `title.rs` still use plain text with no boxed frames - never raised
+  as in-scope, left untouched rather than assumed.
+- Verified after every real change: `cargo check`/`build`/`test`,
+  brace balance, a full diff review, and actually running the game to
+  check for panics (a clean build was NOT sufficient proof twice this
+  effort - a missing font registration and an out-of-range glyph index
+  were both runtime-only failures the compiler couldn't catch).
+
+Full narrative in `docs/journal.md`'s 9/14/26 entry (one header covers
+both 9/14 and 9/15's work - still unpushed as of this writing, so per
+this project's own journal convention the header stays a plain date
+rather than getting renamed with a description yet).
+
+---
+
+## Previous session (9/13/26) — Refactoring cleanup (item 9), map-gen refactor (item 8), and the Swamp map theme
+
 9/13/26, `master` (branches `refactor-item-9-cleanup`, `refactor-item-9-
 stage2`, and `refactor-map-builder-item-8` all merged in) plus a fourth
 map theme's worth of new art. Backlog items 9 (refactoring) and 8
