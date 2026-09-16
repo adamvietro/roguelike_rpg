@@ -1063,13 +1063,25 @@ impl State {
         map_builder.map.tiles[exit_idx] = TileType::Exit;
 
         self.resources.insert(map_builder.map);
-        // Plain Camera::new - the standard 40x25 dungeon viewport, same
-        // as every other map. A custom smaller camera was tried here
-        // first, but it didn't address the actual problem (the map
-        // itself still being 80x50 underneath) and complicated other
-        // things unnecessarily - the reveal-rectangle approach above is
-        // what actually makes this map read as small.
-        self.resources.insert(Camera::new(map_builder.player_start));
+        // Still the standard 40x25 dungeon viewport (a custom smaller
+        // camera SIZE was tried here first and correctly abandoned - it
+        // didn't address the actual problem, the map itself still being
+        // 80x50 underneath, and complicated other things unnecessarily;
+        // the reveal-rectangle approach above is what actually makes this
+        // map read as small) - but new_bounded, not plain new, so the
+        // camera's own PANNING stays clamped to that same reveal
+        // rectangle too. Without this, a player near the shop room's own
+        // edge could still pan the camera past the reveal rectangle's
+        // real boundary into unrevealed (black) space - a real, confirmed
+        // bug (2026-09-14), distinct from the map-size question this
+        // comment used to only talk about.
+        self.resources.insert(Camera::new_bounded(
+            map_builder.player_start,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ));
         self.resources.insert(map_builder.theme);
     }
 

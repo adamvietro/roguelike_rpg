@@ -35,7 +35,7 @@ pub fn map_render(
     // simply falls back to the camera's own resting integer position -
     // the same value `offset` used to be for the old plain-console path
     // below, just as an (f32, f32) instead of a Point.
-    let render_offset = camera_render_offset(ecs);
+    let render_offset = camera_render_offset(ecs, camera);
     let is_panning = render_offset.is_some();
     let (ox, oy) = render_offset.unwrap_or((camera.left_x as f32, camera.top_y as f32));
 

@@ -94,7 +94,7 @@ pub fn gliding_position(ecs: &SubWorld, entity: Entity) -> Option<(f32, f32)> {
 /// the two ALREADY-clamped corners instead means this always agrees with
 /// the real camera, whether the clamp is active for the whole step, only
 /// part of it (the step that first reaches an edge), or not at all.
-pub fn camera_render_offset(ecs: &SubWorld) -> Option<(f32, f32)> {
+pub fn camera_render_offset(ecs: &SubWorld, camera: &Camera) -> Option<(f32, f32)> {
     let (player_entity, _) = find_player(ecs)?;
     let entry = ecs.entry_ref(player_entity).ok()?;
     let anim = entry.get_component::<MovingAnimation>().ok()?;
@@ -102,8 +102,8 @@ pub fn camera_render_offset(ecs: &SubWorld) -> Option<(f32, f32)> {
         return None;
     }
     let t = ease_out_cubic((anim.elapsed_ms / MOVE_ANIM_DURATION_MS).min(1.0));
-    let (start_left, start_top) = Camera::clamped_top_left(anim.start);
-    let (end_left, end_top) = Camera::clamped_top_left(anim.end);
+    let (start_left, start_top) = camera.clamped_top_left(anim.start);
+    let (end_left, end_top) = camera.clamped_top_left(anim.end);
     Some((
         lerp(start_left as f32, end_left as f32, t),
         lerp(start_top as f32, end_top as f32, t),

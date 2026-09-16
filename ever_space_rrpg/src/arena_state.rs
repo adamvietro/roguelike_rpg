@@ -163,7 +163,18 @@ impl State {
         self.boost_arena_enemy_fov();
 
         self.resources.insert(map_builder.map);
-        self.resources.insert(Camera::new(map_builder.player_start));
+        // new_bounded, not plain new - this map only reveals a smaller
+        // rectangle inside the full 80x50 grid (see Camera's own bounds_*
+        // field doc comment), and the camera needs to stay clamped to
+        // that same rectangle or it can pan past its real edge into
+        // unrevealed (black) space near the clearing's own boundary.
+        self.resources.insert(Camera::new_bounded(
+            map_builder.player_start,
+            reveal_x,
+            reveal_y,
+            reveal_w,
+            reveal_h,
+        ));
         self.resources.insert(map_builder.theme);
         self.resources.insert(None::<Battle>);
         self.resources.insert(None::<BattleVictory>);
