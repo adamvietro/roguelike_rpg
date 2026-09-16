@@ -1,0 +1,20 @@
+Ever Space RRPG - macOS build
+==============================
+
+1. Keep "ever_space_rrpg" and the "resources" folder together in the
+   same directory - the game loads its art/fonts from "resources/"
+   next to the binary.
+
+2. This build isn't signed with an Apple Developer certificate, so the
+   first time you run it, macOS Gatekeeper will refuse with something
+   like "cannot be opened because the developer cannot be verified."
+   To get past that ONE-TIME check:
+     - Right-click (or Control-click) "ever_space_rrpg" and choose
+       "Open", then confirm "Open" in the dialog that appears. This
+       only needs to happen once.
+     - If that option isn't there, go to System Settings -> Privacy &
+       Security, scroll down, and click "Open Anyway" next to the
+       ever_space_rrpg mention.
+
+3. After that first approval, just double-click the binary (or run it
+   from Terminal) normally from then on.

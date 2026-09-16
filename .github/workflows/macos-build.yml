@@ -1,0 +1,51 @@
+name: macOS build
+
+# Manual only - triggered from the Actions tab (or `gh workflow run
+# macos-build.yml`) whenever a Mac build is actually wanted, not on every
+# push. Builds a universal binary (Intel x86_64 + Apple Silicon arm64,
+# combined via `lipo`) since it's unknown ahead of time which chip a
+# given Mac has, then bundles it with the game's `resources/` folder
+# (loaded via a relative `with_resource_path("resources/")` at runtime -
+# see main.rs - so it must sit next to the binary, not just be built).
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ever_space_rrpg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add both macOS targets
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+
+      - name: Build (Intel)
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Build (Apple Silicon)
+        run: cargo build --release --target aarch64-apple-darwin
+
+      - name: Combine into a universal binary
+        run: |
+          mkdir -p dist
+          lipo -create -output dist/ever_space_rrpg \
+            target/x86_64-apple-darwin/release/ever_space_rrpg \
+            target/aarch64-apple-darwin/release/ever_space_rrpg
+          chmod +x dist/ever_space_rrpg
+          lipo -info dist/ever_space_rrpg
+
+      - name: Bundle resources + a run-it note
+        run: |
+          cp -r resources dist/resources
+          cp packaging/HOW_TO_RUN_MACOS.txt dist/HOW_TO_RUN.txt
+
+      - name: Zip it up
+        run: cd dist && zip -r ../ever_space_rrpg-macos.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ever_space_rrpg-macos
+          path: ever_space_rrpg/ever_space_rrpg-macos.zip
