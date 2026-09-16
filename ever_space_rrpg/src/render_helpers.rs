@@ -448,6 +448,11 @@ fn pixel_box_tiles(x: i32, y: i32, width: i32, height: i32, scale: f32) -> (f32,
 /// `base_col + 0.5 + s*(tiles_w - 1)/2`, width `tiles_w * s`. Matching
 /// that with one `set_fancy` call means: `position = center - 0.5`
 /// (`base_col + s*(tiles_w - 1)/2`), `scale = (tiles_w*s, tiles_h*s)`.
+/// `alpha` - 1.0 for the normal fully-opaque fill; added 2026-09-15 for
+/// backlog item 9 (dungeon HUD bars fading out from under the player) -
+/// the fill is the only part of a `PanelBox` that should ever fade; the
+/// border/icons stay fully opaque regardless, so this lives on the
+/// fill's own fg alpha, not a whole-box blend.
 fn draw_panel_fill(
     batch: &mut DrawBatch,
     base_col: f32,
@@ -455,16 +460,18 @@ fn draw_panel_fill(
     tiles_w: i32,
     tiles_h: i32,
     s: f32,
+    alpha: f32,
 ) {
     let center_col = base_col + s * (tiles_w - 1) as f32 / 2.0;
     let center_row = base_row + s * (tiles_h - 1) as f32 / 2.0;
     let bg_transparent = RGBA::from_f32(0.0, 0.0, 0.0, 0.0);
+    let fg = RGBA::from_f32(0.0, 0.0, 0.0, alpha);
     batch.set_fancy(
         PointF::new(center_col, center_row + WIGGLE_CONSOLE_Y_ANCHOR_OFFSET),
         0,
         Degrees::new(0.0),
         PointF::new(tiles_w as f32 * s, tiles_h as f32 * s),
-        ColorPair::new(BLACK, bg_transparent),
+        ColorPair::new(fg, bg_transparent),
         to_cp437('█'),
     );
 }
@@ -609,6 +616,10 @@ pub fn draw_pixel_box(
 /// used to exist here - removed 2026-09-14 once every call site had
 /// either moved to `PanelBox` or already needed an explicit scale
 /// anyway, leaving it with zero real callers.)
+/// `fill_alpha` - 1.0 for the normal fully-opaque fill; see `draw_panel_
+/// fill`'s own doc comment (backlog item 9, 2026-09-15). Border stays
+/// full WHITE/BLACK regardless of `fill_alpha`; only the interior fill
+/// fades.
 pub fn draw_filled_pixel_box_scaled(
     panel_batch: &mut DrawBatch,
     x: i32,
@@ -617,6 +628,7 @@ pub fn draw_filled_pixel_box_scaled(
     height: i32,
     theme: UiPanelTheme,
     scale: f32,
+    fill_alpha: f32,
 ) {
     let (base_col, base_row, tiles_w, tiles_h) = pixel_box_tiles(x, y, width, height, scale);
     // Fill drawn BEFORE the border so the border's own corner/edge art
@@ -624,7 +636,7 @@ pub fn draw_filled_pixel_box_scaled(
     // draw_panel_fill's own doc comment for why this doesn't erase the
     // fill the way it would on a SimpleConsole (it can't; this console
     // only ever adds tiles, never overwrites one already queued).
-    draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h, scale);
+    draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h, scale, fill_alpha);
     draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK), scale);
 }
 
@@ -715,9 +727,28 @@ impl PanelBox {
     /// box, `PIXEL_BOX_TILE_SCALE_COMPACT` for a short/narrow one, same
     /// choice every `draw_filled_pixel_box_scaled` call already makes.
     pub fn new(x: i32, y: i32, width: i32, height: i32, theme: UiPanelTheme, scale: f32) -> Self {
+        Self::new_faded(x, y, width, height, theme, scale, 1.0)
+    }
+
+    /// Same as `new`, with an explicit interior-fill alpha (1.0 = the
+    /// normal fully-opaque fill `new` itself always passes) - added
+    /// 2026-09-15 for backlog item 9, so the 3 dungeon HUD bars can fade
+    /// their own fill out (border/icons untouched) specifically while the
+    /// player's real map position is underneath that bar. See `draw_panel_
+    /// fill`'s own doc comment for why only the fill (not the whole box)
+    /// fades.
+    pub fn new_faded(
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        theme: UiPanelTheme,
+        scale: f32,
+        fill_alpha: f32,
+    ) -> Self {
         let mut panel = DrawBatch::new();
         panel.target(UI_PANEL_CONSOLE);
-        draw_filled_pixel_box_scaled(&mut panel, x, y, width, height, theme, scale);
+        draw_filled_pixel_box_scaled(&mut panel, x, y, width, height, theme, scale, fill_alpha);
         let mut text = DrawBatch::new();
         text.target(PANEL_TEXT_CONSOLE);
         PanelBox { x, y, width, height, panel, text }

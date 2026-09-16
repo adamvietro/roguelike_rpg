@@ -162,6 +162,28 @@ const ITEM_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
 const ABILITY_BOX_EXTRA_SIDE_PAD: i32 = 1;
 const ABILITY_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
 
+/// Backlog item 9, 2026-09-15: the Item/Ability/Battle Bar's own fill
+/// alpha while the player's real map position is underneath that specific
+/// bar - direct design confirmation (AskUserQuestion): fade the fill,
+/// keep the border/icons fully opaque, scoped to just these 3 dungeon
+/// bars (not the player-status portrait or any other panel). Not 0.0 -
+/// a fully-invisible fill would read as "hidden," not "faded"; this is a
+/// first-pass value pending a screenshot round, same as every other
+/// bracket-lib pixel/color value in this project.
+const BAR_FADED_FILL_ALPHA: f32 = 0.15;
+
+/// True if `player_hud` (see its own call site's comment) falls inside
+/// the given box's footprint, in the SAME HUD_CONSOLE cell units
+/// `ability_bar_box_bounds` returns its own box in - the natural
+/// reusable "is the player under this bar" check for all 3 dungeon bars,
+/// since each already computes its own box this same way.
+fn player_under_box(player_hud: Option<Point>, box_x: i32, box_y: i32, box_w: i32, box_h: i32) -> bool {
+    match player_hud {
+        Some(p) => p.x >= box_x && p.x < box_x + box_w && p.y >= box_y && p.y < box_y + box_h,
+        None => false,
+    }
+}
+
 /// The hotkey label for Ability Bar slot `i` - matches
 /// player_input.rs::use_ability's key order exactly (1-9, then 0 for the
 /// 10th slot), NOT just "i + 1", which would read "10" for the 10th slot
@@ -483,6 +505,18 @@ pub fn hud(
     // anchored near the PLAYER's own position rather than a fixed screen
     // spot, so it travels with them along the counter.
     let player_class = entity_class(ecs, player);
+    // Same map-pos -> screen-space -> HUD_CONSOLE-cell conversion the shop
+    // tooltip below already uses - the player's real position, in the same
+    // cell units ability_bar_box_bounds' own boxes are in, for backlog
+    // item 9's "is the player under this bar" check (see
+    // BAR_FADED_FILL_ALPHA's own doc comment). Computed once here rather
+    // than separately per bar - all 3 dungeon bars share the same player
+    // position this frame.
+    let player_hud = ecs
+        .entry_ref(player)
+        .ok()
+        .and_then(|entry| entry.get_component::<Point>().ok().copied())
+        .map(|player_pos| mouse_to_hud(player_pos - Point::new(camera.left_x, camera.top_y)));
     if shopping.is_some() {
         if let Some(player_pos) = ecs
             .entry_ref(player)
@@ -753,13 +787,27 @@ pub fn hud(
             // rather than change the shared function's own behavior.
             // Whole HUD_CONSOLE columns/rows, not fractional ones - see
             // this constant's own doc comment for why.
-            PanelBox::new(
+            //
+            // Fades (BAR_FADED_FILL_ALPHA) when the player's own real map
+            // position is underneath this specific box - backlog item 9,
+            // 2026-09-15. Border/icons stay fully opaque either way; see
+            // player_under_box's own doc comment.
+            let item_box_w = box_w + ITEM_BOX_EXTRA_RIGHT_PAD;
+            let item_box_h = box_h + ITEM_BOX_EXTRA_BOTTOM_PAD;
+            let item_fill_alpha =
+                if player_under_box(player_hud, box_x, box_y, item_box_w, item_box_h) {
+                    BAR_FADED_FILL_ALPHA
+                } else {
+                    1.0
+                };
+            PanelBox::new_faded(
                 box_x,
                 box_y,
-                box_w + ITEM_BOX_EXTRA_RIGHT_PAD,
-                box_h + ITEM_BOX_EXTRA_BOTTOM_PAD,
+                item_box_w,
+                item_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
+                item_fill_alpha,
             )
             .submit();
         }
@@ -802,13 +850,24 @@ pub fn hud(
             // parameter exists at all" gap the Item Bar had, direct
             // feedback 2026-09-15. Scoped to only this draw call, same
             // as the Item Bar's own fix.
-            PanelBox::new(
+            //
+            // Fades when the player is underneath - see the Item Bar's
+            // own comment above (backlog item 9).
+            let ability_box_h = box_h + ABILITY_BOX_EXTRA_BOTTOM_PAD;
+            let ability_fill_alpha =
+                if player_under_box(player_hud, box_x, box_y, box_w, ability_box_h) {
+                    BAR_FADED_FILL_ALPHA
+                } else {
+                    1.0
+                };
+            PanelBox::new_faded(
                 box_x,
                 box_y,
                 box_w,
-                box_h + ABILITY_BOX_EXTRA_BOTTOM_PAD,
+                ability_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
+                ability_fill_alpha,
             )
             .submit();
         }
@@ -854,13 +913,24 @@ pub fn hud(
             // the same day once asked for all 3 to match.
             // PIXEL_BOX_TILE_SCALE_COMPACT too - see the Item Bar's own
             // comment above.
-            PanelBox::new(
+            //
+            // Fades when the player is underneath - see the Item Bar's
+            // own comment above (backlog item 9).
+            let battle_box_h = box_h + BATTLE_BOX_EXTRA_BOTTOM_PAD;
+            let battle_fill_alpha =
+                if player_under_box(player_hud, box_x, box_y, box_w, battle_box_h) {
+                    BAR_FADED_FILL_ALPHA
+                } else {
+                    1.0
+                };
+            PanelBox::new_faded(
                 box_x,
                 box_y,
                 box_w,
-                box_h + BATTLE_BOX_EXTRA_BOTTOM_PAD,
+                battle_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
+                battle_fill_alpha,
             )
             .submit();
         }
