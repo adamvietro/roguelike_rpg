@@ -616,10 +616,18 @@ pub fn draw_pixel_box(
 /// used to exist here - removed 2026-09-14 once every call site had
 /// either moved to `PanelBox` or already needed an explicit scale
 /// anyway, leaving it with zero real callers.)
-/// `fill_alpha` - 1.0 for the normal fully-opaque fill; see `draw_panel_
-/// fill`'s own doc comment (backlog item 9, 2026-09-15). Border stays
-/// full WHITE/BLACK regardless of `fill_alpha`; only the interior fill
-/// fades.
+/// `fill_alpha` - 1.0 for the normal fully-opaque box; see `draw_panel_
+/// fill`'s own doc comment (backlog item 9, 2026-09-15). Widened
+/// 2026-09-15, same day, to also drive the BORDER's own alpha (both the
+/// visible border art via `original * ourColor` in bracket-terminal's
+/// real `FANCY_CONSOLE_FS` shader, AND the border tiles' own transparent
+/// padding, which that same shader falls back to solid `ourBackground`
+/// for rather than leaving alone - confirmed straight from that shader's
+/// real GLSL source, not guessed - so BOTH the tint's fg AND bg alpha
+/// need to drop together or the fallback color would stay a solid block
+/// while the visible art around it fades) - direct correction after a
+/// first pass only faded the fill: "I want the bar and the icon and the
+/// background to go transparent," not just the background.
 pub fn draw_filled_pixel_box_scaled(
     panel_batch: &mut DrawBatch,
     x: i32,
@@ -637,7 +645,11 @@ pub fn draw_filled_pixel_box_scaled(
     // fill the way it would on a SimpleConsole (it can't; this console
     // only ever adds tiles, never overwrites one already queued).
     draw_panel_fill(panel_batch, base_col, base_row, tiles_w, tiles_h, scale, fill_alpha);
-    draw_pixel_box(panel_batch, x, y, width, height, theme, ColorPair::new(WHITE, BLACK), scale);
+    let border_tint = ColorPair::new(
+        RGBA::from_f32(1.0, 1.0, 1.0, fill_alpha),
+        RGBA::from_f32(0.0, 0.0, 0.0, fill_alpha),
+    );
+    draw_pixel_box(panel_batch, x, y, width, height, theme, border_tint, scale);
 }
 
 /// Ever-increasing, shared across every `PanelBox` - never reset per

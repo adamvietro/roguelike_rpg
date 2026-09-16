@@ -162,26 +162,65 @@ const ITEM_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
 const ABILITY_BOX_EXTRA_SIDE_PAD: i32 = 1;
 const ABILITY_BOX_EXTRA_BOTTOM_PAD: i32 = 1;
 
-/// Backlog item 9, 2026-09-15: the Item/Ability/Battle Bar's own fill
-/// alpha while the player's real map position is underneath that specific
-/// bar - direct design confirmation (AskUserQuestion): fade the fill,
-/// keep the border/icons fully opaque, scoped to just these 3 dungeon
-/// bars (not the player-status portrait or any other panel). Not 0.0 -
-/// a fully-invisible fill would read as "hidden," not "faded"; this is a
-/// first-pass value pending a screenshot round, same as every other
+/// Backlog item 9, 2026-09-15: the Item/Ability/Battle Bar's own alpha
+/// while the player's real map position is underneath that specific bar
+/// - direct design confirmation (AskUserQuestion): fade the fill, keep
+/// the border/icons fully opaque. Widened the SAME day, on direct
+/// correction from a screenshot ("I want the bar and the icon and the
+/// background to go transparent") - it now drives the border and icon
+/// alpha too, not just the fill; renamed from `BAR_FADED_FILL_ALPHA`
+/// to match. Still scoped to just these 3 dungeon bars (not the
+/// player-status portrait or any other panel). Not 0.0 - a fully-
+/// invisible box would read as "hidden," not "faded"; this is a first-
+/// pass value pending a screenshot round, same as every other
 /// bracket-lib pixel/color value in this project.
-const BAR_FADED_FILL_ALPHA: f32 = 0.15;
+const BAR_FADE_ALPHA: f32 = 0.15;
+
+/// Extra HUD_CONSOLE cells of slack, each side, added to a bar's own box
+/// before checking whether the player is "under" it - direct correction
+/// 2026-09-15 that a literal, exact containment check ("it still is
+/// opaque" with the player visibly right at/just past the box's own
+/// edge) missed real cases. `player_hud`'s own single point comes from
+/// the player's map-tile corner, not the true center of their ~32px-wide
+/// on-screen sprite (see `mouse_to_hud`'s own conversion) - a few
+/// HUD_CONSOLE cells of margin covers that mismatch without needing to
+/// separately track the sprite's own real footprint. First-pass value,
+/// same as `BAR_FADE_ALPHA` - both pending a live screenshot to confirm
+/// the right feel, not derived from an exact measurement.
+const PLAYER_UNDER_BAR_MARGIN: i32 = 4;
 
 /// True if `player_hud` (see its own call site's comment) falls inside
-/// the given box's footprint, in the SAME HUD_CONSOLE cell units
-/// `ability_bar_box_bounds` returns its own box in - the natural
-/// reusable "is the player under this bar" check for all 3 dungeon bars,
-/// since each already computes its own box this same way.
+/// the given box's footprint - expanded by `PLAYER_UNDER_BAR_MARGIN` on
+/// every side (see its own doc comment) - in the SAME HUD_CONSOLE cell
+/// units `ability_bar_box_bounds` returns its own box in. The natural
+/// reusable "is the player under this bar" check for all 3 dungeon
+/// bars, since each already computes its own box this same way.
 fn player_under_box(player_hud: Option<Point>, box_x: i32, box_y: i32, box_w: i32, box_h: i32) -> bool {
     match player_hud {
-        Some(p) => p.x >= box_x && p.x < box_x + box_w && p.y >= box_y && p.y < box_y + box_h,
+        Some(p) => {
+            let x0 = box_x - PLAYER_UNDER_BAR_MARGIN;
+            let y0 = box_y - PLAYER_UNDER_BAR_MARGIN;
+            let x1 = box_x + box_w + PLAYER_UNDER_BAR_MARGIN;
+            let y1 = box_y + box_h + PLAYER_UNDER_BAR_MARGIN;
+            p.x >= x0 && p.x < x1 && p.y >= y0 && p.y < y1
+        }
         None => false,
     }
+}
+
+/// The icon color for one Item/Ability/Battle Bar slot at the given
+/// alpha (1.0 = the normal fully-opaque icon) - same owned/unowned tint
+/// choice every bar already made, just with `alpha` threaded into both
+/// the icon's own fg AND its cell's fallback bg (see `draw_filled_pixel_
+/// box_scaled`'s own doc comment for why bracket-terminal's real fancy-
+/// console shader needs BOTH touched to actually fade a sprite cell,
+/// not just its visible content) - added 2026-09-15 for backlog item 9.
+fn bar_icon_color(owned: bool, alpha: f32) -> ColorPair {
+    let (r, g, b) = if owned { WHITE } else { UNOWNED_ICON_TINT };
+    ColorPair::new(
+        RGBA::from_u8(r, g, b, (alpha * 255.0).round() as u8),
+        RGBA::from_u8(0, 0, 0, (alpha * 255.0).round() as u8),
+    )
 }
 
 /// The hotkey label for Ability Bar slot `i` - matches
@@ -743,6 +782,29 @@ pub fn hud(
         let item_n = (item_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
         let item_start_col = item_bar_start_col(ability_start_col, item_n);
 
+        // Box bounds + fade state computed BEFORE the icon loop now
+        // (backlog item 9, widened 2026-09-15 to also fade the icons
+        // themselves, not just the box) - both the icons and the box
+        // itself need the same alpha, so this can't wait until after the
+        // loop the way the box-only version did. ITEM_BOX_EXTRA_RIGHT_PAD/
+        // BOTTOM_PAD - direct feedback 2026-09-15 that this specific
+        // box's own right and bottom edges (the icons' own footprint
+        // doesn't reach either one, unlike the left/top - see
+        // ability_bar_box_bounds' own doc comment) sit too close to the
+        // icons compared to a genuine margin. Deliberately scoped to
+        // ONLY this box's own bounds - ability_bar_box_bounds itself,
+        // and the Ability/Battle Bars that also call it, are untouched.
+        let (item_box_x, item_box_y, item_box_w0, item_box_h0) =
+            ability_bar_box_bounds(item_start_col, ability_bar_row(), item_n, false, 0);
+        let item_box_w = item_box_w0 + ITEM_BOX_EXTRA_RIGHT_PAD;
+        let item_box_h = item_box_h0 + ITEM_BOX_EXTRA_BOTTOM_PAD;
+        let item_fade_alpha = if player_under_box(player_hud, item_box_x, item_box_y, item_box_w, item_box_h)
+        {
+            BAR_FADE_ALPHA
+        } else {
+            1.0
+        };
+
         for (i, slot) in item_slots.iter().enumerate().take(item_n as usize) {
             let col = item_start_col + i as i32;
             let owned = slot.owned.is_some();
@@ -751,21 +813,16 @@ pub fn hud(
                 &mut bar_batch,
                 col,
                 bar_row,
-                Render {
-                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
-                    glyph: to_cp437(glyph),
-                },
+                Render { color: bar_icon_color(owned, item_fade_alpha), glyph: to_cp437(glyph) },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) = ability_bar_box_bounds(item_start_col, ability_bar_row(), item_n, false, 0);
-                hovered = Some((slot.name.clone(), box_y));
+                hovered = Some((slot.name.clone(), item_box_y));
             }
             if let Some((count, _)) = slot.owned {
                 draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
             }
         }
         if item_n > 0 {
-            let (box_x, box_y, box_w, box_h) = ability_bar_box_bounds(item_start_col, ability_bar_row(), item_n, false, 0);
             // Swamp, not Dungeon - direct request 2026-09-14, so all 3
             // dungeon HUD bars match (the other two already were/are).
             // PIXEL_BOX_TILE_SCALE_COMPACT, not the default scale - this
@@ -775,42 +832,47 @@ pub fn hud(
             // real numbers behind this, computed from ability_bar_box_
             // bounds' own real geometry, not eyeballed).
             //
-            // ITEM_BOX_EXTRA_RIGHT_PAD/BOTTOM_PAD - direct feedback
-            // 2026-09-15 that this specific box's own right and bottom
-            // edges (the icons' own footprint doesn't reach either one,
-            // unlike the left/top - see ability_bar_box_bounds' own doc
-            // comment) sit too close to the icons compared to a genuine
-            // margin. Deliberately scoped to ONLY this box's own draw
-            // call - `ability_bar_box_bounds` itself, and the Ability/
-            // Battle Bars that also call it, are untouched, since the
-            // user asked to work on the Item Bar in isolation first
-            // rather than change the shared function's own behavior.
-            // Whole HUD_CONSOLE columns/rows, not fractional ones - see
-            // this constant's own doc comment for why.
-            //
-            // Fades (BAR_FADED_FILL_ALPHA) when the player's own real map
+            // Fades (BAR_FADE_ALPHA) when the player's own real map
             // position is underneath this specific box - backlog item 9,
-            // 2026-09-15. Border/icons stay fully opaque either way; see
-            // player_under_box's own doc comment.
-            let item_box_w = box_w + ITEM_BOX_EXTRA_RIGHT_PAD;
-            let item_box_h = box_h + ITEM_BOX_EXTRA_BOTTOM_PAD;
-            let item_fill_alpha =
-                if player_under_box(player_hud, box_x, box_y, item_box_w, item_box_h) {
-                    BAR_FADED_FILL_ALPHA
-                } else {
-                    1.0
-                };
+            // 2026-09-15, widened the same day to also fade the border
+            // and icons (see BAR_FADE_ALPHA's own doc comment) rather
+            // than just this box's own fill.
             PanelBox::new_faded(
-                box_x,
-                box_y,
+                item_box_x,
+                item_box_y,
                 item_box_w,
                 item_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-                item_fill_alpha,
+                item_fade_alpha,
             )
             .submit();
         }
+
+        // Box bounds + fade state computed BEFORE the icon loop - see the
+        // Item Bar's own comment above (backlog item 9).
+        let (ability_box_x, ability_box_y, ability_box_w, ability_box_h0) = ability_bar_box_bounds(
+            ability_start_col,
+            ability_bar_row(),
+            ability_n,
+            true,
+            ABILITY_BOX_EXTRA_SIDE_PAD,
+        );
+        // ABILITY_BOX_EXTRA_BOTTOM_PAD - same "no bottom-padding
+        // parameter exists at all" gap the Item Bar had, direct feedback
+        // 2026-09-15. Scoped to only this box's own bounds.
+        let ability_box_h = ability_box_h0 + ABILITY_BOX_EXTRA_BOTTOM_PAD;
+        let ability_fade_alpha = if player_under_box(
+            player_hud,
+            ability_box_x,
+            ability_box_y,
+            ability_box_w,
+            ability_box_h,
+        ) {
+            BAR_FADE_ALPHA
+        } else {
+            1.0
+        };
 
         for (i, slot) in ability_slots.iter().enumerate().take(ability_n as usize) {
             let col = ability_start_col + i as i32;
@@ -820,15 +882,10 @@ pub fn hud(
                 &mut bar_batch,
                 col,
                 bar_row,
-                Render {
-                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
-                    glyph: to_cp437(glyph),
-                },
+                Render { color: bar_icon_color(owned, ability_fade_alpha), glyph: to_cp437(glyph) },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) =
-                    ability_bar_box_bounds(ability_start_col, ability_bar_row(), ability_n, true, ABILITY_BOX_EXTRA_SIDE_PAD);
-                hovered = Some((slot.name.clone(), box_y));
+                hovered = Some((slot.name.clone(), ability_box_y));
             }
             if let Some((count, _)) = slot.owned {
                 draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
@@ -842,32 +899,19 @@ pub fn hud(
             );
         }
         if ability_n > 0 {
-            let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(ability_start_col, ability_bar_row(), ability_n, true, ABILITY_BOX_EXTRA_SIDE_PAD);
             // Swamp, not Dungeon - see the Item Bar's own comment above.
-            // PIXEL_BOX_TILE_SCALE_COMPACT too - same reasoning.
-            // ABILITY_BOX_EXTRA_BOTTOM_PAD - same "no bottom-padding
-            // parameter exists at all" gap the Item Bar had, direct
-            // feedback 2026-09-15. Scoped to only this draw call, same
-            // as the Item Bar's own fix.
-            //
-            // Fades when the player is underneath - see the Item Bar's
-            // own comment above (backlog item 9).
-            let ability_box_h = box_h + ABILITY_BOX_EXTRA_BOTTOM_PAD;
-            let ability_fill_alpha =
-                if player_under_box(player_hud, box_x, box_y, box_w, ability_box_h) {
-                    BAR_FADED_FILL_ALPHA
-                } else {
-                    1.0
-                };
+            // PIXEL_BOX_TILE_SCALE_COMPACT too - same reasoning. Fades
+            // (BAR_FADE_ALPHA) when the player is underneath, including
+            // the border/icons now - see BAR_FADE_ALPHA's own doc
+            // comment.
             PanelBox::new_faded(
-                box_x,
-                box_y,
-                box_w,
+                ability_box_x,
+                ability_box_y,
+                ability_box_w,
                 ability_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-                ability_fill_alpha,
+                ability_fade_alpha,
             )
             .submit();
         }
@@ -883,6 +927,28 @@ pub fn hud(
         let battle_n = (battle_slots.len() as i32).min(ABILITY_BAR_MAX_SLOTS as i32);
         let battle_start_col = battle_bar_start_col(ability_start_col, ability_n);
 
+        // Box bounds + fade state computed BEFORE the icon loop - see
+        // the Item Bar's own comment above (backlog item 9).
+        let (battle_box_x, battle_box_y, battle_box_w, battle_box_h0) = ability_bar_box_bounds(
+            battle_start_col,
+            ability_bar_row(),
+            battle_n,
+            false,
+            BATTLE_BOX_EXTRA_SIDE_PAD,
+        );
+        let battle_box_h = battle_box_h0 + BATTLE_BOX_EXTRA_BOTTOM_PAD;
+        let battle_fade_alpha = if player_under_box(
+            player_hud,
+            battle_box_x,
+            battle_box_y,
+            battle_box_w,
+            battle_box_h,
+        ) {
+            BAR_FADE_ALPHA
+        } else {
+            1.0
+        };
+
         for (i, slot) in battle_slots.iter().enumerate().take(battle_n as usize) {
             let col = battle_start_col + i as i32;
             let owned = slot.owned.is_some();
@@ -891,46 +957,31 @@ pub fn hud(
                 &mut bar_batch,
                 col,
                 bar_row,
-                Render {
-                    color: ColorPair::new(if owned { WHITE } else { UNOWNED_ICON_TINT }, BLACK),
-                    glyph: to_cp437(glyph),
-                },
+                Render { color: bar_icon_color(owned, battle_fade_alpha), glyph: to_cp437(glyph) },
             );
             if bar_mouse.y == bar_row && bar_mouse.x == col {
-                let (_, box_y, _, _) =
-                    ability_bar_box_bounds(battle_start_col, ability_bar_row(), battle_n, false, BATTLE_BOX_EXTRA_SIDE_PAD);
-                hovered = Some((slot.name.clone(), box_y));
+                hovered = Some((slot.name.clone(), battle_box_y));
             }
             if let Some((count, _)) = slot.owned {
                 draw_stack_count_badge(&mut badge_batch, col, bar_row, count);
             }
         }
         if battle_n > 0 {
-            let (box_x, box_y, box_w, box_h) =
-                ability_bar_box_bounds(battle_start_col, ability_bar_row(), battle_n, false, BATTLE_BOX_EXTRA_SIDE_PAD);
             // Swamp - the first of the 3 dungeon HUD bars to switch
             // (2026-09-14); the Item and Ability Bars above joined it
             // the same day once asked for all 3 to match.
             // PIXEL_BOX_TILE_SCALE_COMPACT too - see the Item Bar's own
-            // comment above.
-            //
-            // Fades when the player is underneath - see the Item Bar's
-            // own comment above (backlog item 9).
-            let battle_box_h = box_h + BATTLE_BOX_EXTRA_BOTTOM_PAD;
-            let battle_fill_alpha =
-                if player_under_box(player_hud, box_x, box_y, box_w, battle_box_h) {
-                    BAR_FADED_FILL_ALPHA
-                } else {
-                    1.0
-                };
+            // comment above. Fades (BAR_FADE_ALPHA) when the player is
+            // underneath, including the border/icons now - see BAR_FADE_
+            // ALPHA's own doc comment.
             PanelBox::new_faded(
-                box_x,
-                box_y,
-                box_w,
+                battle_box_x,
+                battle_box_y,
+                battle_box_w,
                 battle_box_h,
                 UiPanelTheme::Swamp,
                 PIXEL_BOX_TILE_SCALE_COMPACT,
-                battle_fill_alpha,
+                battle_fade_alpha,
             )
             .submit();
         }
