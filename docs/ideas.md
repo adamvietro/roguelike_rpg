@@ -134,14 +134,7 @@ Roughly in the order they've come up:
       dialogue hook would hand them out. Worth a real design discussion
       (per CLAUDE.md's convention for architectural-sized changes) before
       any code gets written.
-9. **Ability Bar/other HUD panels should go transparent when the player
-    is underneath them** (added 2026-09-11) — a side effect of the camera
-    changes: the player can now end up positioned under the Ability
-    Bar/similar fixed UI panels, which currently just draw solid on top
-    of them. Needs a design pass (which panels, "transparent" vs. "hide
-    entirely," how to detect the player's screen-space position is
-    actually under a given panel's cells) before touching code.
-10. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
+9. **Rename the game to "Five Blades Deep"** (decided 2026-09-13) - "Ever
     Space" collides with a real existing game and never fit this
     project's fantasy dungeon-crawler genre anyway. Checked clear of
     existing games/trademarks before deciding (see docs/journal.md's
@@ -167,7 +160,7 @@ Roughly in the order they've come up:
       worth deciding whether this tag gets renamed too or stays as-is
       (blog tags are shared across the user's other projects too, not
       exclusively this game's naming decision to make alone).
-11. **An infinite/endless mode**, with real player upgrades and stat
+10. **An infinite/endless mode**, with real player upgrades and stat
     upgrades offered after levels (added 2026-09-14) - not scoped, not
     designed, explicitly not something to start on yet - logged as a
     placeholder only. Whichever mode it attaches to (a new third
@@ -177,14 +170,14 @@ Roughly in the order they've come up:
     boosts, something else) both need a real design conversation before
     any code gets written, per CLAUDE.md's own convention for
     architectural-sized changes.
-12. **Townsfolk characters for the shop/town area** (added 2026-09-14) -
+11. **Townsfolk characters for the shop/town area** (added 2026-09-14) -
     new character art already made by the user (not yet integrated).
     Not scoped: how many, where they'd actually appear (idle background
     NPCs around the shop, similar to `shopkeeper_idle.png`?), whether
     they're purely decorative or interactive, and what asset format the
     new art is in all need a real look before any integration work
     starts.
-13. **Wire up the Options screen's Audio/Video rows** (added
+12. **Wire up the Options screen's Audio/Video rows** (added
     2026-09-15, once the screen itself shipped - see Done below) - the
     Volume/Music/Sound and Fullscreen/Window rows are real, navigable,
     and permanently greyed out, with nothing functional behind them.
@@ -1439,3 +1432,48 @@ theme/mode, no randomization. Full technical detail in `docs/journal.md`.
   measurement, every direct request that shaped a decision) lives in
   `docs/journal.md`'s 2026-09-14/15 entries - this summary is the
   condensed version.
+
+## Dungeon HUD bars fade out from under the player
+
+A regression fix, not a new feature: the Item/Ability/Battle Bar used
+to go transparent under the player (an older, never-merged branch had
+already built this once, pre-PixelLab) but the new solid `PanelBox`
+fill from the pass above never got that behavior back. Confirmed scope
+via AskUserQuestion: just the 3 dungeon bars, not the player-status
+portrait or any other panel.
+
+- **What actually fades**: the border, the icon (both its visible art
+  AND its own cell's black background), and the fill - all together,
+  not just the fill. The first pass only faded the fill; direct
+  correction from a screenshot ("I want the bar and the icon and the
+  background to go transparent") led to tracing bracket-terminal's real
+  `FANCY_CONSOLE_FS` fragment shader source (every console here is a
+  `FlexiConsole` via `with_fancy_console`) and finding it falls back to
+  a tint's own `bg` color, un-multiplied, for any near-transparent
+  texture pixel - the border tiles' own padding and each icon's empty
+  cell space both hit that path, which nothing before this touched.
+  Fixed by scaling both the fg AND bg alpha together, everywhere: a
+  `fill_alpha` parameter threaded through `render_helpers::draw_panel_
+  fill`/`draw_filled_pixel_box_scaled`/`PanelBox::new_faded` (`new`
+  itself now just calls `new_faded(..., 1.0)`), plus a new `hud.rs::
+  bar_icon_color(owned, alpha)` helper replacing the 3 bars' inline
+  icon-color construction.
+- **Detection**: reuses the shop tooltip's own proven `player_pos ->
+  screen-space -> mouse_to_hud` conversion (computed once per `hud()`
+  call, shared by all 3 bars) and each bar's own existing
+  `ability_bar_box_bounds` rect - no new geometry. `player_under_box`
+  expands that rect by `PLAYER_UNDER_BAR_MARGIN` (4 HUD_CONSOLE cells)
+  on every side - direct correction from a screenshot where the player
+  stood visibly adjacent to a still-opaque bar - since `player_hud`
+  comes from the player's map-tile corner, not their ~32px sprite's
+  true center.
+- `BAR_FADE_ALPHA` (0.15) is a first-pass value, same as
+  `PLAYER_UNDER_BAR_MARGIN` - both confirmed live via screenshot, not
+  derived from an exact measurement.
+- Along the way: revived a second, real, separate stale branch found
+  during cleanup (`arena-camera-reveal-clamp` - the Arena camera now
+  also clamps to its own smaller reveal rectangle, not just the full
+  map; see "Camera now also clamps to Arena's own reveal rectangle" in
+  Done above) and deleted a third that turned out to be the old,
+  fully-superseded pre-PixelLab implementation of this exact fade
+  feature (`hud-panel-transparency`).
