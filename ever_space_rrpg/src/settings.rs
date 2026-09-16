@@ -238,6 +238,81 @@ impl MenuMemory {
     }
 }
 
+// --- Fullscreen ------------------------------------------------------------
+//
+// Whether the game window should launch fullscreen - Options screen item
+// 12 (docs/ideas.md). bracket-terminal 0.8.7's `BTermBuilder::with_
+// fullscreen` is a real, public, supported API - but `platform_hints.
+// fullscreen` is only ever read ONCE, at window-creation time inside
+// `main()`'s own builder chain (confirmed straight from bracket-terminal's
+// real `hal/native/init.rs` source, not guessed) - there's no live/
+// runtime toggle without reaching into an internal, not-officially-public
+// global (`bracket_terminal::prelude::BACKEND`), which this project
+// deliberately avoids for a cosmetic setting (see docs/ideas.md's own
+// note on that). So this setting changes what NEXT launch does, not the
+// current session - the Options screen says so next to the row.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FullscreenSetting {
+    Off,
+    On,
+}
+
+/// Where the Fullscreen toggle is persisted - see FullscreenSetting::
+/// load/save. Same saves/ treatment as MENU_MEMORY_PATH/ATB_MODE_PATH.
+const FULLSCREEN_PATH: &str = "saves/fullscreen.ron";
+
+impl FullscreenSetting {
+    pub const ALL: [FullscreenSetting; 2] = [FullscreenSetting::Off, FullscreenSetting::On];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FullscreenSetting::Off => "Off",
+            FullscreenSetting::On => "On",
+        }
+    }
+
+    /// Only two choices, so "cycle" is a toggle - same shape as
+    /// MenuMemory::next.
+    pub fn next(self) -> Self {
+        match self {
+            FullscreenSetting::Off => FullscreenSetting::On,
+            FullscreenSetting::On => FullscreenSetting::Off,
+        }
+    }
+
+    pub fn is_on(self) -> bool {
+        self == FullscreenSetting::On
+    }
+
+    /// Same load contract as MenuMemory::load - falls back to Off (today's
+    /// long-standing default, a windowed launch) on anything missing,
+    /// corrupt, or unrecognized. Called both from `main()` directly
+    /// (before the ECS/resources exist, to feed `BTermBuilder::with_
+    /// fullscreen`) and via the usual resource-insertion sites so the
+    /// Options screen has something to read/toggle.
+    pub fn load() -> Self {
+        if let Ok(text) = fs::read_to_string(FULLSCREEN_PATH) {
+            if let Ok(name) = ron::de::from_str::<String>(&text) {
+                if let Some(v) = Self::ALL.iter().copied().find(|s| s.label() == name) {
+                    return v;
+                }
+            }
+        }
+        FullscreenSetting::Off
+    }
+
+    /// Same save contract as MenuMemory::save.
+    pub fn save(self) {
+        let _ = fs::create_dir_all("saves");
+        if let Ok(text) =
+            ron::ser::to_string_pretty(&self.label().to_string(), ron::ser::PrettyConfig::default())
+        {
+            let _ = fs::write(FULLSCREEN_PATH, text);
+        }
+    }
+}
+
 /// Per-class "last battle action chosen," read/written only while
 /// MenuMemory::On - see that type's own doc comment. Stores the action's
 /// NAME (e.g. "Attack" or "Deathblow"), not a raw (column, row)

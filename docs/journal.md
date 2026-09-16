@@ -24,6 +24,11 @@ cd /gamefiles
 ./ever_space_rrpg
 ```
 
+```
+On GitHub, go to the repo's Actions tab → macOS build workflow → Run workflow. Or from a terminal with gh: gh workflow run macos-build.yml.
+Wait for it to finish (a few minutes), then open the completed run and download the ever_space_rrpg-macos artifact — it's a zip containing the universal binary, the resources/ folder, and HOW_TO_RUN.txt with the Gatekeeper workaround already written out.
+Send your friend that zip. He unzips it, keeps the binary and resources/ folder together, and follows the one-time "right-click → Open" step in the note.
+```
 
 ---
 
@@ -4807,3 +4812,15 @@ One real subtlety the numbers exposed: the wave map's reveal rectangle is only 3
 Both real call sites already had the reveal rectangle sitting right next to their existing `Camera::new` call, as part of `MapBuilder::new_arena_wave`/`new_arena_shop`'s own return tuple (already consumed by `reveal_and_freeze_fov` a few lines earlier) - `arena_state.rs`'s `arena_begin_wave`, and `main.rs`'s `build_shop_room` (shared by Arena's own starting/between-level shops AND Dungeon Crawl's own between-floor shop, confirmed by that function's own doc comment, so the fix covers all three for free). Verified at the time with an exhaustive throwaway test (every point across the full 80x50 map, for the default full-map camera and both of Arena's real reveal rectangles - confirming the default case reproduces the original clamp exactly, and both bounded cases never let the window's edge cross the rectangle's real edge on the axis with room to pan, while staying exactly centered on the axis that's too narrow), removed after confirming per this project's own test convention.
 
 Re-verified fresh after reviving it today: `cargo check`/`build`/`test` all clean on the merged result, brace balance confirmed on every touched file, ran the game with no panic and no leftover process. Never screenshot-verified live even back when it was originally built - still needs a real Arena wave run with the player walked to the edge of the clearing, now that it's finally part of `master`.
+
+## Item 12: wiring up the Options screen's Fullscreen toggle
+
+Picked up item 12 - "at least the video options," per direct request. New branch, `options-fullscreen-toggle`. Talked through the design first, since this touches actual window-creation code, a bigger blast radius than the pure-UI tuning most of this session's work has been.
+
+The backlog item's own note turned out to be slightly more pessimistic than reality: it read as "no supported runtime fullscreen API," which is true, but reading bracket-terminal 0.8.7's real source (`hal/native/init.rs`, `initializer.rs`) directly rather than trusting that note from memory found a genuine, public, documented `BTermBuilder::with_fullscreen(bool)` - it's just only ever read ONCE, at window-creation time inside `main()`'s own builder chain, not something that can be toggled live without the unofficial `BACKEND` internal this project deliberately avoids. That's a real, clean, low-risk path - no new dependency, no unofficial API - just an honest UX tradeoff: a toggle in Options changes what NEXT launch does, not this session.
+
+Window (resolution/size), the other Video row, stayed out of scope on purpose - confirmed with the user rather than assumed. The window's real pixel size comes from `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` times a fixed 32px tile size, and a lot of this project's own rendering math (`render_helpers.rs`, `hud.rs` - all built out earlier this same week for the PixelLab panel work) hardcodes the resulting 1280/800 pixel figures as literals rather than deriving them from those constants. Actually changing window size would mean hunting all of that down first - a real separate pass, not something to fold into "at least the video options."
+
+**What shipped**: `FullscreenSetting` (Off/On) in `settings.rs`, identical shape to the existing `MenuMemory`/`AtbMode` pattern (load/save/next/label, persisted to `saves/fullscreen.ron`, falls back to Off on anything missing/corrupt - never panics). Inserted as a resource at all 3 of the existing `MenuMemory::load()` call sites in `main.rs` (`State::new`, the new-run reset function, `return_to_title`) for consistency, even though Options is the only real reader - same reasoning the other 3 settings already established. `main()`'s own `BTermBuilder` chain reads it directly from disk (before the ECS/resources exist) and feeds `.with_fullscreen(...)`. The Options screen's Fullscreen row is now real: cycles Off/On on Enter (same pattern as every Gameplay row), turns YELLOW when selected instead of permanent GRAY, and a small note line under both Video rows ("(Fullscreen applies next launch)") says plainly why nothing visibly changes the moment you press Enter - didn't want a toggle that looks broken. Window's own row stays exactly as it was: a real placeholder, permanent GRAY, Enter still a no-op there specifically.
+
+`cargo check`/`build`/`test` all clean, brace balance confirmed on all 3 touched files (`settings.rs`, `main.rs`, `screens/options.rs`), ran the game with no panic and no leftover process. Not yet screenshot-verified - can't drive the Options menu's real navigation/Enter interaction myself (no synthetic input), so this needs a real screenshot confirming the Fullscreen row toggles, turns YELLOW when selected, and that the restart note fits cleanly inside the Video box's own width without overflowing.

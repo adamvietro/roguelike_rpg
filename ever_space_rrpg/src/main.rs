@@ -827,6 +827,7 @@ impl State {
         resources.insert(BattleSpeed::load());
         resources.insert(AtbMode::load());
         resources.insert(MenuMemory::load());
+        resources.insert(FullscreenSetting::load());
         resources.insert(LastBattleAction::load());
         resources.insert(Stats::load());
         let mut state = Self {
@@ -919,6 +920,7 @@ impl State {
         self.resources.insert(BattleSpeed::load());
         self.resources.insert(AtbMode::load());
         self.resources.insert(MenuMemory::load());
+        self.resources.insert(FullscreenSetting::load());
         self.resources.insert(LastBattleAction::load());
         // Always present (see systems/end_turn.rs's Exit-tile branch) -
         // None here means "this is an ordinary dungeon crawl", not
@@ -1192,6 +1194,7 @@ impl State {
         self.resources.insert(BattleSpeed::load());
         self.resources.insert(AtbMode::load());
         self.resources.insert(MenuMemory::load());
+        self.resources.insert(FullscreenSetting::load());
         self.resources.insert(LastBattleAction::load());
         self.adventure_mode = AdventureMode::DungeonCrawl;
         self.adventure_select_cursor = 0;
@@ -1441,8 +1444,13 @@ impl GameState for State {
 }
 
 fn main() -> BError {
+    // Read directly from disk, not a legion resource - the ECS/resources
+    // don't exist yet at this point in startup. See FullscreenSetting's
+    // own doc comment in settings.rs for why this is read-once-at-launch
+    // rather than a live toggle.
     let context = BTermBuilder::new()
         .with_title("Ever Space RRPG")
+        .with_fullscreen(FullscreenSetting::load().is_on())
         // Raised from 30 to 60: with real elapsed-time-based animation
         // (MovingAnimation/FrameTime, not frame counts - see
         // systems/animation.rs), every timed effect in this project
