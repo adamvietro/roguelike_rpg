@@ -270,10 +270,11 @@ impl State {
         // theme's MapTheme::battle_background_row:
         //
         // Real art (Some(row)): the theme's one full painted scene from
-        // resources/battle_backgrounds.png, drawn as a single glyph on
-        // BATTLE_BACKDROP_CONSOLE (a 1x1-cell console stretched to fill
-        // the entire window - see its own doc comment in main.rs).
-        // Fully opaque, so it needs nothing else drawn under it.
+        // resources/battle_backgrounds.png, drawn as a DISPLAY_WIDTH x
+        // DISPLAY_HEIGHT grid of small 32x32 glyphs on BATTLE_BACKDROP_
+        // CONSOLE (NOT one giant single-glyph tile anymore - see that
+        // console's own doc comment in main.rs for why). Fully opaque,
+        // so it needs nothing else drawn under it.
         //
         // No real art yet (None): the original procedural fallback -
         // the theme's floor/wall tiles, tinted with its palette and
@@ -309,9 +310,23 @@ impl State {
                 // somehow still slips through blends into a dark scene
                 // instead of standing out as a stark white fleck the way
                 // an earlier, unfloored version of this art did.
+                // One `set` per 32x32 sub-tile now, not one giant glyph -
+                // see BATTLE_BACKDROP_CONSOLE's own doc comment in main.rs
+                // for why (bracket-terminal quantizes the whole window's
+                // resize behavior to the largest registered font tile
+                // size, and a 1280x800 tile inflated that globally).
+                // battle_backdrop_glyph does the actual sheet-address math.
                 let mut backdrop = DrawBatch::new();
                 backdrop.target(BATTLE_BACKDROP_CONSOLE);
-                backdrop.set(Point::new(0, 0), ColorPair::new(WHITE, BLACK), row as FontCharType);
+                for cy in 0..DISPLAY_HEIGHT {
+                    for cx in 0..DISPLAY_WIDTH {
+                        backdrop.set(
+                            Point::new(cx, cy),
+                            ColorPair::new(WHITE, BLACK),
+                            battle_backdrop_glyph(row, cx, cy),
+                        );
+                    }
+                }
                 backdrop.submit(0).expect("Batch error");
             } else {
                 let mut arena = DrawBatch::new();

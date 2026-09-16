@@ -861,11 +861,14 @@ pub fn victory_climb_animation_for_class(class: &str) -> Option<OneShotAnimation
 /// Which painted backdrop a Victory screen shows, and (via `pose`) which
 /// pose the player's own animation needs to strike against it - see
 /// `screens/end.rs::victory`. Every variant shares `resources/
-/// battle_backgrounds.png`'s existing 6x6 glyph grid (see
-/// BATTLE_BACKDROP_CONSOLE in main.rs) rather than a dedicated sheet/
-/// console of its own - that atlas is already padded to 36 cells for the
-/// glyph-32 gotcha and only used 3 of them (one per MapTheme), so there's
-/// plenty of room without registering anything new.
+/// battle_backgrounds.png`'s existing 6x6 grid of theme SLOTS (see
+/// BATTLE_BACKDROP_CONSOLE and `render_helpers::battle_backdrop_glyph` in
+/// main.rs/render_helpers.rs - each slot is now its own DISPLAY_WIDTH x
+/// DISPLAY_HEIGHT block of small glyphs, not literally one glyph, but
+/// the 6x6 SLOT layout itself is unchanged) rather than a dedicated
+/// sheet/console of its own - that atlas is already padded to 36 slots
+/// for the glyph-32 gotcha and only used 3 of them (one per MapTheme),
+/// so there's plenty of room without registering anything new.
 ///
 /// Keyed by the run's own `EndSceneTheme` (Forest/Dungeon/Sewer) plus
 /// Arena, NOT by a generic "Dungeon Crawl" bucket - a 2026-09-13 replan

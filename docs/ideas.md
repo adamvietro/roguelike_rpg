@@ -179,51 +179,39 @@ Roughly in the order they've come up:
     starts.
 12. **Wire up the Options screen's Audio/Video rows** (added
     2026-09-15, once the screen itself shipped - see Done below) - the
-    Volume/Music/Sound and Fullscreen/Window rows are real, navigable,
-    and permanently greyed out, with nothing functional behind them.
-    Audio needs item 6's own audio engine first (no crate picked yet).
-    - **Fullscreen was actually built 2026-09-15, then paused** - the
-      earlier "no supported runtime API" note below turned out to be
-      too pessimistic: `BTermBuilder::with_fullscreen(bool)` IS real,
-      public, and supported, just only ever read once at window-
-      creation time (not a live toggle) - no `glutin` dependency or
-      internal `BACKEND` global needed after all. `settings.rs`'s
-      `FullscreenSetting` (load/save/next/label, `saves/fullscreen.ron`)
-      is built and working, just not currently wired into `main()`'s
-      builder chain or the Options screen's UI (see their own comments
-      for why). **What actually blocked shipping it**: going fullscreen
-      on a real 16:9 monitor produced MUCH bigger black bars than a
-      16:10-vs-16:9 aspect mismatch alone could explain (confirmed by
-      the math, not just eyeballing) - traced to a real, separate,
-      pre-existing bug: bracket-terminal quantizes the visible content
-      area on every resize to the largest tile size registered across
-      EVERY font in the whole app (`hal/scaler.rs`'s
-      `change_physical_size_smooth`, called from `on_resize`), and
-      `battle_backgrounds.png` is registered at a full 1280x800 "tile
-      size" (drawn as one glyph covering the whole screen) - that
-      single registration inflates the quantization unit globally,
-      producing much bigger bars than expected. Confirmed the actual
-      art has no baked-in black margin first (measured column-wise
-      brightness in the real PNG) before looking elsewhere. `screens/
-      end.rs` (Victory/Defeat) shares the same mechanism and has the
-      identical latent bug - never noticed before since nobody had
-      resized the window to an unlucky size. **Real fix**: re-slice
-      `battle_backgrounds.png` (and whatever Victory/Defeat art shares
-      it) into the same small-tile grid every other asset in this
-      project already uses, so no font ever needs a huge declared tile
-      size - its own dedicated piece of work, not a Fullscreen-toggle
-      afterthought. Once that's done, re-wiring `FullscreenSetting` back
-      into `main()`/`options.rs` should be quick (the code already
-      exists, just currently unused).
-    - Window (screen size) is entirely unscoped still - a fixed
-      resolution list? a scale factor? Same root cause as the
-      background-art bug above touches this too: the window's real
-      pixel size is derived from `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` times
-      a fixed 32px tile size, and a lot of this project's own rendering
-      math (`render_helpers.rs`, `hud.rs`) hardcodes the resulting
-      1280/800 pixel figures as literals rather than deriving them -
-      changing window size for real needs to hunt all of that down
-      first.
+    Volume/Music/Sound rows are real, navigable, and permanently
+    greyed out, with nothing functional behind them yet. Audio needs
+    item 6's own audio engine first (no crate picked yet).
+    - **Fullscreen shipped 2026-09-16** - `BTermBuilder::with_fullscreen
+      (bool)` is real, public, and supported (only ever read once at
+      window-creation time, not a live toggle - the row says so).
+      `settings.rs`'s `FullscreenSetting` persists the choice
+      (`saves/fullscreen.ron`). Briefly paused 2026-09-15 after going
+      fullscreen exposed a real, separate, pre-existing bug -
+      bracket-terminal quantizes the whole window's visible content
+      area, on every resize, to the largest tile size registered
+      across every font in the app, and `battle_backgrounds.png` used
+      to be registered at a giant 1280x800 "tile size" (drawn as one
+      glyph filling the screen) - inflating that quantization unit
+      globally and producing much bigger black bars than the real
+      16:10-vs-16:9 mismatch alone would (also affected `screens/
+      end.rs`'s Victory/Defeat backdrops, same mechanism). Fixed by
+      re-registering that same art at a normal 32x32 tile size and
+      redrawing it as a DISPLAY_WIDTH x DISPLAY_HEIGHT grid of small
+      glyphs instead of one giant one (`render_helpers::
+      battle_backdrop_glyph` does the sheet-address math, reusing the
+      same proven `row * cols + col` formula `components::tiles::
+      map_tile_glyph` already uses for `map_tiles.png`) - no new art
+      needed, verified with throwaway tests before trusting it
+      visually. See `docs/journal.md`'s 2026-09-15/16 entries for the
+      full incident.
+    - Window (screen size) is still entirely unscoped - a fixed
+      resolution list? a scale factor? The window's real pixel size is
+      derived from `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` times a fixed 32px
+      tile size, and a lot of this project's own rendering math
+      (`render_helpers.rs`, `hud.rs`) hardcodes the resulting 1280/800
+      pixel figures as literals rather than deriving them - changing
+      window size for real needs to hunt all of that down first.
 
 ## Future Class Ability Ideas (brainstorm only)
 

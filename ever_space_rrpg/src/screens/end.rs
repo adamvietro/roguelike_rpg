@@ -42,12 +42,15 @@ impl State {
     }
 
     /// Draws a real painted End-screen backdrop when `row` is `Some`
-    /// (one glyph on BATTLE_BACKDROP_CONSOLE/`battle_backgrounds.png`,
-    /// exactly the same "one glyph = one full-screen image" mechanism
-    /// draw_battle_arena uses for its own themed backgrounds - see
-    /// components::VictoryBackground/DefeatBackground's own doc comments
-    /// for why this shares that console/atlas rather than needing a new
-    /// one), falling back to the old procedural tinted-fill background
+    /// (a grid of 32x32-glyph tiles on BATTLE_BACKDROP_CONSOLE/
+    /// `battle_backgrounds.png` - see `render_helpers::
+    /// battle_backdrop_glyph`'s own doc comment for why it's sliced this
+    /// way, and BATTLE_BACKDROP_CONSOLE's own doc comment in main.rs for
+    /// the full incident - exactly the same mechanism `draw_battle_arena`
+    /// uses for its own themed backgrounds - see components::
+    /// VictoryBackground/DefeatBackground's own doc comments for why
+    /// this shares that console/atlas rather than needing a new one),
+    /// falling back to the old procedural tinted-fill background
     /// (draw_end_screen_background) when `row` is `None` - a variant
     /// without real art yet.
     fn draw_end_screen_backdrop(&mut self, row: Option<u16>, tint: RGB) {
@@ -55,7 +58,15 @@ impl State {
             Some(row) => {
                 let mut backdrop = DrawBatch::new();
                 backdrop.target(BATTLE_BACKDROP_CONSOLE);
-                backdrop.set(Point::new(0, 0), ColorPair::new(WHITE, BLACK), row as FontCharType);
+                for cy in 0..DISPLAY_HEIGHT {
+                    for cx in 0..DISPLAY_WIDTH {
+                        backdrop.set(
+                            Point::new(cx, cy),
+                            ColorPair::new(WHITE, BLACK),
+                            battle_backdrop_glyph(row, cx, cy),
+                        );
+                    }
+                }
                 backdrop.submit(0).expect("Batch error");
             }
             None => self.draw_end_screen_background(tint),

@@ -1174,3 +1174,40 @@ pub fn tint_color(base: RGB, tint: RGB) -> RGB {
         (base.b * tint.b).min(1.0),
     )
 }
+
+/// The glyph index into `resources/battle_backgrounds.png` (registered
+/// as a 32x32-tile font, 240 columns x 150 rows - see BATTLE_BACKDROP_
+/// CONSOLE's own doc comment in main.rs for why it's sliced this way
+/// instead of one giant glyph) for sub-tile `(cx, cy)` of theme `tile`'s
+/// own DISPLAY_WIDTH x DISPLAY_HEIGHT-cell block - `screens/battle.rs`
+/// and `screens/end.rs` both call this once per cell to redraw one
+/// theme's full painted scene as a grid of small glyphs. `tile` is the
+/// SAME value `MapTheme::battle_background_row` already returns - an
+/// index into the sheet's ORIGINAL 6-column, 1280x800-tile authoring
+/// grid (still 0=Forest/1=Dungeon/2=Sewer/14=Swamp, unchanged by this).
+///
+/// `tile`'s own (col, row) in that OLD 6-col grid is `tile % 6, tile /
+/// 6`. Each old 1280x800 tile is EXACTLY DISPLAY_WIDTH columns x
+/// DISPLAY_HEIGHT rows of 32x32 sub-tiles (1280/32=40, 800/32=25, both
+/// exact - no fractional remainder to worry about), so that old tile's
+/// own block of new small glyphs starts at column `(tile % 6) *
+/// DISPLAY_WIDTH`, row `(tile / 6) * DISPLAY_HEIGHT` in the new 240-col
+/// grid. `glyph = row * 240 + col` is the SAME row-major formula
+/// `components::tiles::map_tile_glyph` already uses (proven correct
+/// there against `map_tiles.png`, a real many-row 32x32 tileset) -
+/// bracket-terminal's own internal glyph-to-UV flip is already
+/// accounted for correctly by this formula, confirmed live by every
+/// existing map tile already rendering right-side-up; no separate flip
+/// math needed here. Verified directly against the real PNG before
+/// writing this (each of the 4 real themes' own old tile measured
+/// fully opaque, real painted content, at exactly this (col, row)) -
+/// not just assumed from the authoring convention.
+pub fn battle_backdrop_glyph(tile: u16, cx: i32, cy: i32) -> FontCharType {
+    const SHEET_COLS_32PX: i32 = 7680 / 32; // 240 - resources/battle_backgrounds.png's real width.
+    const OLD_TILE_COLS: u16 = 6;
+    let old_col = (tile % OLD_TILE_COLS) as i32;
+    let old_row = (tile / OLD_TILE_COLS) as i32;
+    let col = old_col * DISPLAY_WIDTH + cx;
+    let row = old_row * DISPLAY_HEIGHT + cy;
+    (row * SHEET_COLS_32PX + col) as FontCharType
+}

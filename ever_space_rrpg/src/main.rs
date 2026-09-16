@@ -51,12 +51,35 @@ mod prelude {
     // at its few call sites, same as every other console only ever
     // targeted from one place.
 
-    /// Console 1, dungeon-view: WITH-background, 1x1 grid stretched to
-    /// fill the whole window - `resources/battle_backgrounds.png`'s full
-    /// painted battle-arena scenes (one glyph per `MapTheme`, see
-    /// `MapTheme::battle_background_row`). WITH background (not `_no_bg`)
-    /// since these are fully opaque painted scenes with real near-black
-    /// detail that a colorkey cutoff would otherwise eat.
+    /// Console 1, dungeon-view: WITH-background, DISPLAY_WIDTH x
+    /// DISPLAY_HEIGHT grid (same shape as console 0) of 32x32 tiles from
+    /// `resources/battle_backgrounds.png` - `resources/battle_backgrounds.
+    /// png`'s full painted battle-arena scenes (one 40x25 BLOCK of 32x32
+    /// tiles per `MapTheme`, see `MapTheme::battle_background_row` and
+    /// `render_helpers::battle_backdrop_glyph`). WITH background (not
+    /// `_no_bg`) since these are fully opaque painted scenes with real
+    /// near-black detail that a colorkey cutoff would otherwise eat.
+    ///
+    /// NOT a 1x1 grid of one giant 1280x800 glyph anymore, as of
+    /// 2026-09-16 - that original approach registered `battle_
+    /// backgrounds.png`'s font at a full 1280x800 "tile size", which
+    /// turned out to have a real, serious side effect: bracket-terminal
+    /// quantizes the whole window's visible content area, on EVERY
+    /// resize (confirmed straight from `hal/scaler.rs`'s `change_
+    /// physical_size_smooth`), to the largest tile size registered
+    /// across EVERY font in the entire app - not just this console's own
+    /// font. A single 1280x800-tile font inflated that quantization unit
+    /// globally, producing much bigger black letterbox/pillarbox bars on
+    /// any resize (most visibly full OS fullscreen, since that's the
+    /// resize most likely to land on an "unlucky" size) than the game's
+    /// real 16:10-vs-monitor aspect mismatch alone would ever produce -
+    /// this was specifically what blocked shipping the Options screen's
+    /// Fullscreen toggle (see docs/ideas.md item 12, docs/journal.md's
+    /// 2026-09-15/16 entries for the full incident). Re-sliced the SAME
+    /// art into the same 32x32 tile size every other font in this
+    /// project already uses instead - no font anywhere needs a huge
+    /// declared tile size anymore, so the quantization unit stays small
+    /// everywhere.
     pub const BATTLE_BACKDROP_CONSOLE: usize = 1;
     /// Console 2, dungeon-view: no-bg, `map_tiles.png`, real per-tile
     /// floor/wall textures for any `MapTheme` with one (`MapTheme::
@@ -1444,14 +1467,16 @@ impl GameState for State {
 }
 
 fn main() -> BError {
-    // FullscreenSetting exists (settings.rs) and BTermBuilder::with_
-    // fullscreen(FullscreenSetting::load().is_on()) works, but isn't
-    // wired in here yet - paused 2026-09-15 after going fullscreen
-    // exposed a separate, real bug in how battle_backgrounds.png is
-    // registered (see screens/options.rs's own doc comment on why
-    // Fullscreen is a placeholder there again for now).
+    // Read directly from disk, not a legion resource - the ECS/resources
+    // don't exist yet at this point in startup. See FullscreenSetting's
+    // own doc comment in settings.rs for why this is read-once-at-launch
+    // rather than a live toggle. Re-wired 2026-09-16 (was paused
+    // 2026-09-15) now that BATTLE_BACKDROP_CONSOLE's own giant-tile-size
+    // font registration - the real cause of the oversized letterbox bars
+    // that blocked this - is fixed (see that console's own doc comment).
     let context = BTermBuilder::new()
         .with_title("Ever Space RRPG")
+        .with_fullscreen(FullscreenSetting::load().is_on())
         // Raised from 30 to 60: with real elapsed-time-based animation
         // (MovingAnimation/FrameTime, not frame counts - see
         // systems/animation.rs), every timed effect in this project
@@ -1483,7 +1508,10 @@ fn main() -> BError {
         .with_font("shopkeeper_idle.png", 128, 128)
         .with_font("character_effect.png", 32, 32)
         .with_font("map_tiles.png", 32, 32)
-        .with_font("battle_backgrounds.png", 1280, 800)
+        // 32x32, not the original 1280x800 - see BATTLE_BACKDROP_CONSOLE's
+        // own doc comment above for why the old giant-tile-size
+        // registration was a real problem, not just an odd choice.
+        .with_font("battle_backgrounds.png", 32, 32)
         .with_font("ui_panels.png", 32, 32)
         .with_font("battle_bar_frame.png", 32, 32)
         .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "dungeonfont.png")
@@ -1492,7 +1520,9 @@ fn main() -> BError {
         // and before MAP_TILE_CONSOLE - the lowest slot in the whole
         // chain apart from console 0 itself, since it has to sit below
         // everything the battle screen draws, not just below the HUD.
-        .with_simple_console(1, 1, "battle_backgrounds.png")
+        // DISPLAY_WIDTH x DISPLAY_HEIGHT, same shape as console 0 - NOT
+        // 1x1 anymore, see this console's own doc comment above.
+        .with_simple_console(DISPLAY_WIDTH, DISPLAY_HEIGHT, "battle_backgrounds.png")
         // Console 2 (MAP_TILE_CONSOLE): a plain console, same grid as
         // console 0, sourced from map_tiles.png - see its own doc
         // comment above for the full reasoning, including the real
