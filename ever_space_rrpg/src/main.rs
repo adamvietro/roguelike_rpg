@@ -1444,13 +1444,14 @@ impl GameState for State {
 }
 
 fn main() -> BError {
-    // Read directly from disk, not a legion resource - the ECS/resources
-    // don't exist yet at this point in startup. See FullscreenSetting's
-    // own doc comment in settings.rs for why this is read-once-at-launch
-    // rather than a live toggle.
+    // FullscreenSetting exists (settings.rs) and BTermBuilder::with_
+    // fullscreen(FullscreenSetting::load().is_on()) works, but isn't
+    // wired in here yet - paused 2026-09-15 after going fullscreen
+    // exposed a separate, real bug in how battle_backgrounds.png is
+    // registered (see screens/options.rs's own doc comment on why
+    // Fullscreen is a placeholder there again for now).
     let context = BTermBuilder::new()
         .with_title("Ever Space RRPG")
-        .with_fullscreen(FullscreenSetting::load().is_on())
         // Raised from 30 to 60: with real elapsed-time-based animation
         // (MovingAnimation/FrameTime, not frame counts - see
         // systems/animation.rs), every timed effect in this project

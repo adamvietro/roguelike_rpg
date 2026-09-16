@@ -62,27 +62,34 @@ impl State {
     /// `UiPanelTheme::Gears` (a brass/gunmetal steampunk-and-science
     /// frame, generated the same day) borders all 4 boxes.
     ///
-    /// Audio (Volume, Music, Sound) is still 3 placeholder rows with
-    /// nothing behind them - no audio engine exists yet (item 6 in
-    /// docs/ideas.md) - drawn permanently GRAY (never YELLOW, even when
-    /// the cursor is on them) so they read as "here, but not yet doing
-    /// anything" rather than broken, and Enter is a real no-op on any of
-    /// them. Video's Fullscreen row is real as of 2026-09-15 (see
-    /// FullscreenSetting in settings.rs) - it turned out
-    /// `BTermBuilder::with_fullscreen` IS a real, public, supported API
-    /// after all, just one only ever read once at window-creation time
-    /// in `main()`, not live - so toggling it here changes next launch,
-    /// not this session, and the row says so. Video's OTHER row, Window
-    /// (resolution/size), is still a GRAY placeholder - genuinely
-    /// unscoped, see its own inline comment below for why it's a much
-    /// bigger job than Fullscreen was.
+    /// Audio (Volume, Music, Sound) and Video (Fullscreen, Window) are
+    /// real, cursor-navigable rows with nothing functional behind them
+    /// yet - no audio engine exists (item 6 in docs/ideas.md), and
+    /// Fullscreen is PAUSED here as of 2026-09-15 despite `settings.rs`'s
+    /// `FullscreenSetting`/`BTermBuilder::with_fullscreen` both being
+    /// real and working - going fullscreen exposed a separate, real,
+    /// pre-existing bug (bracket-terminal quantizes the visible content
+    /// area to the largest registered font's tile size ACROSS THE WHOLE
+    /// APP on every resize, and `battle_backgrounds.png` is registered
+    /// at a full 1280x800 "tile size" so it can be drawn as one big
+    /// glyph - that single registration inflates the quantization unit
+    /// globally, producing much bigger black bars than any 16:9-vs-16:10
+    /// mismatch alone would, confirmed by measuring the actual art for a
+    /// baked-in margin first and finding none). Fixing that needs
+    /// re-slicing the battle/Victory/Defeat background art into a normal
+    /// small-tile grid - its own separate piece of work, not something
+    /// to fold into wiring up a toggle. `FullscreenSetting` itself is
+    /// kept as groundwork for whenever that's done, just not wired into
+    /// `main()`'s builder chain or this screen's UI right now. Both rows
+    /// are drawn permanently GRAY (never YELLOW, even when the cursor is
+    /// on them) so they read as "here, but not yet doing anything"
+    /// rather than broken, and Enter is a real no-op on either - see the
+    /// `None` match arms below.
     ///
     /// Two sub-modes, tracked by `self.options_awaiting`:
     /// - None (browsing): the 4 boxes as described above. Enter on a
     ///   Hotkeys row enters capture mode (see below); on a Gameplay row
-    ///   cycles/toggles that setting; on the Video row's Fullscreen entry
-    ///   toggles+saves it the same way; on any other Audio/Video row does
-    ///   nothing. R resets every Action to its default key
+    ///   cycles/toggles that setting; on an Audio/Video row does
     ///   (Keymap::reset_to_defaults) without entering capture mode.
     /// - Some(action) (capturing): shows a prompt; the next recognized
     ///   key (see keymap::is_rebindable_key) rebinds `action` to it,
@@ -168,42 +175,15 @@ impl State {
                     PIXEL_BOX_TILE_SCALE,
                 );
                 video_box.text_color_raw(2, -1, YELLOW, BLACK, " Video ");
-                {
-                    let fullscreen = self
-                        .resources
-                        .get::<FullscreenSetting>()
-                        .expect("FullscreenSetting resource missing");
-                    let selected = video_selected == Some(0);
-                    let prefix = if selected { "> " } else { "" };
-                    video_box.text_color(
-                        0,
-                        0,
-                        if selected { YELLOW } else { WHITE },
-                        BLACK,
-                        format!("{}Fullscreen: {}", prefix, fullscreen.label()),
-                    );
+                // Fullscreen paused here 2026-09-15 (see this module's own
+                // doc comment above) - reverted to the same placeholder
+                // treatment as Window, even though FullscreenSetting/
+                // with_fullscreen both work, until the real background-art
+                // quantization bug is fixed first.
+                for (i, label) in ["Fullscreen", "Window"].iter().enumerate() {
+                    let prefix = if video_selected == Some(i) { "> " } else { "" };
+                    video_box.text_color(0, i as i32, GRAY, BLACK, format!("{}{}: --", prefix, label));
                 }
-                {
-                    // Window (resolution/size) - still a real placeholder,
-                    // unlike Fullscreen above. Genuinely unscoped (see
-                    // docs/ideas.md item 12's own note): the window's real
-                    // pixel size is derived from DISPLAY_WIDTH/HEIGHT and a
-                    // fixed 32px tile size, and a lot of this project's own
-                    // rendering math (render_helpers.rs, hud.rs) hardcodes
-                    // the resulting 1280/800 pixel figures directly rather
-                    // than deriving them - changing this needs its own
-                    // dedicated pass, not a quick addition alongside
-                    // Fullscreen.
-                    let selected = video_selected == Some(1);
-                    let prefix = if selected { "> " } else { "" };
-                    video_box.text_color(0, 1, GRAY, BLACK, format!("{}Window: --", prefix));
-                }
-                // Fullscreen can't take effect live (see FullscreenSetting's
-                // own doc comment in settings.rs - bracket-terminal only
-                // reads it once, at window-creation time) - said plainly
-                // here rather than let a toggle look broken when nothing
-                // visibly changes.
-                video_box.text_color(0, 2, GRAY, BLACK, "(Fullscreen applies next launch)");
                 video_box.submit();
 
                 // --- Hotkeys (bottom-left) - the real rebind list.
@@ -343,19 +323,11 @@ impl State {
                             }
                             _ => {}
                         }
-                    } else if video_selected == Some(0) {
-                        let mut fullscreen = self
-                            .resources
-                            .get_mut::<FullscreenSetting>()
-                            .expect("FullscreenSetting resource missing");
-                        *fullscreen = fullscreen.next();
-                        let saved = *fullscreen;
-                        drop(fullscreen);
-                        saved.save();
                     }
-                    // audio_selected / video_selected == Some(1) (Window):
-                    // still no rows that do anything - a deliberate no-op,
-                    // not a missing case.
+                    // audio_selected / video_selected: no rows there do
+                    // anything yet - a deliberate no-op, not a missing
+                    // case. (Fullscreen paused here 2026-09-15 - see this
+                    // module's own doc comment above.)
                 } else if ctx.key == Some(VirtualKeyCode::R) {
                     let mut keymap = self
                         .resources
